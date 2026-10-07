@@ -71,6 +71,17 @@ El core de ESP32 pasa ese archivo a cada compilación, también desde el IDE. WP
 Cada módulo es un par `.h` y `.cpp` con el mismo nombre, salvo los que son solo un encabezado. Los `#include` entre carpetas usan rutas relativas.
 
 Todo corre en el bucle principal. La única tarea que se suma a las del core es la del servidor HTTP de ESP-IDF, que solo mueve líneas de consola ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)).
+login/index.php
+## Editor
+
+Para que clangd (Zed, VS Code o Neovim) entienda el firmware, se genera `firmware/.clangd` desde la raíz del repositorio:
+
+```sh
+tools/generate_clangd_configuration.py              # perfil heltec_v4_3
+tools/generate_clangd_configuration.py heltec_v2
+```
+
+El script pide a arduino-cli la base de compilación del perfil, expande sus opciones y escribe en `.clangd` las definiciones y los directorios de encabezados, incluidos los del compilador de Xtensa. El archivo tiene rutas de cada computadora, así que git lo ignora; hay que volver a generarlo al cambiar de perfil, de core o de bibliotecas. Con el perfil de una placa, el editor muestra como inactivo el código del otro modelo. `.zed/settings.json` hace que Zed trate `firmware.ino` como C++.
 
 ## Pruebas
 

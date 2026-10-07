@@ -1,0 +1,6 @@
+{
+  // Arduino sketches are C++: this lets clangd serve firmware/firmware.ino.
+  "file_types": {
+    "C++": ["ino"]
+  }
+}
