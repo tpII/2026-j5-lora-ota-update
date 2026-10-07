@@ -57,6 +57,8 @@ La etapa de RF de la V4.3 incluye un amplificador de bajo ruido (LNA) de 21 dB. 
 
 - El firmware sube el límite de corriente de los dos transceptores a 140 mA, porque RadioLib lo deja en 60 mA y eso recorta la potencia alta.
 - El SX1262 recibe con la ganancia reforzada (*boosted gain*), que mejora la sensibilidad.
+- El SX1262 mantiene encendido el TCXO en standby y después de cada transmisión o recepción. Con el oscilador RC que usa por defecto, cada pasaje de transmisión a recepción espera unos 5 ms al TCXO, más que los 3,1 ms del preámbulo a SF7 y 500 kHz, y el nodo que pidió un eco perdía la respuesta.
+- El OLED no se redibuja mientras la radio transmite, tiene tramas en cola o espera la respuesta de un eco, porque cada envío al display bloquea el bucle unos 30 ms.
 - El RSSI del SX1276 se corrige con el factor 16/15 que indica su hoja de datos para SNR positiva, porque RadioLib no lo aplica.
 
 ## Cuidados

@@ -113,7 +113,11 @@ void NodeApplication::poll() {
   serviceTransmitter(now);
   serviceConsole();
   serviceTimers(now);
-  display_.poll(now);
+  // Sending a frame to the display blocks for about 30 ms. Never while the radio is transmitting,
+  // has frames waiting or expects an echo reply, so it returns to reception in time.
+  if (!radio_.isTransmitting() && queueCount_ == 0 && !echo_.isPending()) {
+    display_.poll(now);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

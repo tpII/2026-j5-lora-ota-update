@@ -112,6 +112,13 @@ int16_t RadioLink::begin(const BoardSupport &board, const RadioSettings &setting
   if (state == RADIOLIB_ERR_NONE) {
     state = transceiver.setCRC(2);
   }
+  if (state == RADIOLIB_ERR_NONE) {
+    // Keep the TCXO running in standby and after each transmission or reception. With the default
+    // RC standby, every switch from transmission to reception waits about 5 ms for the TCXO,
+    // longer than the 3.1 ms preamble at SF7 and 500 kHz: a node that sent an echo request was not
+    // yet listening when the reply started.
+    state = transceiver.setStandbyXOSC(true);
+  }
 #endif
   if (state == RADIOLIB_ERR_NONE) {
     state = transceiver.setCurrentLimit(TRANSCEIVER_CURRENT_LIMIT_MA);
