@@ -6,7 +6,7 @@
 
 #include "../board/board_support.h"
 
-namespace j5 {
+namespace firmware {
 
 // Radio settings of a node (docs/protocol/radio.md). The transmit power is the power at the
 // antenna connector; the board translates it to the transceiver setting.
@@ -40,6 +40,6 @@ SettingUpdate updateRadioSetting(RadioSettings &settings, const char *key, const
 // Reason of the console error event for a failed update.
 const char *settingUpdateReason(SettingUpdate update);
 
-} // namespace j5
+} // namespace firmware
 
 #endif

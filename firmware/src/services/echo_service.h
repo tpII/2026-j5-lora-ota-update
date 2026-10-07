@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 // One outstanding echo request at a time, and the bodies of ECHO_REQUEST and ECHO_REPLY
 // (docs/protocol/frame.md).
@@ -43,6 +43,6 @@ private:
   uint32_t timeoutMillis_ = 0;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

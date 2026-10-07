@@ -28,7 +28,8 @@ These apply to every contributor, human or agent.
   - `constexpr` constants in `UPPER_SNAKE_CASE`; macros only when unavoidable, prefixed with `J5_`;
   - file and directory names in lowercase snake_case, after the main class of the file (`radio_link.h` and `radio_link.cpp` hold `RadioLink`), with the files grouped in directories by responsibility;
   - a module starts with `begin()` and stops with `end()`;
-  - all project code lives in the `j5` namespace.
+  - all firmware code lives in the `firmware` namespace;
+  - as the LLVM Coding Standards ask, functions and variables private to a file are `static`, and anonymous namespaces only enclose private type declarations, as small as possible.
 - TypeScript and Svelte code in `control/` follows the usual conventions of those languages.
 
 ### Decisions

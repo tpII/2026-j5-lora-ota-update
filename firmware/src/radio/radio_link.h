@@ -8,7 +8,7 @@
 #include "../network/frame.h"
 #include "radio_settings.h"
 
-namespace j5 {
+namespace firmware {
 
 // Returned by startTransmit when a received frame is waiting to be read; the caller retries
 // after the next poll.
@@ -56,6 +56,6 @@ private:
   uint32_t measuredTimeOnAirMicros_ = 0;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

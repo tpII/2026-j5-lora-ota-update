@@ -14,20 +14,22 @@
 #include "../network/byte_order.h"
 #include "../radio/time_on_air.h"
 
-namespace j5 {
+namespace firmware {
+
+static constexpr size_t MAXIMUM_COMMAND_TOKENS = 18;
+static constexpr size_t COMMAND_TOKEN_OVERFLOW = MAXIMUM_COMMAND_TOKENS + 1;
+static constexpr size_t DEBUG_TEXT_CAPACITY = 64;
+static constexpr size_t ERROR_DETAIL_CAPACITY = 48;
+static constexpr uint32_t NEIGHBOR_EXPIRY_CHECK_MS = 1000;
+static constexpr int MAXIMUM_COMMANDS_PER_POLL = 2;
 
 namespace {
 
-constexpr size_t MAXIMUM_COMMAND_TOKENS = 18;
-constexpr size_t COMMAND_TOKEN_OVERFLOW = MAXIMUM_COMMAND_TOKENS + 1;
-constexpr size_t DEBUG_TEXT_CAPACITY = 64;
-constexpr size_t ERROR_DETAIL_CAPACITY = 48;
-constexpr uint32_t NEIGHBOR_EXPIRY_CHECK_MS = 1000;
-constexpr int MAXIMUM_COMMANDS_PER_POLL = 2;
-
 enum class NumberParse : uint8_t { Valid, Invalid, OutOfRange };
 
-size_t tokenize(char *line, char **tokens) {
+} // namespace
+
+static size_t tokenize(char *line, char **tokens) {
   size_t count = 0;
   char *context = nullptr;
   for (char *token = strtok_r(line, " \t", &context); token != nullptr;
@@ -40,8 +42,8 @@ size_t tokenize(char *line, char **tokens) {
   return count;
 }
 
-NumberParse parseUnsigned(const char *text, unsigned long minimum, unsigned long maximum,
-                          unsigned long &value) {
+static NumberParse parseUnsigned(const char *text, unsigned long minimum, unsigned long maximum,
+                                 unsigned long &value) {
   if (text == nullptr || *text == '\0' || *text == '-' || *text == '+') {
     return NumberParse::Invalid;
   }
@@ -54,7 +56,7 @@ NumberParse parseUnsigned(const char *text, unsigned long minimum, unsigned long
   return value < minimum || value > maximum ? NumberParse::OutOfRange : NumberParse::Valid;
 }
 
-bool parseNodeId(const char *text, uint16_t &id) {
+static bool parseNodeId(const char *text, uint16_t &id) {
   const size_t length = strlen(text);
   if (length == 0 || length > 4) {
     return false;
@@ -68,9 +70,7 @@ bool parseNodeId(const char *text, uint16_t &id) {
   return true;
 }
 
-uint32_t roundUpToMillis(uint32_t micros) { return (micros + 999) / 1000; }
-
-} // namespace
+static uint32_t roundUpToMillis(uint32_t micros) { return (micros + 999) / 1000; }
 
 // ---------------------------------------------------------------------------------------------
 // Start and main loop
@@ -991,4 +991,4 @@ void NodeApplication::updateStatusLine() {
   display_.setStatusLine(text);
 }
 
-} // namespace j5
+} // namespace firmware

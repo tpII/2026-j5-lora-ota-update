@@ -3,7 +3,7 @@
 
 #include "src/application/node_application.h"
 
-j5::NodeApplication application;
+firmware::NodeApplication application;
 
 void setup() { application.begin(); }
 

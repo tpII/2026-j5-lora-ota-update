@@ -6,16 +6,14 @@
 #include "../configuration.h"
 #include "byte_order.h"
 
-namespace j5 {
+namespace firmware {
 
-namespace {
-
-constexpr size_t SHA256_DIGEST_SIZE = 32;
+static constexpr size_t SHA256_DIGEST_SIZE = 32;
 
 // HMAC-SHA256 over the protocol version followed by header and payload. The version byte does
 // not travel in the frame, so a frame built for another protocol version fails verification
 // (docs/adrs/0005-frame-without-hop-count.md).
-void computeTag(const uint8_t *data, size_t length, uint8_t *tag) {
+static void computeTag(const uint8_t *data, size_t length, uint8_t *tag) {
   static const uint8_t version = PROTOCOL_VERSION;
   static const char *key = J5_NETWORK_KEY;
   uint8_t digest[SHA256_DIGEST_SIZE];
@@ -32,15 +30,13 @@ void computeTag(const uint8_t *data, size_t length, uint8_t *tag) {
   memcpy(tag, digest, FRAME_TAG_SIZE);
 }
 
-void writeHeader(const FrameHeader &header, uint8_t *output) {
+static void writeHeader(const FrameHeader &header, uint8_t *output) {
   output[0] = header.type;
   writeUint16(output + 1, header.source);
   writeUint16(output + 3, header.destination);
   output[5] = header.epoch;
   writeUint16(output + 6, header.sequence);
 }
-
-} // namespace
 
 bool isKnownMessageType(uint8_t type) {
   switch (static_cast<MessageType>(type)) {
@@ -117,4 +113,4 @@ FrameCheck decodeFrame(const uint8_t *data, size_t length, FrameHeader &header,
   return FrameCheck::Valid;
 }
 
-} // namespace j5
+} // namespace firmware

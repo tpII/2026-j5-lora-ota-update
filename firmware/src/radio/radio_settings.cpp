@@ -5,14 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-namespace j5 {
+namespace firmware {
 
-namespace {
+static constexpr float MINIMUM_FREQUENCY_MHZ = 915.0f;
+static constexpr float MAXIMUM_FREQUENCY_MHZ = 928.0f;
 
-constexpr float MINIMUM_FREQUENCY_MHZ = 915.0f;
-constexpr float MAXIMUM_FREQUENCY_MHZ = 928.0f;
-
-bool parseInteger(const char *text, long &value) {
+static bool parseInteger(const char *text, long &value) {
   if (text == nullptr || *text == '\0') {
     return false;
   }
@@ -22,7 +20,7 @@ bool parseInteger(const char *text, long &value) {
   return errno == 0 && end != nullptr && *end == '\0';
 }
 
-bool parseDecimal(const char *text, float &value) {
+static bool parseDecimal(const char *text, float &value) {
   if (text == nullptr || *text == '\0') {
     return false;
   }
@@ -32,17 +30,15 @@ bool parseDecimal(const char *text, float &value) {
   return errno == 0 && end != nullptr && *end == '\0';
 }
 
-SettingUpdate rejectRange(char *detail, size_t detailCapacity, const char *range) {
+static SettingUpdate rejectRange(char *detail, size_t detailCapacity, const char *range) {
   snprintf(detail, detailCapacity, "%s", range);
   return SettingUpdate::OutOfRange;
 }
 
-SettingUpdate rejectValue(char *detail, size_t detailCapacity, const char *usage) {
+static SettingUpdate rejectValue(char *detail, size_t detailCapacity, const char *usage) {
   snprintf(detail, detailCapacity, "%s", usage);
   return SettingUpdate::InvalidValue;
 }
-
-} // namespace
 
 RadioSettings defaultRadioSettings() {
   RadioSettings settings{};
@@ -177,4 +173,4 @@ const char *settingUpdateReason(SettingUpdate update) {
   return "usage";
 }
 
-} // namespace j5
+} // namespace firmware

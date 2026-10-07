@@ -6,7 +6,7 @@
 
 #include "../configuration.h"
 
-namespace j5 {
+namespace firmware {
 
 struct Neighbor {
   uint16_t id;
@@ -38,6 +38,6 @@ private:
   size_t count_ = 0;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

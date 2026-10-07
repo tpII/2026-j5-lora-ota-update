@@ -6,7 +6,7 @@
 
 #include "../configuration.h"
 
-namespace j5 {
+namespace firmware {
 
 // Console over the USB serial port. Writing never blocks: when the transmit buffer lacks room for
 // a whole line, the line is dropped.
@@ -27,6 +27,6 @@ private:
   bool pendingOverflowed_ = false;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

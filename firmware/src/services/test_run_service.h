@@ -6,7 +6,7 @@
 
 #include "../configuration.h"
 
-namespace j5 {
+namespace firmware {
 
 // Fields at the start of a TEST body (docs/protocol/frame.md).
 struct TestFields {
@@ -88,6 +88,6 @@ private:
   ReceiverRun receivers_[MAXIMUM_RECEIVER_RUNS] = {};
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

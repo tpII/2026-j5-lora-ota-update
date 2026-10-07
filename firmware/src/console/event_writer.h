@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 constexpr size_t EVENT_BUFFER_CAPACITY = 1024;
 
@@ -45,6 +45,6 @@ private:
   const char *eventName_ = nullptr;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

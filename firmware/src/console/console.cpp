@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-namespace j5 {
+namespace firmware {
 
 void Console::begin(SerialTransport &serial, WirelessTransport &wireless) {
   serial_ = &serial;
@@ -37,4 +37,4 @@ void Console::writeLine(const char *line) {
   }
 }
 
-} // namespace j5
+} // namespace firmware

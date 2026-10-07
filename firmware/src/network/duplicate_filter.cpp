@@ -1,6 +1,6 @@
 #include "duplicate_filter.h"
 
-namespace j5 {
+namespace firmware {
 
 bool DuplicateFilter::acceptIfNew(uint16_t source, uint8_t epoch, uint16_t sequence,
                                   uint32_t nowMillis) {
@@ -46,4 +46,4 @@ DuplicateFilter::Entry *DuplicateFilter::allocateEntry() {
   return oldest;
 }
 
-} // namespace j5
+} // namespace firmware

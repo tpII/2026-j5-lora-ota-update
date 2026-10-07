@@ -1,6 +1,6 @@
 #include "neighbor_table.h"
 
-namespace j5 {
+namespace firmware {
 
 void NeighborTable::recordFrame(uint16_t id, float rssi, float snr, uint32_t nowMillis) {
   Neighbor *neighbor = find(id);
@@ -56,4 +56,4 @@ Neighbor *NeighborTable::find(uint16_t id) {
   return nullptr;
 }
 
-} // namespace j5
+} // namespace firmware

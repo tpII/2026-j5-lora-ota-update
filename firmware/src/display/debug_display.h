@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 constexpr uint8_t DISPLAY_COLUMNS = 21;
 constexpr uint8_t DISPLAY_LOG_ROWS = 5;
@@ -32,6 +32,6 @@ private:
   uint32_t lastRedrawMillis_ = 0;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

@@ -14,7 +14,7 @@
 #define J5_ACCESS_POINT_PASSWORD "bichofeo"
 #endif
 
-namespace j5 {
+namespace firmware {
 
 constexpr const char *FIRMWARE_VERSION = "0.1.0";
 constexpr uint8_t PROTOCOL_VERSION = 1;
@@ -46,6 +46,6 @@ constexpr uint32_t RESPONSE_MARGIN_MS = 1000;
 
 constexpr uint32_t DISPLAY_REFRESH_INTERVAL_MS = 200;
 
-} // namespace j5
+} // namespace firmware
 
 #endif

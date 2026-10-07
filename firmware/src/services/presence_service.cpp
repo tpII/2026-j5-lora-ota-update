@@ -6,15 +6,11 @@
 #include "../network/byte_order.h"
 #include "../network/link_quality.h"
 
-namespace j5 {
+namespace firmware {
 
-namespace {
-
-uint32_t randomBetween(uint32_t minimum, uint32_t maximum) {
+static uint32_t randomBetween(uint32_t minimum, uint32_t maximum) {
   return minimum + esp_random() % (maximum - minimum + 1);
 }
-
-} // namespace
 
 void PresenceService::begin(uint32_t nowMillis) {
   nextMillis_ =
@@ -81,4 +77,4 @@ bool PresenceService::decodePayload(const uint8_t *payload, size_t length, Hello
   return true;
 }
 
-} // namespace j5
+} // namespace firmware

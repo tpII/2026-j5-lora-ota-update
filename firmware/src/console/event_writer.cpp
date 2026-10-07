@@ -5,7 +5,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-namespace j5 {
+namespace firmware {
 
 EventWriter::EventWriter(const char *eventName) : timestamp_(millis()), eventName_(eventName) {
   appendFormatted("{\"t\":%lu,\"ev\":\"%s\"", static_cast<unsigned long>(timestamp_), eventName);
@@ -144,4 +144,4 @@ void EventWriter::appendEscaped(const char *text) {
   }
 }
 
-} // namespace j5
+} // namespace firmware

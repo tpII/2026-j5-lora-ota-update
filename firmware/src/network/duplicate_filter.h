@@ -5,7 +5,7 @@
 
 #include "../configuration.h"
 
-namespace j5 {
+namespace firmware {
 
 // Remembers, per source, the epoch and sequence of the last accepted frame
 // (docs/adrs/0005-frame-without-hop-count.md).
@@ -31,6 +31,6 @@ private:
   Entry entries_[MAXIMUM_TRACKED_SOURCES] = {};
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

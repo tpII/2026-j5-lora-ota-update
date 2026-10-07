@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 // LoRa frame, protocol version 1 (docs/protocol/frame.md).
 
@@ -50,6 +50,6 @@ FrameCheck decodeFrame(const uint8_t *data, size_t length, FrameHeader &header,
 // Reads only the header fields, without verifying the tag.
 bool readFrameHeader(const uint8_t *data, size_t length, FrameHeader &header);
 
-} // namespace j5
+} // namespace firmware
 
 #endif

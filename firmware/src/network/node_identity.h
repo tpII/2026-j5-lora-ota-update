@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 // Node identifier, epoch and sequence numbers (docs/protocol/frame.md).
 class NodeIdentity {
@@ -26,6 +26,6 @@ private:
   uint16_t nextSequence_ = 0;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

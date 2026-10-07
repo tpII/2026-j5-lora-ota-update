@@ -8,7 +8,7 @@
 #include "serial_transport.h"
 #include "wireless_transport.h"
 
-namespace j5 {
+namespace firmware {
 
 // The node console (docs/protocol/console.md): the same lines over every transport. Events are
 // JSON lines; any other line is debug text for people.
@@ -33,6 +33,6 @@ private:
   uint32_t droppedLines_ = 0;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

@@ -1,22 +1,18 @@
 #include "board_support.h"
 
-namespace j5 {
-
-namespace {
+namespace firmware {
 
 #if J5_BOARD_HELTEC_V2
 // Vext powers the OLED and, on revision 2.0, the PE4259 RF switch.
-constexpr uint8_t EXTERNAL_POWER_ON_LEVEL = LOW;
+static constexpr uint8_t EXTERNAL_POWER_ON_LEVEL = LOW;
 #else
 // The V4.3 schematic drives a P-MOSFET gate with Vext (LOW = on); the datasheet text says the
 // opposite. Verify on the bench: if the OLED stays dark, change this level to HIGH.
-constexpr uint8_t EXTERNAL_POWER_ON_LEVEL = LOW;
-constexpr uint32_t FRONT_END_POWER_UP_DELAY_MS = 5;
+static constexpr uint8_t EXTERNAL_POWER_ON_LEVEL = LOW;
+static constexpr uint32_t FRONT_END_POWER_UP_DELAY_MS = 5;
 #endif
 
-constexpr uint32_t EXTERNAL_POWER_SETTLING_DELAY_MS = 50;
-
-} // namespace
+static constexpr uint32_t EXTERNAL_POWER_SETTLING_DELAY_MS = 50;
 
 const char *boardModelName(uint8_t model) {
   switch (static_cast<BoardModel>(model)) {
@@ -110,4 +106,4 @@ const char *BoardSupport::transmitPowerRange() const {
 #endif
 }
 
-} // namespace j5
+} // namespace firmware

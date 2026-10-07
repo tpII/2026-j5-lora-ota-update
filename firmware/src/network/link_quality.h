@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 // RSSI travels as whole dBm with the sign changed, and SNR as signed quarters of a dB
 // (docs/protocol/frame.md).
@@ -33,6 +33,6 @@ inline uint8_t encodeSnr(float snr) {
 
 inline float decodeSnr(uint8_t value) { return static_cast<int8_t>(value) / 4.0f; }
 
-} // namespace j5
+} // namespace firmware
 
 #endif

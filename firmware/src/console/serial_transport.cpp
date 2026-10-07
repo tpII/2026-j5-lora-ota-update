@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <string.h>
 
-namespace j5 {
+namespace firmware {
 
 void SerialTransport::begin(uint32_t baudRate) {
   Serial.setTxBufferSize(SERIAL_TRANSMIT_BUFFER_SIZE);
@@ -50,4 +50,4 @@ bool SerialTransport::writeLine(const char *line, size_t length) {
   return true;
 }
 
-} // namespace j5
+} // namespace firmware

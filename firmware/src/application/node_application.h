@@ -19,7 +19,7 @@
 #include "../services/presence_service.h"
 #include "../services/test_run_service.h"
 
-namespace j5 {
+namespace firmware {
 
 // The node: a single main loop that serves the radio first, then the transmission queue, the
 // console, the timers and finally the display.
@@ -130,6 +130,6 @@ private:
   char accessPointName_[12] = {};
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

@@ -3,21 +3,17 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
-namespace j5 {
+namespace firmware {
 
-namespace {
+static constexpr const char *PREFERENCES_NAMESPACE = "j5";
+static constexpr const char *EPOCH_KEY = "epoch";
 
-constexpr const char *PREFERENCES_NAMESPACE = "j5";
-constexpr const char *EPOCH_KEY = "epoch";
-
-void storeEpoch(uint8_t epoch) {
+static void storeEpoch(uint8_t epoch) {
   Preferences preferences;
   preferences.begin(PREFERENCES_NAMESPACE, false);
   preferences.putUChar(EPOCH_KEY, epoch);
   preferences.end();
 }
-
-} // namespace
 
 void NodeIdentity::begin() {
   // getEfuseMac() keeps the first printed byte of the MAC in the lowest byte, so the last two
@@ -57,4 +53,4 @@ void NodeIdentity::advanceEpoch() {
   storeEpoch(epoch_);
 }
 
-} // namespace j5
+} // namespace firmware

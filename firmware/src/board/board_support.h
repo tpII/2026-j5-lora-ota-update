@@ -13,7 +13,7 @@
 #error "Unsupported board: select Heltec WiFi LoRa 32(V2) or Heltec WiFi LoRa 32(V4)."
 #endif
 
-namespace j5 {
+namespace firmware {
 
 enum class BoardModel : uint8_t { HeltecV2 = 1, HeltecV43 = 2 };
 
@@ -47,6 +47,6 @@ private:
   bool frontEndVerified_ = false;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

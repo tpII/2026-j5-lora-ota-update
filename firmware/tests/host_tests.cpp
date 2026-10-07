@@ -9,13 +9,11 @@
 #include "services/presence_service.h"
 #include "services/test_run_service.h"
 
-using namespace j5;
+using namespace firmware;
 
-namespace {
+static int failureCount = 0;
 
-int failureCount = 0;
-
-void check(bool condition, const char *description, int line) {
+static void check(bool condition, const char *description, int line) {
   if (!condition) {
     std::printf("FAIL (line %d): %s\n", line, description);
     ++failureCount;
@@ -24,7 +22,7 @@ void check(bool condition, const char *description, int line) {
 
 #define CHECK(condition) check((condition), #condition, __LINE__)
 
-void testTimeOnAir() {
+static void testTimeOnAir() {
   // Reference values at 125 kHz, CR 4/5, preamble of 8 symbols, explicit header and CRC.
   struct ReferenceCase {
     size_t frameLength;
@@ -40,7 +38,7 @@ void testTimeOnAir() {
   }
 }
 
-void testDuplicateFilter() {
+static void testDuplicateFilter() {
   DuplicateFilter filter;
   CHECK(filter.acceptIfNew(0x3A7F, 5, 10, 0));
   CHECK(!filter.acceptIfNew(0x3A7F, 5, 10, 1));
@@ -66,7 +64,7 @@ void testDuplicateFilter() {
   CHECK(filter.acceptIfNew(0x3A7F, 6, 0, 200));
 }
 
-void testHelloPayload() {
+static void testHelloPayload() {
   HelloContent content{};
   content.model = 2;
   content.version = 7;
@@ -87,7 +85,7 @@ void testHelloPayload() {
   CHECK(!PresenceService::decodePayload(buffer, length - 1, decoded));
 }
 
-void testEchoPayload() {
+static void testEchoPayload() {
   uint8_t buffer[255];
   const size_t length = EchoService::encodeReply(42, -87.6f, -3.3f, 16, buffer);
   float rssi = 0.0f;
@@ -97,7 +95,7 @@ void testEchoPayload() {
   CHECK(rssi == -88.0f && snr == -3.25f);
 }
 
-void testTestRuns() {
+static void testTestRuns() {
   uint8_t buffer[255];
   CHECK(TestRunService::encodePayload(TestFields{3, 299, 300, 0}, 239, buffer) == 239);
   TestFields decoded{};
@@ -130,8 +128,6 @@ void testTestRuns() {
   CHECK(run != nullptr && !opened && completed && run->received == 2);
   CHECK(run->rssiMinimum == -60.0f && run->rssiMaximum == -50.0f);
 }
-
-} // namespace
 
 int main() {
   testTimeOnAir();

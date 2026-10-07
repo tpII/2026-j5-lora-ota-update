@@ -6,21 +6,17 @@
 
 #include "../configuration.h"
 
-namespace j5 {
+namespace firmware {
 
-namespace {
-
-constexpr uint8_t STATUS_ROW_TOP = 0;
-constexpr uint8_t SEPARATOR_ROW = 11;
-constexpr uint8_t LOG_TOP = 13;
+static constexpr uint8_t STATUS_ROW_TOP = 0;
+static constexpr uint8_t SEPARATOR_ROW = 11;
+static constexpr uint8_t LOG_TOP = 13;
 
 // The variant of each board defines the OLED reset and I2C pins. The V4.3 carries an SSD1315,
 // which accepts the SSD1306 command set.
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, RST_OLED, SCL_OLED, SDA_OLED);
-U8G2LOG logWindow;
-uint8_t logBuffer[DISPLAY_COLUMNS * DISPLAY_LOG_ROWS];
-
-} // namespace
+static U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, RST_OLED, SCL_OLED, SDA_OLED);
+static U8G2LOG logWindow;
+static uint8_t logBuffer[DISPLAY_COLUMNS * DISPLAY_LOG_ROWS];
 
 void DebugDisplay::begin() {
   display.begin();
@@ -63,4 +59,4 @@ void DebugDisplay::redraw() {
   dirty_ = false;
 }
 
-} // namespace j5
+} // namespace firmware

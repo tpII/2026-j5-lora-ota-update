@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 // Multi-byte fields travel in little-endian order (docs/protocol/frame.md).
 
@@ -30,6 +30,6 @@ inline uint32_t readUint32(const uint8_t *input) {
   return value;
 }
 
-} // namespace j5
+} // namespace firmware
 
 #endif

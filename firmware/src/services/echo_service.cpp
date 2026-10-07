@@ -6,14 +6,10 @@
 #include "../network/byte_order.h"
 #include "../network/link_quality.h"
 
-namespace j5 {
-
-namespace {
+namespace firmware {
 
 // Deadline for a request still waiting in the transmission queue.
-constexpr uint32_t PROVISIONAL_TIMEOUT_MS = 60000;
-
-} // namespace
+static constexpr uint32_t PROVISIONAL_TIMEOUT_MS = 60000;
 
 void EchoService::prepare(uint16_t destination, uint16_t number, uint16_t size,
                           uint32_t nowMillis) {
@@ -67,4 +63,4 @@ void EchoService::decodeReplyQuality(const uint8_t *payload, float &rssi, float 
   snr = decodeSnr(payload[3]);
 }
 
-} // namespace j5
+} // namespace firmware

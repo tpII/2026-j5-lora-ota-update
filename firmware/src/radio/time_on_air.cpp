@@ -2,15 +2,11 @@
 
 #include <math.h>
 
-namespace j5 {
-
-namespace {
+namespace firmware {
 
 // Low data rate optimization is mandatory when a symbol lasts 16 ms or more: SF11 and SF12 at
 // 125 kHz and SF12 at 250 kHz. RadioLib enables it with the same rule.
-constexpr double LOW_DATA_RATE_SYMBOL_MICROS = 16000.0;
-
-} // namespace
+static constexpr double LOW_DATA_RATE_SYMBOL_MICROS = 16000.0;
 
 uint32_t computeTimeOnAirMicros(size_t frameLength, const RadioSettings &settings) {
   const double symbolMicros =
@@ -33,4 +29,4 @@ uint32_t computeTimeOnAirMicros(size_t frameLength, const RadioSettings &setting
   return static_cast<uint32_t>(lround(preambleMicros + payloadSymbols * symbolMicros));
 }
 
-} // namespace j5
+} // namespace firmware

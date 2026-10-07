@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace j5 {
+namespace firmware {
 
 // Console over the node's own WiFi access point: a WebSocket at ws://192.168.4.1/console that
 // carries one console line per text message
@@ -34,6 +34,6 @@ private:
   uint8_t channel_ = 0;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

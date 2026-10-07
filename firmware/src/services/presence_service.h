@@ -6,7 +6,7 @@
 
 #include "../configuration.h"
 
-namespace j5 {
+namespace firmware {
 
 constexpr size_t HELLO_FIXED_SIZE = 10;
 constexpr size_t HELLO_NEIGHBOR_SIZE = 4;
@@ -43,6 +43,6 @@ private:
   bool suspended_ = false;
 };
 
-} // namespace j5
+} // namespace firmware
 
 #endif

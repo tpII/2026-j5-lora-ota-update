@@ -4,37 +4,35 @@
 #include <SPI.h>
 #include <esp_timer.h>
 
-namespace j5 {
-
-namespace {
+namespace firmware {
 
 // RadioLib leaves the over-current protection at 60 mA, which clips the higher power levels.
-constexpr uint8_t TRANSCEIVER_CURRENT_LIMIT_MA = 140;
+static constexpr uint8_t TRANSCEIVER_CURRENT_LIMIT_MA = 140;
 
 // RadioLib defaults to 2 MHz. Both transceivers accept 8 MHz (SX1276 up to 10 MHz, SX1262 up to
 // 16 MHz), which shortens the gap between frames sent back to back.
-const SPISettings TRANSCEIVER_SPI_SETTINGS(8000000, MSBFIRST, SPI_MODE0);
+static const SPISettings TRANSCEIVER_SPI_SETTINGS(8000000, MSBFIRST, SPI_MODE0);
 
 #if J5_BOARD_HELTEC_V2
-Module radioModule(SS, DIO0, RST_LoRa, DIO1, SPI, TRANSCEIVER_SPI_SETTINGS);
-SX1276 transceiver(&radioModule);
+static Module radioModule(SS, DIO0, RST_LoRa, DIO1, SPI, TRANSCEIVER_SPI_SETTINGS);
+static SX1276 transceiver(&radioModule);
 #else
-constexpr float TCXO_VOLTAGE = 1.8f;
+static constexpr float TCXO_VOLTAGE = 1.8f;
 // The core names the SX1262 DIO1 line of the V4 "DIO0".
-Module radioModule(SS, DIO0, RST_LoRa, BUSY_LoRa, SPI, TRANSCEIVER_SPI_SETTINGS);
-SX1262 transceiver(&radioModule);
+static Module radioModule(SS, DIO0, RST_LoRa, BUSY_LoRa, SPI, TRANSCEIVER_SPI_SETTINGS);
+static SX1262 transceiver(&radioModule);
 
 // CTX of the KCT8103L follows the radio mode; CPS is driven by DIO2 (high only while
 // transmitting). With CTX low in reception the LNA is in the path; with CTX high it is bypassed.
-const uint32_t frontEndPins[Module::RFSWITCH_MAX_PINS] = {FRONT_END_TRANSMIT_PIN, RADIOLIB_NC,
-                                                          RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC};
-const Module::RfSwitchMode_t lowNoiseAmplifierTable[] = {
+static const uint32_t frontEndPins[Module::RFSWITCH_MAX_PINS] = {
+    FRONT_END_TRANSMIT_PIN, RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC};
+static const Module::RfSwitchMode_t lowNoiseAmplifierTable[] = {
     {Module::MODE_IDLE, {LOW}},
     {Module::MODE_RX, {LOW}},
     {Module::MODE_TX, {HIGH}},
     END_OF_MODE_TABLE,
 };
-const Module::RfSwitchMode_t bypassTable[] = {
+static const Module::RfSwitchMode_t bypassTable[] = {
     {Module::MODE_IDLE, {HIGH}},
     {Module::MODE_RX, {HIGH}},
     {Module::MODE_TX, {HIGH}},
@@ -42,18 +40,18 @@ const Module::RfSwitchMode_t bypassTable[] = {
 };
 #endif
 
-portMUX_TYPE interruptLock = portMUX_INITIALIZER_UNLOCKED;
-volatile bool interruptPending = false;
-volatile int64_t interruptMicros = 0;
+static portMUX_TYPE interruptLock = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool interruptPending = false;
+static volatile int64_t interruptMicros = 0;
 
-void IRAM_ATTR handleRadioInterrupt() {
+static void IRAM_ATTR handleRadioInterrupt() {
   portENTER_CRITICAL_ISR(&interruptLock);
   interruptMicros = esp_timer_get_time();
   interruptPending = true;
   portEXIT_CRITICAL_ISR(&interruptLock);
 }
 
-bool takeInterrupt(int64_t &micros) {
+static bool takeInterrupt(int64_t &micros) {
   bool pending = false;
   portENTER_CRITICAL(&interruptLock);
   if (interruptPending) {
@@ -65,20 +63,18 @@ bool takeInterrupt(int64_t &micros) {
   return pending;
 }
 
-bool isInterruptPending() {
+static bool isInterruptPending() {
   portENTER_CRITICAL(&interruptLock);
   bool pending = interruptPending;
   portEXIT_CRITICAL(&interruptLock);
   return pending;
 }
 
-void discardInterrupt() {
+static void discardInterrupt() {
   portENTER_CRITICAL(&interruptLock);
   interruptPending = false;
   portEXIT_CRITICAL(&interruptLock);
 }
-
-} // namespace
 
 int16_t RadioLink::begin(const BoardSupport &board, const RadioSettings &settings) {
   board_ = &board;
@@ -246,4 +242,4 @@ float RadioLink::correctRssi(float rssi, float snr) const {
 #endif
 }
 
-} // namespace j5
+} // namespace firmware

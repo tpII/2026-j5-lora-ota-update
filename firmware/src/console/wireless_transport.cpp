@@ -11,13 +11,13 @@
 
 #include "../configuration.h"
 
-namespace j5 {
+namespace firmware {
+
+static constexpr size_t INBOUND_QUEUE_LENGTH = 8;
+static constexpr uint16_t MAXIMUM_PENDING_OUTBOUND = 32;
+static constexpr size_t MAXIMUM_DISCARDED_FRAME_SIZE = 4096;
 
 namespace {
-
-constexpr size_t INBOUND_QUEUE_LENGTH = 8;
-constexpr uint16_t MAXIMUM_PENDING_OUTBOUND = 32;
-constexpr size_t MAXIMUM_DISCARDED_FRAME_SIZE = 4096;
 
 struct InboundLine {
   char text[CONSOLE_LINE_CAPACITY + 1];
@@ -29,22 +29,24 @@ struct OutboundLine {
   char text[1];
 };
 
-httpd_handle_t server = nullptr;
-QueueHandle_t inboundQueue = nullptr;
+} // namespace
+
+static httpd_handle_t server = nullptr;
+static QueueHandle_t inboundQueue = nullptr;
 
 // Client sockets are only touched from the HTTP server task.
-int clientSockets[ACCESS_POINT_MAXIMUM_CLIENTS];
-std::atomic<uint8_t> connectedClients{0};
-std::atomic<bool> clientChanged{false};
-std::atomic<uint16_t> pendingOutbound{0};
+static int clientSockets[ACCESS_POINT_MAXIMUM_CLIENTS];
+static std::atomic<uint8_t> connectedClients{0};
+static std::atomic<bool> clientChanged{false};
+static std::atomic<uint16_t> pendingOutbound{0};
 
-void resetClientSockets() {
+static void resetClientSockets() {
   for (int &socket : clientSockets) {
     socket = -1;
   }
 }
 
-void addClient(int socket) {
+static void addClient(int socket) {
   for (int &slot : clientSockets) {
     if (slot == socket) {
       return;
@@ -60,7 +62,7 @@ void addClient(int socket) {
   }
 }
 
-void removeClient(int socket) {
+static void removeClient(int socket) {
   for (int &slot : clientSockets) {
     if (slot == socket) {
       slot = -1;
@@ -71,20 +73,20 @@ void removeClient(int socket) {
   }
 }
 
-void closeSession(httpd_handle_t handle, int socket) {
+static void closeSession(httpd_handle_t handle, int socket) {
   (void)handle;
   removeClient(socket);
   close(socket);
 }
 
-void trimLineEnd(char *text) {
+static void trimLineEnd(char *text) {
   size_t length = strlen(text);
   while (length > 0 && (text[length - 1] == '\n' || text[length - 1] == '\r')) {
     text[--length] = '\0';
   }
 }
 
-esp_err_t handleConsole(httpd_req_t *request) {
+static esp_err_t handleConsole(httpd_req_t *request) {
   if (request->method == HTTP_GET) {
     // The handshake has finished: the socket is now a WebSocket client.
     addClient(httpd_req_to_sockfd(request));
@@ -131,7 +133,7 @@ esp_err_t handleConsole(httpd_req_t *request) {
   return ESP_OK;
 }
 
-void sendOutboundLine(void *argument) {
+static void sendOutboundLine(void *argument) {
   OutboundLine *line = static_cast<OutboundLine *>(argument);
   httpd_ws_frame_t frame = {};
   frame.type = HTTPD_WS_TYPE_TEXT;
@@ -145,8 +147,6 @@ void sendOutboundLine(void *argument) {
   free(line);
   pendingOutbound.fetch_sub(1);
 }
-
-} // namespace
 
 bool WirelessTransport::begin(const char *ssid, const char *password, uint8_t channel,
                               uint8_t maximumClients) {
@@ -253,4 +253,4 @@ bool WirelessTransport::writeLine(const char *line, size_t length) {
 
 bool WirelessTransport::takeClientChange() { return clientChanged.exchange(false); }
 
-} // namespace j5
+} // namespace firmware

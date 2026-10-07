@@ -4,7 +4,7 @@
 
 #include "../network/byte_order.h"
 
-namespace j5 {
+namespace firmware {
 
 uint16_t TestRunService::startSending(uint16_t count, uint16_t size, uint16_t interval,
                                       uint32_t nowMillis) {
@@ -159,4 +159,4 @@ bool TestRunService::decodePayload(const uint8_t *payload, size_t length, TestFi
   return fields.count > 0 && fields.index < fields.count;
 }
 
-} // namespace j5
+} // namespace firmware
