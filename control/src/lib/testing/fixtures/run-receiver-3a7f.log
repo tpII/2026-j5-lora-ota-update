@@ -1,0 +1,22 @@
+{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.1.0","protocol":1,"key":"default"}
+{"t":813,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}
+{"t":815,"ev":"wifi","state":"off","ssid":"J5-3A7F","channel":1,"clients":0}
+boot 3A7F V4.3 e12
+{"t":51102,"ev":"test_rx","src":"5C21","run":3,"index":0,"count":10,"size":239,"rssi":-38.0,"snr":10.25,"ferr":-1180}
+run 3 from 5C21
+{"t":51204,"ev":"test_rx","src":"5C21","run":3,"index":1,"count":10,"size":239,"rssi":-38.5,"snr":10.00,"ferr":-1176}
+{"t":51306,"ev":"test_rx","src":"5C21","run":3,"index":2,"count":10,"size":239,"rssi":-39.0,"snr":9.75,"ferr":-1183}
+{"t":51408,"ev":"test_rx","src":"5C21","run":3,"index":3,"count":10,"size":239,"rssi":-38.5,"snr":10.50,"ferr":-1179}
+{"t":51612,"ev":"test_rx","src":"5C21","run":3,"index":5,"count":10,"size":239,"rssi":-39.5,"snr":9.50,"ferr":-1181}
+{"t":51714,"ev":"test_rx","src":"5C21","run":3,"index":6,"count":10,"size":239,"rssi":-38.0,"snr":10.25,"ferr":-1177}
+{"t":51816,"ev":"test_rx","src":"5C21","run":3,"index":7,"count":10,"size":239,"rssi":-38.5,"snr":10.00,"ferr":-1182}
+{"t":51918,"ev":"test_rx","src":"5C21","run":3,"index":8,"count":10,"size":239,"rssi":-39.0,"snr":9.75,"ferr":-1178}
+{"t":52020,"ev":"test_rx","src":"5C21","run":3,"index":9,"count":10,"size":239,"rssi":-38.5,"snr":10.25,"ferr":-1180}
+{"t":52020,"ev":"run_end","src":"5C21","run":3,"count":10,"received":9,"pdr":0.9000,"rssi_avg":-38.6,"rssi_min":-39.5,"rssi_max":-38.0,"snr_avg":10.03,"first":51102,"last":52020,"reason":"complete"}
+run 3 end 9/10
+{"t":60038,"ev":"test_rx","src":"5C21","run":4,"index":0,"count":5,"size":64,"rssi":-52.5,"snr":7.25,"ferr":-1190}
+run 4 from 5C21
+{"t":60174,"ev":"test_rx","src":"5C21","run":4,"index":1,"count":5,"size":64,"rssi":-53.0,"snr":7.00,"ferr":-1188}
+{"t":60310,"ev":"test_rx","src":"5C21","run":4,"index":2,"count":5,"size":64,"rssi":-52.0,"snr":7.50,"ferr":-1191}
+{"t":61582,"ev":"run_end","src":"5C21","run":4,"count":5,"received":3,"pdr":0.6000,"rssi_avg":-52.5,"rssi_min":-53.0,"rssi_max":-52.0,"snr_avg":7.25,"first":60038,"last":60310,"reason":"timeout"}
+run 4 end 3/5

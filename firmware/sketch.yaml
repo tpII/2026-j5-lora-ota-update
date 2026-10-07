@@ -1,0 +1,20 @@
+profiles:
+  heltec_v2:
+    notes: Heltec WiFi LoRa 32 V2 (ESP32 and SX1276)
+    fqbn: esp32:esp32:heltec_wifi_lora_32_V2
+    platforms:
+      - platform: esp32:esp32 (3.3.12)
+        platform_index_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    libraries:
+      - RadioLib (7.8.1)
+      - U8g2 (2.36.19)
+
+  heltec_v4_3:
+    notes: Heltec WiFi LoRa 32 V4.3 (ESP32-S3, SX1262 and KCT8103L front end)
+    fqbn: esp32:esp32:heltec_wifi_lora_32_V4:CDCOnBoot=cdc,USBMode=hwcdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,EventsCore=0
+    platforms:
+      - platform: esp32:esp32 (3.3.12)
+        platform_index_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    libraries:
+      - RadioLib (7.8.1)
+      - U8g2 (2.36.19)

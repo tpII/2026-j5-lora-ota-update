@@ -1,0 +1,4 @@
+[tools]
+arduino-cli = "1.5.1"
+typst = "0.15.1"
+viteplus = "1.0.0"

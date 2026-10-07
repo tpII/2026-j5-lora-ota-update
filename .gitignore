@@ -1,0 +1,5 @@
+# Local compile options with secrets (network key and access point password)
+firmware/build_opt.h
+
+# Arduino CLI build output
+firmware/build/

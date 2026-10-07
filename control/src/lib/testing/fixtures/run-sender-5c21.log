@@ -1,0 +1,36 @@
+{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.1.0","protocol":1,"key":"default"}
+{"t":641,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":4,"lna":null}
+{"t":642,"ev":"wifi","state":"off","ssid":"J5-5C21","channel":1,"clients":0}
+boot 5C21 V2 e7
+{"t":39000,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":2,"chip":2,"lna":null}
+radio 7/500 +2 dBm
+{"t":41000,"ev":"run_start","run":3,"count":10,"size":239,"interval":0}
+run 3 start 10x239
+{"t":41101,"ev":"tx","type":"test","dst":"FFFF","seq":40,"size":255,"toa":99958,"toa_calc":99904,"run":3,"index":0}
+{"t":41203,"ev":"tx","type":"test","dst":"FFFF","seq":41,"size":255,"toa":99961,"toa_calc":99904,"run":3,"index":1}
+{"t":41305,"ev":"tx","type":"test","dst":"FFFF","seq":42,"size":255,"toa":99957,"toa_calc":99904,"run":3,"index":2}
+{"t":41407,"ev":"tx","type":"test","dst":"FFFF","seq":43,"size":255,"toa":99960,"toa_calc":99904,"run":3,"index":3}
+{"t":41509,"ev":"tx","type":"test","dst":"FFFF","seq":44,"size":255,"toa":99959,"toa_calc":99904,"run":3,"index":4}
+{"t":41611,"ev":"tx","type":"test","dst":"FFFF","seq":45,"size":255,"toa":99962,"toa_calc":99904,"run":3,"index":5}
+{"t":41713,"ev":"tx","type":"test","dst":"FFFF","seq":46,"size":255,"toa":99958,"toa_calc":99904,"run":3,"index":6}
+{"t":41815,"ev":"tx","type":"test","dst":"FFFF","seq":47,"size":255,"toa":99960,"toa_calc":99904,"run":3,"index":7}
+{"t":41917,"ev":"tx","type":"test","dst":"FFFF","seq":48,"size":255,"toa":99961,"toa_calc":99904,"run":3,"index":8}
+{"t":42019,"ev":"tx","type":"test","dst":"FFFF","seq":49,"size":255,"toa":99959,"toa_calc":99904,"run":3,"index":9}
+{"t":42019,"ev":"run_done","run":3,"count":10,"sent":10,"duration":1018012,"aborted":false}
+run 3 done 10/10
+{"t":50000,"ev":"run_start","run":4,"count":5,"size":64,"interval":100}
+run 4 start 5x64
+{"t":50037,"ev":"tx","type":"test","dst":"FFFF","seq":50,"size":80,"toa":35951,"toa_calc":35904,"run":4,"index":0}
+{"t":50173,"ev":"tx","type":"test","dst":"FFFF","seq":51,"size":80,"toa":35949,"toa_calc":35904,"run":4,"index":1}
+{"t":50309,"ev":"tx","type":"test","dst":"FFFF","seq":52,"size":80,"toa":35950,"toa_calc":35904,"run":4,"index":2}
+{"t":50445,"ev":"tx","type":"test","dst":"FFFF","seq":53,"size":80,"toa":35952,"toa_calc":35904,"run":4,"index":3}
+{"t":50581,"ev":"tx","type":"test","dst":"FFFF","seq":54,"size":80,"toa":35948,"toa_calc":35904,"run":4,"index":4}
+{"t":50581,"ev":"run_done","run":4,"count":5,"sent":5,"duration":580112,"aborted":false}
+run 4 done 5/5
+{"t":60000,"ev":"run_start","run":5,"count":3,"size":8,"interval":0}
+run 5 start 3x8
+{"t":60016,"ev":"tx","type":"test","dst":"FFFF","seq":55,"size":24,"toa":15470,"toa_calc":15424,"run":5,"index":0}
+{"t":60033,"ev":"tx","type":"test","dst":"FFFF","seq":56,"size":24,"toa":15468,"toa_calc":15424,"run":5,"index":1}
+{"t":60050,"ev":"tx","type":"test","dst":"FFFF","seq":57,"size":24,"toa":15469,"toa_calc":15424,"run":5,"index":2}
+{"t":60050,"ev":"run_done","run":5,"count":3,"sent":3,"duration":49328,"aborted":false}
+run 5 done 3/3
