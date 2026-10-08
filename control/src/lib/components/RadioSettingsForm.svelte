@@ -8,7 +8,6 @@
     type RadioSettingChanges,
   } from "$lib/console/console-command.ts";
   import type { LnaMode } from "$lib/console/console-event.ts";
-  import RadioQuickSettings from "$lib/components/RadioQuickSettings.svelte";
   import { isRunActive } from "$lib/nodes/node-state.ts";
   import {
     BANDWIDTHS_KILOHERTZ,
@@ -35,6 +34,8 @@
   const current = $derived(node.radio);
   const model = $derived(node.model);
   const withLowNoiseAmplifier = $derived(hasLowNoiseAmplifier(model));
+  /** The form only shows the LNA mode the node reports. */
+  const lowNoiseAmplifier = $derived<LnaMode>(current?.lna ?? DEFAULT_RADIO_SETTINGS.lna);
   const powerValues = $derived(listTransmitPowerValues(model));
   const busy = $derived(isRunActive(node));
   const open = $derived(connection.status === "open");
@@ -46,7 +47,6 @@
   let preamble = $state<number>(DEFAULT_RADIO_SETTINGS.preamble);
   let syncWord = $state<number>(DEFAULT_RADIO_SETTINGS.sync);
   let power = $state<number>(DEFAULT_RADIO_SETTINGS.power);
-  let lowNoiseAmplifier = $state<LnaMode>(DEFAULT_RADIO_SETTINGS.lna);
   let problems = $state<readonly CommandProblem[]>([]);
   /** Settings the form was last filled with. */
   let loadedSettings = $state.raw<RadioSettings | null>(null);
@@ -59,7 +59,6 @@
     preamble = settings.preamble;
     syncWord = settings.sync;
     power = settings.power;
-    lowNoiseAmplifier = settings.lna ?? DEFAULT_RADIO_SETTINGS.lna;
     problems = [];
     loadedSettings = settings;
   }
@@ -73,8 +72,7 @@
       codingRate === settings.cr &&
       preamble === settings.preamble &&
       syncWord === settings.sync &&
-      power === settings.power &&
-      (settings.lna === null || lowNoiseAmplifier === settings.lna)
+      power === settings.power
     );
   }
 
@@ -95,7 +93,10 @@
     current !== null && loadedSettings !== null && !radioSettingsMatch(current, loadedSettings),
   );
 
-  /** Only the values that differ from the current settings, or all of them when those are unknown. */
+  /**
+   * Only the values that differ from the current settings, or all of them when those are unknown.
+   * The LNA mode never goes out from the form: it only changes from the console.
+   */
   const changes = $derived.by((): RadioSettingChanges => {
     const all: RadioSettingChanges = {
       freq: frequency,
@@ -105,7 +106,6 @@
       preamble,
       sync: syncWord,
       power,
-      ...(withLowNoiseAmplifier ? { lna: lowNoiseAmplifier } : {}),
     };
     if (current === null) {
       return all;
@@ -118,7 +118,6 @@
       ...(preamble === current.preamble ? {} : { preamble }),
       ...(syncWord === current.sync ? {} : { sync: syncWord }),
       ...(power === current.power ? {} : { power }),
-      ...(withLowNoiseAmplifier && lowNoiseAmplifier !== current.lna ? { lna: lowNoiseAmplifier } : {}),
     };
   });
   const changeCount = $derived(Object.keys(changes).length);
@@ -202,9 +201,6 @@
     {/if}
   </div>
 
-  <RadioQuickSettings {panel} {connection} />
-
-  <h4 class="border-t border-slate-100 pt-3 text-sm font-semibold text-slate-800">Todos los parámetros</h4>
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
     <label class="panel-label">
       Frecuencia (MHz)
@@ -280,10 +276,12 @@
     {#if withLowNoiseAmplifier}
       <label class="panel-label">
         LNA de la V4.3
-        <select class="panel-input" bind:value={lowNoiseAmplifier}>
+        <!-- Disabled: an active LNA can damage the SX1262 when the nodes are close. -->
+        <select class="panel-input" value={lowNoiseAmplifier} disabled>
           <option value="bypass">Puenteado</option>
           <option value="on">Activo</option>
         </select>
+        <span class="font-normal text-slate-500">Solo se cambia desde la consola</span>
       </label>
     {/if}
   </div>

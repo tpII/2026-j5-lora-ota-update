@@ -31,11 +31,6 @@
     @apply inline-flex items-center justify-center gap-1 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-  /* A button that applies one value; aria-pressed marks the value in use. */
-  .panel-choice {
-    @apply inline-flex min-w-14 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 aria-pressed:border-sky-700 aria-pressed:bg-sky-700 aria-pressed:text-white sm:py-1.5;
-  }
-
   .panel-label {
     @apply flex flex-col gap-1 text-xs font-medium text-slate-600;
   }
