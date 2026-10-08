@@ -1,8 +1,11 @@
 // Host tests of the hardware-independent firmware modules. Run them with run_host_tests.sh.
 
+#include <ArduinoJson.h>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
+#include "console/event_fields.h"
 #include "network/duplicate_filter.h"
 #include "radio/time_on_air.h"
 #include "services/echo_service.h"
@@ -129,12 +132,29 @@ static void testTestRuns() {
   CHECK(run->rssiMinimum == -60.0f && run->rssiMaximum == -50.0f);
 }
 
+static void testEventFields() {
+  // setNodeId has to create the member, also inside nested objects, and round values print clean.
+  JsonDocument document;
+  JsonObject event = document.to<JsonObject>();
+  event["ev"] = "hello";
+  setNodeId(event, "src", 0xD6D8);
+  event["rssi"] = roundToDecimals(-35.53f, 1);
+  event["snr"] = roundToDecimals(9.1f, 2);
+  JsonObject neighbor = event["neighbors"].to<JsonArray>().add<JsonObject>();
+  setNodeId(neighbor, "id", 0x00F4);
+  char line[128];
+  serializeJson(document, line, sizeof(line));
+  CHECK(std::strcmp(line, "{\"ev\":\"hello\",\"src\":\"D6D8\",\"rssi\":-35.5,\"snr\":9.1,"
+                          "\"neighbors\":[{\"id\":\"00F4\"}]}") == 0);
+}
+
 int main() {
   testTimeOnAir();
   testDuplicateFilter();
   testHelloPayload();
   testEchoPayload();
   testTestRuns();
+  testEventFields();
   if (failureCount == 0) {
     std::printf("All host tests passed.\n");
     return 0;

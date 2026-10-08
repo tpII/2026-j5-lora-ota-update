@@ -64,7 +64,7 @@ El core de ESP32 pasa ese archivo a cada compilación, también desde el IDE. WP
 | `src/services/` | `presence_service` | Calendario y cuerpo del HELLO |
 | | `echo_service` | Pedido de eco pendiente y cuerpos del eco |
 | | `test_run_service` | Corridas del emisor y estadísticas del receptor |
-| `src/console/` | `console` | Consola y armado de eventos JSON (con ArduinoJson) |
+| `src/console/` | `console`, `event_fields` | Consola, eventos JSON (con ArduinoJson) y formato de sus campos |
 | | `serial_transport`, `wireless_transport` | Transportes de la consola: serie y WebSocket sobre el punto de acceso |
 | `src/display/` | `debug_display` | OLED: fila de estado y registro de depuración |
 
@@ -85,7 +85,7 @@ El script pide a arduino-cli la base de compilación del perfil, expande sus opc
 
 ## Pruebas
 
-`tests/run_host_tests.sh` compila y ejecuta en la computadora las pruebas de los módulos que no dependen del hardware: la fórmula del tiempo de aire, el descarte de repetidos y los cuerpos de los mensajes. La radio, los transportes y el OLED se prueban sobre las placas.
+`tests/run_host_tests.sh` compila y ejecuta en la computadora las pruebas de los módulos que no dependen del hardware: la fórmula del tiempo de aire, el descarte de repetidos, los cuerpos de los mensajes y el armado de los campos de los eventos. El script toma ArduinoJson de la copia que descarga la primera compilación con un perfil. La radio, los transportes y el OLED se prueban sobre las placas.
 
 ## Notas de hardware
 

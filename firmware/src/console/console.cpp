@@ -1,8 +1,6 @@
 #include "console.h"
 
 #include <Arduino.h>
-#include <math.h>
-#include <stdio.h>
 #include <string.h>
 
 namespace firmware {
@@ -22,11 +20,12 @@ bool Console::readCommand(char *buffer, size_t capacity, bool &overflowed) {
   return wireless_->readLine(buffer, capacity, overflowed);
 }
 
-JsonDocument &Console::beginEvent(const char *name) {
+JsonObject Console::beginEvent(const char *name) {
   event_.clear();
-  event_["t"] = millis();
-  event_["ev"] = name;
-  return event_;
+  JsonObject event = event_.to<JsonObject>();
+  event["t"] = millis();
+  event["ev"] = name;
+  return event;
 }
 
 void Console::writeEvent() {
@@ -53,17 +52,6 @@ void Console::writeLine(const char *line, size_t length) {
   if (!wireless_->writeLine(line, length)) {
     ++droppedLines_;
   }
-}
-
-double roundToDecimals(double value, int decimals) {
-  const double scale = pow(10.0, decimals);
-  return round(value * scale) / scale;
-}
-
-void setNodeId(JsonVariant field, uint16_t id) {
-  char text[5];
-  snprintf(text, sizeof(text), "%04X", static_cast<unsigned>(id));
-  field.set(text);
 }
 
 } // namespace firmware

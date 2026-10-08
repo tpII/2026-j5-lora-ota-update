@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "../configuration.h"
+#include "../console/event_fields.h"
 #include "../network/byte_order.h"
 #include "../radio/time_on_air.h"
 
@@ -197,8 +198,8 @@ void NodeApplication::onTransmitStarted(uint32_t nowMillis) {
     if (echoReply_.pending) {
       // The reply is already on the air, so writing the event does not delay it.
       echoReply_.pending = false;
-      JsonDocument &event = console_.beginEvent("echo_served");
-      setNodeId(event["src"], echoReply_.source);
+      JsonObject event = console_.beginEvent("echo_served");
+      setNodeId(event, "src", echoReply_.source);
       event["n"] = echoReply_.number;
       event["size"] = echoReply_.size;
       event["rssi"] = roundToDecimals(echoReply_.rssi, 1);
@@ -225,9 +226,9 @@ void NodeApplication::onTransmitDone(uint32_t nowMillis) {
   const uint32_t measured = radio_.measuredTimeOnAirMicros();
   const bool isTest = header.type == static_cast<uint8_t>(MessageType::Test);
 
-  JsonDocument &event = console_.beginEvent("tx");
+  JsonObject event = console_.beginEvent("tx");
   event["type"] = messageTypeName(header.type);
-  setNodeId(event["dst"], header.destination);
+  setNodeId(event, "dst", header.destination);
   event["seq"] = header.sequence;
   event["size"] = inFlight_.length;
   event["toa"] = measured;
@@ -276,7 +277,7 @@ void NodeApplication::onFrameReceived(const ReceivedFrame &frame, uint32_t nowMi
     return;
   }
   if (header.source == identity_.nodeId()) {
-    JsonDocument &event = console_.beginEvent("id_conflict");
+    JsonObject event = console_.beginEvent("id_conflict");
     event["epoch"] = header.epoch;
     event["seq"] = header.sequence;
     event["rssi"] = roundToDecimals(frame.rssi, 1);
@@ -286,8 +287,8 @@ void NodeApplication::onFrameReceived(const ReceivedFrame &frame, uint32_t nowMi
     return;
   }
   if (!duplicates_.acceptIfNew(header.source, header.epoch, header.sequence, nowMillis)) {
-    JsonDocument &event = console_.beginEvent("duplicate");
-    setNodeId(event["src"], header.source);
+    JsonObject event = console_.beginEvent("duplicate");
+    setNodeId(event, "src", header.source);
     event["epoch"] = header.epoch;
     event["seq"] = header.sequence;
     event["type"] = messageTypeName(header.type);
@@ -340,8 +341,8 @@ void NodeApplication::handleHello(const FrameHeader &header, const uint8_t *payl
   PresenceService::decodePayload(payload, length, content);
   neighbors_.recordHello(header.source, content.model, content.version, content.transmitted);
 
-  JsonDocument &event = console_.beginEvent("hello");
-  setNodeId(event["src"], header.source);
+  JsonObject event = console_.beginEvent("hello");
+  setNodeId(event, "src", header.source);
   event["epoch"] = header.epoch;
   event["seq"] = header.sequence;
   event["model"] = boardModelName(content.model);
@@ -354,7 +355,7 @@ void NodeApplication::handleHello(const FrameHeader &header, const uint8_t *payl
   for (uint8_t index = 0; index < content.neighborCount; ++index) {
     const HelloNeighborEntry &entry = content.neighbors[index];
     JsonObject neighbor = neighbors.add<JsonObject>();
-    setNodeId(neighbor["id"], entry.id);
+    setNodeId(neighbor, "id", entry.id);
     neighbor["rssi"] = entry.rssi;
     neighbor["snr"] = roundToDecimals(entry.snr, 2);
   }
@@ -390,8 +391,8 @@ void NodeApplication::handleEchoReply(const FrameHeader &header, const uint8_t *
   EchoService::decodeReplyQuality(payload, remoteRssi, remoteSnr);
   const int64_t roundTripMicros = frame.receivedAtMicros - echo_.startMicros();
 
-  JsonDocument &event = console_.beginEvent("echo");
-  setNodeId(event["dst"], header.source);
+  JsonObject event = console_.beginEvent("echo");
+  setNodeId(event, "dst", header.source);
   event["n"] = number;
   event["size"] = length;
   event["rtt"] = roundTripMicros;
@@ -423,8 +424,8 @@ void NodeApplication::handleTestFrame(const FrameHeader &header, const uint8_t *
   ReceiverRun *run = runs_.recordTestFrame(header.source, fields, frame.rssi, frame.snr, nowMillis,
                                            timeOnAirMillis, opened, completed);
 
-  JsonDocument &event = console_.beginEvent("test_rx");
-  setNodeId(event["src"], header.source);
+  JsonObject event = console_.beginEvent("test_rx");
+  setNodeId(event, "src", header.source);
   event["run"] = fields.run;
   event["index"] = fields.index;
   event["count"] = fields.count;
@@ -614,8 +615,8 @@ void NodeApplication::commandHelp() {
 }
 
 void NodeApplication::commandStatus() {
-  JsonDocument &status = console_.beginEvent("status");
-  setNodeId(status["id"], identity_.nodeId());
+  JsonObject status = console_.beginEvent("status");
+  setNodeId(status, "id", identity_.nodeId());
   status["model"] = board_.modelName();
   status["epoch"] = identity_.epoch();
   status["tx"] = transmittedCount_;
@@ -629,8 +630,8 @@ void NodeApplication::commandStatus() {
   const uint32_t now = millis();
   for (size_t index = 0; index < neighbors_.count(); ++index) {
     const Neighbor &neighbor = neighbors_.at(index);
-    JsonDocument &event = console_.beginEvent("neighbor");
-    setNodeId(event["id"], neighbor.id);
+    JsonObject event = console_.beginEvent("neighbor");
+    setNodeId(event, "id", neighbor.id);
     event["model"] = boardModelName(neighbor.model);
     event["version"] = neighbor.version;
     event["tx"] = neighbor.transmitted;
@@ -767,7 +768,7 @@ void NodeApplication::commandRun(const Command &command) {
   const uint32_t now = millis();
   const uint16_t run = runs_.startSending(static_cast<uint16_t>(count), static_cast<uint16_t>(size),
                                           static_cast<uint16_t>(interval), now);
-  JsonDocument &event = console_.beginEvent("run_start");
+  JsonObject event = console_.beginEvent("run_start");
   event["run"] = run;
   event["count"] = count;
   event["size"] = size;
@@ -843,8 +844,8 @@ void NodeApplication::applyRadioSettings(const RadioSettings &settings) {
 
 void NodeApplication::serviceTimers(uint32_t nowMillis) {
   if (echo_.isPending() && echo_.hasExpired(nowMillis)) {
-    JsonDocument &event = console_.beginEvent("echo_lost");
-    setNodeId(event["dst"], echo_.destination());
+    JsonObject event = console_.beginEvent("echo_lost");
+    setNodeId(event, "dst", echo_.destination());
     event["n"] = echo_.number();
     event["size"] = echo_.size();
     event["timeout"] = echo_.timeoutMillis();
@@ -878,7 +879,7 @@ void NodeApplication::serviceTimers(uint32_t nowMillis) {
 
 void NodeApplication::finishSenderRun(bool aborted) {
   const SenderRun &run = runs_.sender();
-  JsonDocument &event = console_.beginEvent("run_done");
+  JsonObject event = console_.beginEvent("run_done");
   event["run"] = run.run;
   event["count"] = run.count;
   event["sent"] = run.sent;
@@ -891,8 +892,8 @@ void NodeApplication::finishSenderRun(bool aborted) {
 }
 
 void NodeApplication::finishReceiverRun(ReceiverRun &run, const char *reason) {
-  JsonDocument &event = console_.beginEvent("run_end");
-  setNodeId(event["src"], run.source);
+  JsonObject event = console_.beginEvent("run_end");
+  setNodeId(event, "src", run.source);
   event["run"] = run.run;
   event["count"] = run.count;
   event["received"] = run.received;
@@ -927,8 +928,8 @@ void NodeApplication::updateSuspension(uint32_t nowMillis) {
 // Events and debug text
 
 void NodeApplication::emitBoot() {
-  JsonDocument &event = console_.beginEvent("boot");
-  setNodeId(event["id"], identity_.nodeId());
+  JsonObject event = console_.beginEvent("boot");
+  setNodeId(event, "id", identity_.nodeId());
   event["model"] = board_.modelName();
   event["epoch"] = identity_.epoch();
   event["firmware"] = FIRMWARE_VERSION;
@@ -939,7 +940,7 @@ void NodeApplication::emitBoot() {
 
 void NodeApplication::emitRadio() {
   const RadioSettings &settings = radio_.settings();
-  JsonDocument &event = console_.beginEvent("radio");
+  JsonObject event = console_.beginEvent("radio");
   event["freq"] = roundToDecimals(settings.frequencyMhz, 3);
   event["sf"] = settings.spreadingFactor;
   event["bw"] = settings.bandwidthKhz;
@@ -957,7 +958,7 @@ void NodeApplication::emitRadio() {
 }
 
 void NodeApplication::emitWifi() {
-  JsonDocument &event = console_.beginEvent("wifi");
+  JsonObject event = console_.beginEvent("wifi");
   event["state"] = wireless_.isEnabled() ? "on" : "off";
   event["ssid"] = accessPointName_;
   event["channel"] = ACCESS_POINT_CHANNEL;
@@ -967,7 +968,7 @@ void NodeApplication::emitWifi() {
 
 void NodeApplication::emitError(const char *command, const char *reason, const char *detail,
                                 int16_t code) {
-  JsonDocument &event = console_.beginEvent("error");
+  JsonObject event = console_.beginEvent("error");
   event["cmd"] = command;
   event["reason"] = reason;
   if (detail != nullptr && detail[0] != '\0') {
@@ -981,7 +982,7 @@ void NodeApplication::emitError(const char *command, const char *reason, const c
 }
 
 void NodeApplication::emitDrop(const char *reason, const ReceivedFrame &frame) {
-  JsonDocument &event = console_.beginEvent("drop");
+  JsonObject event = console_.beginEvent("drop");
   event["reason"] = reason;
   event["size"] = frame.length;
   event["rssi"] = roundToDecimals(frame.rssi, 1);

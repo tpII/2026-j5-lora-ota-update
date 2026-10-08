@@ -20,8 +20,8 @@ public:
   bool readCommand(char *buffer, size_t capacity, bool &overflowed);
 
   // Starts an event: clears the shared document and fills the common fields "t" and "ev". The
-  // caller adds its own fields and then calls writeEvent().
-  JsonDocument &beginEvent(const char *name);
+  // caller adds its own fields to the returned object and then calls writeEvent().
+  JsonObject beginEvent(const char *name);
   void writeEvent();
   void writeDebug(const char *text);
 
@@ -36,12 +36,6 @@ private:
   JsonDocument event_;
   uint32_t droppedLines_ = 0;
 };
-
-// Rounds a measurement to the decimals the contract asks for, so it prints without noise.
-double roundToDecimals(double value, int decimals);
-
-// Writes a node identifier as four uppercase hexadecimal digits, for example "3A7F".
-void setNodeId(JsonVariant field, uint16_t id);
 
 } // namespace firmware
 
