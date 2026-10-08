@@ -23,6 +23,23 @@ vp run typecheck  # revisa los tipos de los componentes Svelte, de vite.config.t
 
 El service worker solo se registra en la versión de producción, así que el funcionamiento sin red se prueba con `vp build` y `vp preview`.
 
+## Publicación
+
+El panel se publica en Cloudflare como un Worker con activos estáticos, sin código propio del lado del servidor: Cloudflare sirve los archivos de `dist/` por HTTPS, que es lo que exigen Web Serial y la instalación como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). La configuración está en `wrangler.jsonc` y Wrangler, la herramienta de línea de comandos de Cloudflare, es una dependencia de desarrollo.
+
+```sh
+vp exec wrangler login   # una sola vez por computadora: abre el navegador y autoriza la cuenta
+vp run deploy            # compila y publica dist/
+```
+
+- La primera publicación crea el Worker `j5-control-panel` en la cuenta y lo deja en `https://j5-control-panel.<subdominio>.workers.dev`; Wrangler muestra la dirección al terminar. Las siguientes reemplazan la versión publicada.
+- Cualquier otra ruta devuelve `index.html` (`not_found_handling`), así un enlace a una ruta vieja sigue abriendo el panel.
+- Un dominio propio se agrega desde el panel de Cloudflare, en la configuración del Worker, o con `routes` en `wrangler.jsonc`.
+- Antes de publicar conviene correr `vp test`, `vp check` y `vp run typecheck`, que el script no ejecuta.
+- El plan gratuito de Workers sirve activos estáticos sin límite de tráfico.
+
+Como alternativa, Cloudflare puede compilar y publicar desde el repositorio en cada _push_ (Workers Builds). En ese caso, el directorio raíz es `control`, el comando de compilación es `pnpm build` y el de publicación es `pnpm exec wrangler deploy`.
+
 ## Funcionamiento sin red
 
 El panel tiene que abrir aunque la computadora esté asociada al punto de acceso de un nodo y no tenga internet. El service worker de `src/service-worker.ts` usa Workbox:
