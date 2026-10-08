@@ -87,9 +87,11 @@ static void trimLineEnd(char *text) {
 }
 
 static esp_err_t handleConsole(httpd_req_t *request) {
+  // ESP-IDF 5.5.5, the base of core 3.3.12, completes the handshake without calling this handler,
+  // so a client is registered when its first message arrives; the control panel sends status as
+  // soon as the socket opens. Earlier releases also call it once with the handshake request.
+  addClient(httpd_req_to_sockfd(request));
   if (request->method == HTTP_GET) {
-    // The handshake has finished: the socket is now a WebSocket client.
-    addClient(httpd_req_to_sockfd(request));
     return ESP_OK;
   }
 

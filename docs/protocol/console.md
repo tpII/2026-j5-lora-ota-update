@@ -5,7 +5,7 @@ Contrato entre el firmware y el panel de control, versión 1. La consola es la m
 - Serie USB a 921600 baudios, 8N1. Cada línea termina en `\n`; el firmware acepta también `\r\n`.
 - WebSocket en `ws://192.168.4.1/console`, a través del punto de acceso del nodo ([ADR 0002](../adrs/0002-wifi-access-point-per-node.md) y [ADR 0003](../adrs/0003-control-panel-as-pwa-over-websocket.md)). Cada mensaje de texto lleva una línea, sin el fin de línea.
 
-El nodo escribe cada línea por la serie y por todos los clientes WebSocket conectados, y acepta comandos de cualquiera de ellos. Si el búfer de salida de un transporte está lleno, la línea se descarta en ese transporte y se cuenta en el campo `dropped` de `status`: la consola nunca demora a la radio.
+El nodo escribe cada línea por la serie y por todos los clientes WebSocket conectados, y acepta comandos de cualquiera de ellos. Un cliente WebSocket cuenta como conectado desde su primer mensaje, porque el servidor HTTP de ESP-IDF 5.5.5 no le avisa al firmware cuando termina el handshake; por eso el panel envía `status` apenas abre la conexión. Si el búfer de salida de un transporte está lleno, la línea se descarta en ese transporte y se cuenta en el campo `dropped` de `status`: la consola nunca demora a la radio.
 
 ## Líneas que emite el nodo
 
