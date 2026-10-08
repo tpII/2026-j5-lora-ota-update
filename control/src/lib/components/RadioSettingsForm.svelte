@@ -8,6 +8,7 @@
     type RadioSettingChanges,
   } from "$lib/console/console-command.ts";
   import type { LnaMode } from "$lib/console/console-event.ts";
+  import RadioQuickSettings from "$lib/components/RadioQuickSettings.svelte";
   import { isRunActive } from "$lib/nodes/node-state.ts";
   import {
     BANDWIDTHS_KILOHERTZ,
@@ -201,6 +202,9 @@
     {/if}
   </div>
 
+  <RadioQuickSettings {panel} {connection} />
+
+  <h4 class="border-t border-slate-100 pt-3 text-sm font-semibold text-slate-800">Todos los parámetros</h4>
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
     <label class="panel-label">
       Frecuencia (MHz)

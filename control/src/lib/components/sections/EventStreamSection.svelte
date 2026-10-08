@@ -174,11 +174,12 @@
     {:else}
       <ol class="divide-y divide-slate-100">
         {#each visibleRecords as record (record.sequence)}
-          <li class="grid grid-cols-[6.5rem_3.5rem_6.5rem_1fr] gap-2 px-2 py-0.5 font-mono text-xs {rowClass(record)}">
+          <!-- Narrow screens: time, node and kind on one row and the line below, across the full width. -->
+          <li class="grid grid-cols-[auto_auto_1fr] gap-x-2 gap-y-0.5 px-2 py-1 font-mono text-xs md:grid-cols-[6.5rem_3.5rem_6.5rem_1fr] md:py-0.5 {rowClass(record)}">
             <span class="text-slate-400">{formatClockTime(record.hostTime)}</span>
             <span class="font-semibold">{nodeLabel(record.connectionKey)}</span>
             <span class="truncate">{kindLabel(record)}</span>
-            <span class="break-all whitespace-pre-wrap">
+            <span class="col-span-full break-all whitespace-pre-wrap md:col-span-1">
               {record.kind === "command" ? `› ${record.text}` : record.text}
               {#if record.kind === "unrecognized"}
                 <span class="font-sans italic">({record.problem})</span>
