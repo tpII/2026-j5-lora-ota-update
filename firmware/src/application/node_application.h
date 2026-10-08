@@ -1,6 +1,7 @@
 #ifndef J5_NODE_APPLICATION_H
 #define J5_NODE_APPLICATION_H
 
+#include <SimpleCLI.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -68,15 +69,17 @@ private:
   void enqueueTestFrame();
 
   // Console.
+  void registerCommands();
   void serviceConsole();
-  void executeCommand(char *line);
+  void executeCommand(const char *line);
+  void reportCommandError(const CommandError &error, const char *line);
   void commandHelp();
   void commandStatus();
-  void commandRadio(size_t argumentCount, char **arguments);
-  void commandEcho(size_t argumentCount, char **arguments);
-  void commandRun(size_t argumentCount, char **arguments);
-  void commandWifi(size_t argumentCount, char **arguments);
-  void commandResend(size_t argumentCount);
+  void commandRadio(const Command &command);
+  void commandEcho(const Command &command);
+  void commandRun(const Command &command);
+  void commandWifi(const Command &command);
+  void commandResend();
   bool isRunActive() const;
   void requestRadioSettings(const RadioSettings &settings);
   void applyRadioSettings(const RadioSettings &settings);
@@ -109,6 +112,15 @@ private:
   WirelessTransport wireless_;
   Console console_;
   DebugDisplay display_;
+
+  SimpleCLI commandInterpreter_;
+  Command helpCommand_;
+  Command statusCommand_;
+  Command radioCommand_;
+  Command echoCommand_;
+  Command runCommand_;
+  Command wifiCommand_;
+  Command resendCommand_;
 
   OutgoingFrame queue_[TRANSMIT_QUEUE_CAPACITY] = {};
   size_t queueHead_ = 0;

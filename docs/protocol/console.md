@@ -22,7 +22,7 @@ Todos los eventos tienen estos dos campos:
 | `ev` | texto | Nombre del evento |
 
 - Los identificadores de nodo van como texto de cuatro dígitos hexadecimales en mayúscula, por ejemplo `"3A7F"`.
-- El RSSI va en dBm con un decimal y la SNR en dB con dos decimales.
+- El RSSI va en dBm, redondeado a un decimal, y la SNR en dB, redondeada a dos. Un valor entero se escribe sin decimales, por ejemplo `-35`.
 - Las frecuencias van en MHz y los anchos de banda en kHz.
 - Las duraciones van en microsegundos, como enteros, salvo que se indique otra unidad.
 - `ferr` es el error de frecuencia estimado de un paquete recibido, en Hz.

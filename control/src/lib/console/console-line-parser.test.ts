@@ -26,6 +26,14 @@ function eventOf(line: string): ConsoleEvent {
   return parsed.event;
 }
 
+function problemOf(line: string): string {
+  const parsed = parseConsoleLine(line);
+  if (parsed.kind !== "unrecognized") {
+    throw new Error(`not an unrecognized object: ${line} (${parsed.kind})`);
+  }
+  return parsed.problem;
+}
+
 describe("parseConsoleLine with recorded sessions", () => {
   it("recognizes every event the firmware emits", () => {
     const events = eventsOf([
@@ -118,30 +126,84 @@ describe("parseConsoleLine", () => {
     });
   });
 
-  it("reports missing and invalid fields", () => {
+  it("describes the first missing or invalid field for the operator", () => {
+    expect(problemOf('{"t":1,"ev":"wifi","state":"on","ssid":"J5-3A7F","channel":1}')).toBe(
+      "falta el campo clients",
+    );
     expect(
-      parseConsoleLine('{"t":1,"ev":"wifi","state":"on","ssid":"J5-3A7F","channel":1}'),
-    ).toMatchObject({
-      kind: "unrecognized",
-      problem: "falta el campo clients",
-    });
-    expect(
-      parseConsoleLine(
+      problemOf(
         '{"t":1,"ev":"status","id":"3a7f","model":"V4.3","epoch":1,"tx":0,"rx":0,"dropped":0,"heap":1}',
       ),
-    ).toMatchObject({ kind: "unrecognized" });
-    expect(parseConsoleLine('{"ev":"boot"}')).toMatchObject({
-      kind: "unrecognized",
-      problem: "falta el campo t o no es un número",
-    });
+    ).toBe("el campo id debería ser un identificador de cuatro dígitos hexadecimales en mayúscula");
     expect(
-      parseConsoleLine(
+      problemOf(
+        '{"t":1,"ev":"boot","id":"3A7F","model":"V3","epoch":1,"firmware":"0.1.0","protocol":1,"key":"default"}',
+      ),
+    ).toBe('el campo model debería ser "V2" o "V4.3"');
+    expect(
+      problemOf(
+        '{"t":1,"ev":"radio","freq":915.9,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":4,"lna":"off"}',
+      ),
+    ).toBe('el campo lna debería ser "on", "bypass" o null');
+    expect(
+      problemOf(
+        '{"t":1,"ev":"run_done","run":3,"count":10,"sent":10,"duration":999,"aborted":"no"}',
+      ),
+    ).toBe("el campo aborted debería ser true o false");
+    expect(problemOf('{"t":"1","ev":"echo_lost","dst":"5C21","n":2,"size":16,"timeout":1}')).toBe(
+      "el campo t debería ser un número",
+    );
+  });
+
+  it("names the element of a list that is invalid", () => {
+    expect(
+      problemOf(
+        '{"t":1,"ev":"hello","src":"5C21","epoch":7,"seq":3,"model":"V2","version":0,"tx":3,"rssi":-47.5,"snr":9.75,"ferr":-1220,"neighbors":[{"id":"3A7F","rssi":-46,"snr":9.5},{"id":"9B04","rssi":"-101","snr":-7.25}]}',
+      ),
+    ).toBe("el campo neighbors[1].rssi debería ser un número");
+  });
+
+  it("reports a missing header or event name", () => {
+    expect(problemOf('{"ev":"boot"}')).toBe("falta el campo t");
+    expect(problemOf('{"t":1}')).toBe("falta el campo ev o no es un texto");
+    expect(problemOf('{"t":1,"ev":7}')).toBe("falta el campo ev o no es un texto");
+  });
+
+  it("requires the run and index of a test transmission", () => {
+    expect(
+      problemOf(
         '{"t":1,"ev":"tx","type":"test","dst":"FFFF","seq":1,"size":24,"toa":1,"toa_calc":1}',
       ),
-    ).toMatchObject({
-      kind: "unrecognized",
-      problem: "una transmisión de tipo test debe incluir run e index",
-    });
+    ).toBe("una transmisión de tipo test debe incluir run e index");
+    expect(
+      eventOf(
+        '{"t":1,"ev":"tx","type":"hello","dst":"FFFF","seq":1,"size":30,"toa":1,"toa_calc":1}',
+      ),
+    ).not.toHaveProperty("run");
+  });
+
+  it("accepts whole numbers written without decimals, as ArduinoJson writes them", () => {
+    expect(
+      eventOf(
+        '{"t":813,"ev":"radio","freq":916,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}',
+      ),
+    ).toMatchObject({ freq: 916, chip: -9 });
+    expect(
+      eventOf(
+        '{"t":51102,"ev":"test_rx","src":"5C21","run":3,"index":0,"count":10,"size":239,"rssi":-38,"snr":10,"ferr":-1180}',
+      ),
+    ).toMatchObject({ rssi: -38, snr: 10 });
+    expect(
+      eventOf(
+        '{"t":9,"ev":"run_end","src":"5C21","run":6,"count":5,"received":5,"pdr":1,"rssi_avg":-52,"rssi_min":-53,"rssi_max":-52,"snr_avg":7,"first":0,"last":4,"reason":"complete"}',
+      ),
+    ).toMatchObject({ pdr: 1, rssi_avg: -52, snr_avg: 7 });
+  });
+
+  it("refuses numbers that are not finite", () => {
+    expect(
+      problemOf('{"t":1,"ev":"drop","reason":"crc","size":30,"rssi":-1e999,"snr":-14.25}'),
+    ).toBe("el campo rssi debería ser un número");
   });
 
   it("accepts error reasons a newer firmware may add", () => {

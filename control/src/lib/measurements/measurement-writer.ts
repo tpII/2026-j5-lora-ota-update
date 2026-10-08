@@ -24,7 +24,7 @@ export interface ExportOutcome {
 const DIRECTORY_PICKER_IDENTIFIER = "j5-measurements";
 
 export function isDirectoryPickerAvailable(): boolean {
-  return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
+  return typeof window !== "undefined" && "showDirectoryPicker" in window;
 }
 
 /** True when the operator dismissed a picker, which is not an error. */
@@ -37,11 +37,13 @@ export async function writeMeasurementToDirectory(
   localDate: string,
   test: MeasurementTest,
 ): Promise<ExportOutcome> {
-  const picker = window.showDirectoryPicker;
-  if (picker === undefined) {
+  if (!isDirectoryPickerAvailable()) {
     throw new Error("Este navegador no permite elegir carpetas.");
   }
-  const parent = await picker({ id: DIRECTORY_PICKER_IDENTIFIER, mode: "readwrite" });
+  const parent = await window.showDirectoryPicker({
+    id: DIRECTORY_PICKER_IDENTIFIER,
+    mode: "readwrite",
+  });
   const existingNames: string[] = [];
   for await (const name of parent.keys()) {
     existingNames.push(name);

@@ -1,8 +1,13 @@
 #include "console.h"
 
+#include <Arduino.h>
+#include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 namespace firmware {
+
+static constexpr size_t EVENT_LINE_CAPACITY = 1024;
 
 void Console::begin(SerialTransport &serial, WirelessTransport &wireless) {
   serial_ = &serial;
@@ -17,24 +22,48 @@ bool Console::readCommand(char *buffer, size_t capacity, bool &overflowed) {
   return wireless_->readLine(buffer, capacity, overflowed);
 }
 
-void Console::writeEvent(EventWriter &event) { writeLine(event.finish()); }
+JsonDocument &Console::beginEvent(const char *name) {
+  event_.clear();
+  event_["t"] = millis();
+  event_["ev"] = name;
+  return event_;
+}
+
+void Console::writeEvent() {
+  char line[EVENT_LINE_CAPACITY];
+  if (measureJson(event_) >= sizeof(line)) {
+    ++droppedLines_;
+    return;
+  }
+  writeLine(line, serializeJson(event_, line, sizeof(line)));
+}
 
 void Console::writeDebug(const char *text) {
   // A debug line must never look like an event.
   if (text[0] == '{') {
     return;
   }
-  writeLine(text);
+  writeLine(text, strlen(text));
 }
 
-void Console::writeLine(const char *line) {
-  const size_t length = strlen(line);
+void Console::writeLine(const char *line, size_t length) {
   if (!serial_->writeLine(line, length)) {
     ++droppedLines_;
   }
   if (!wireless_->writeLine(line, length)) {
     ++droppedLines_;
   }
+}
+
+double roundToDecimals(double value, int decimals) {
+  const double scale = pow(10.0, decimals);
+  return round(value * scale) / scale;
+}
+
+void setNodeId(JsonVariant field, uint16_t id) {
+  char text[5];
+  snprintf(text, sizeof(text), "%04X", static_cast<unsigned>(id));
+  field.set(text);
 }
 
 } // namespace firmware

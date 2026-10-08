@@ -1,17 +1,17 @@
 #ifndef J5_CONSOLE_H
 #define J5_CONSOLE_H
 
+#include <ArduinoJson.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "event_writer.h"
 #include "serial_transport.h"
 #include "wireless_transport.h"
 
 namespace firmware {
 
 // The node console (docs/protocol/console.md): the same lines over every transport. Events are
-// JSON lines; any other line is debug text for people.
+// JSON lines built with ArduinoJson; any other line is debug text for people.
 class Console {
 public:
   void begin(SerialTransport &serial, WirelessTransport &wireless);
@@ -19,19 +19,29 @@ public:
   // Returns true when a command line arrived from any transport.
   bool readCommand(char *buffer, size_t capacity, bool &overflowed);
 
-  void writeEvent(EventWriter &event);
+  // Starts an event: clears the shared document and fills the common fields "t" and "ev". The
+  // caller adds its own fields and then calls writeEvent().
+  JsonDocument &beginEvent(const char *name);
+  void writeEvent();
   void writeDebug(const char *text);
 
   // Lines dropped on any transport because its output buffer was full.
   uint32_t droppedLineCount() const { return droppedLines_; }
 
 private:
-  void writeLine(const char *line);
+  void writeLine(const char *line, size_t length);
 
   SerialTransport *serial_ = nullptr;
   WirelessTransport *wireless_ = nullptr;
+  JsonDocument event_;
   uint32_t droppedLines_ = 0;
 };
+
+// Rounds a measurement to the decimals the contract asks for, so it prints without noise.
+double roundToDecimals(double value, int decimals);
+
+// Writes a node identifier as four uppercase hexadecimal digits, for example "3A7F".
+void setNodeId(JsonVariant field, uint16_t id);
 
 } // namespace firmware
 

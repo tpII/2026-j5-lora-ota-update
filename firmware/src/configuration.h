@@ -38,7 +38,6 @@ constexpr size_t MAXIMUM_TRACKED_SOURCES = 16;
 constexpr size_t MAXIMUM_RECEIVER_RUNS = 4;
 constexpr size_t TRANSMIT_QUEUE_CAPACITY = 4;
 
-constexpr uint16_t DEFAULT_ECHO_SIZE = 16;
 constexpr uint16_t MINIMUM_ECHO_SIZE = 4;
 constexpr uint16_t MINIMUM_TEST_SIZE = 8;
 constexpr uint32_t MAXIMUM_RUN_INTERVAL_MS = 60000;

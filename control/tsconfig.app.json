@@ -4,7 +4,7 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "es2023",
     "module": "esnext",
-    "types": ["svelte", "vite/client"],
+    "types": ["svelte", "vite/client", "w3c-web-serial", "wicg-file-system-access"],
     "allowArbitraryExtensions": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
@@ -24,5 +24,7 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true
   },
-  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"]
+  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"],
+  // The service worker runs in another global scope; tsconfig.worker.json checks it.
+  "exclude": ["src/service-worker.ts"]
 }

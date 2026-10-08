@@ -18,10 +18,19 @@ vp build          # compila la versión de producción en dist/
 vp preview        # sirve dist/ para probarla
 vp test           # corre las pruebas
 vp check          # revisa formato, lint y tipos del código TypeScript
-vp run typecheck  # revisa los tipos de los componentes Svelte con svelte-check
+vp run typecheck  # revisa los tipos de los componentes Svelte, de vite.config.ts y del service worker
 ```
 
 El service worker solo se registra en la versión de producción, así que el funcionamiento sin red se prueba con `vp build` y `vp preview`.
+
+## Funcionamiento sin red
+
+El panel tiene que abrir aunque la computadora esté asociada al punto de acceso de un nodo y no tenga internet. El service worker de `src/service-worker.ts` usa Workbox:
+
+- Al instalarse guarda la página, los archivos de `assets/`, el manifiesto y los íconos de esa compilación. vite-plugin-pwa escribe esa lista en el service worker al compilarlo.
+- Cada navegación va primero a la red, con un plazo de 3 s. Si la red falla o no responde a tiempo, entrega la página guardada. Así, siempre que el servidor esté al alcance, el panel muestra la última versión.
+- Los demás archivos guardados salen de la caché. Una compilación nueva trae otro service worker, que reemplaza todo lo guardado la primera vez que el panel se abre con red.
+- Las conexiones WebSocket y los pedidos a otros orígenes no pasan por el service worker.
 
 ## Secciones
 
@@ -41,8 +50,7 @@ src/
 ├── main.ts                          punto de entrada
 ├── App.svelte                       raíz de la interfaz, con las pestañas
 ├── app.css                          estilos globales y Tailwind
-├── service-worker-registration.ts   registro del service worker
-├── types/                           declaraciones de Web Serial y File System Access
+├── service-worker.ts                service worker, que compila vite-plugin-pwa
 └── lib/                             el resto del código, importado con el alias $lib
     ├── components/                  componentes Svelte; sections/ tiene uno por pestaña
     ├── state/                       estado reactivo de la aplicación (.svelte.ts)
@@ -53,16 +61,24 @@ src/
     ├── measurements/                corridas, prueba de capacidad, eco y exportación
     ├── utils/                       formato de valores, textos de la interfaz y utilidades
     └── testing/                     sesiones grabadas y nodo simulado para las pruebas
-public/                              manifiesto, íconos y service worker
+public/                              íconos
 ```
 
-La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al lado (`*.test.ts`); los componentes solo presentan el estado. `$lib` apunta a `src/lib/`, como en SvelteKit, y está declarado en `vite.config.ts` y en `tsconfig.app.json`.
+La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al lado (`*.test.ts`); los componentes solo presentan el estado. `$lib` apunta a `src/lib/`, como en SvelteKit, y está declarado en `vite.config.ts` y en `tsconfig.app.json`. El service worker corre en otro ámbito global, así que no lo revisa `tsconfig.app.json` sino `tsconfig.worker.json`, con los tipos de WebWorker.
+
+## Dependencias
+
+- Svelte 5 para la interfaz y Tailwind 4 para los estilos.
+- Zod describe cada evento de la consola una sola vez, como esquema, en `lib/console/console-event.ts`; los tipos de TypeScript se infieren de esos esquemas. El panel importa la variante `zod/mini`, de la que el empaquetador conserva solo lo que se usa.
+- vite-plugin-pwa y Workbox generan el manifiesto y el service worker. El manifiesto está en `vite.config.ts`.
+- `@types/w3c-web-serial` y `@types/wicg-file-system-access` declaran Web Serial y el selector de carpetas de File System Access, que la biblioteca DOM de TypeScript todavía no incluye. `tsconfig.app.json` los incluye en `types`.
 
 ## Criterios ante huecos del contrato
 
 - Un receptor que no oye ningún paquete de una corrida nunca la abre, así que no emite `run_end`. Si ese nodo estaba conectado al panel y escuchaba en el canal del emisor, el panel cierra la recepción con cero paquetes, PDR 0 y motivo `timeout` una vez que vence el plazo del receptor. La prueba de capacidad hace lo mismo al terminar cada punto.
 - El firmware escribe `null` en `rssi_avg`, `rssi_min`, `rssi_max` y `snr_avg` de `run_end` cuando no hay paquetes; el panel lo acepta y deja vacías esas columnas de `summary.csv`.
-- Una línea que empieza con `{` pero no es JSON válido se toma como texto de depuración. Un objeto JSON con un evento desconocido o con campos inválidos se muestra como objeto no reconocido y se exporta igual. Los motivos de `error` que el panel no conoce se aceptan.
+- Una línea que empieza con `{` pero no es JSON válido se toma como texto de depuración. Un objeto JSON con un evento desconocido o con campos inválidos se muestra como objeto no reconocido, con la descripción del primer campo que no cumple el contrato, y se exporta igual. Los motivos de `error` que el panel no conoce se aceptan.
+- Los campos numéricos aceptan cualquier número finito, con decimales o sin ellos: el firmware escribe un valor entero sin decimales, por ejemplo `-35`. Un campo opcional que llega en `null` se toma como ausente.
 - Cada línea de `events.jsonl` es el texto exacto que emitió el firmware con `node` y `host_time` agregados al final.
 - En `metadata.json`, `operators` es un texto libre y `date` lleva el desplazamiento horario de la computadora.
 - El número `<NN>` de una exportación es el siguiente al mayor que ya existe para esa fecha y esa prueba.

@@ -5,6 +5,8 @@
  */
 import {
   BROADCAST_IDENTIFIER,
+  lnaModeSchema,
+  nodeIdentifierSchema,
   type BoardModel,
   type LnaMode,
   type WifiState,
@@ -148,7 +150,7 @@ export function validateRadioSettingChanges(
   if (lna !== undefined) {
     if (model !== null && !hasLowNoiseAmplifier(model)) {
       problems.push({ field: "lna", message: "El LNA solo existe en la V4.3." });
-    } else if (lna !== "on" && lna !== "bypass") {
+    } else if (!lnaModeSchema.safeParse(lna).success) {
       problems.push({ field: "lna", message: "El LNA admite on o bypass." });
     }
   }
@@ -187,14 +189,12 @@ export function buildRadioSetCommand(
   return accept(`radio ${pairs.join(" ")}`);
 }
 
-const NODE_IDENTIFIER_PATTERN = /^[0-9A-F]{4}$/;
-
 /** `echo <id> [size]`: asks node `destination` for an echo with a body of `size` bytes. */
 export function buildEchoCommand(destination: string, size?: number): CommandResult {
   const problems: CommandProblem[] = [];
   const identifier = destination.trim().toUpperCase();
   if (
-    !NODE_IDENTIFIER_PATTERN.test(identifier) ||
+    !nodeIdentifierSchema.safeParse(identifier).success ||
     identifier === "0000" ||
     identifier === BROADCAST_IDENTIFIER
   ) {

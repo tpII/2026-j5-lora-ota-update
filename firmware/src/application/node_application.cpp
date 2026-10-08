@@ -10,16 +10,14 @@
 #include <string.h>
 
 #include "../configuration.h"
-#include "../console/event_writer.h"
 #include "../network/byte_order.h"
 #include "../radio/time_on_air.h"
 
 namespace firmware {
 
-static constexpr size_t MAXIMUM_COMMAND_TOKENS = 18;
-static constexpr size_t COMMAND_TOKEN_OVERFLOW = MAXIMUM_COMMAND_TOKENS + 1;
 static constexpr size_t DEBUG_TEXT_CAPACITY = 64;
 static constexpr size_t ERROR_DETAIL_CAPACITY = 48;
+static constexpr size_t COMMAND_WORD_CAPACITY = 16;
 static constexpr uint32_t NEIGHBOR_EXPIRY_CHECK_MS = 1000;
 static constexpr int MAXIMUM_COMMANDS_PER_POLL = 2;
 
@@ -28,19 +26,6 @@ namespace {
 enum class NumberParse : uint8_t { Valid, Invalid, OutOfRange };
 
 } // namespace
-
-static size_t tokenize(char *line, char **tokens) {
-  size_t count = 0;
-  char *context = nullptr;
-  for (char *token = strtok_r(line, " \t", &context); token != nullptr;
-       token = strtok_r(nullptr, " \t", &context)) {
-    if (count == MAXIMUM_COMMAND_TOKENS) {
-      return COMMAND_TOKEN_OVERFLOW;
-    }
-    tokens[count++] = token;
-  }
-  return count;
-}
 
 static NumberParse parseUnsigned(const char *text, unsigned long minimum, unsigned long maximum,
                                  unsigned long &value) {
@@ -70,12 +55,26 @@ static bool parseNodeId(const char *text, uint16_t &id) {
   return true;
 }
 
+static void copyFirstWord(const char *line, char *word, size_t capacity) {
+  while (*line == ' ' || *line == '\t') {
+    ++line;
+  }
+  size_t length = 0;
+  while (line[length] != '\0' && line[length] != ' ' && line[length] != '\t' &&
+         length + 1 < capacity) {
+    word[length] = line[length];
+    ++length;
+  }
+  word[length] = '\0';
+}
+
 static uint32_t roundUpToMillis(uint32_t micros) { return (micros + 999) / 1000; }
 
 // ---------------------------------------------------------------------------------------------
 // Start and main loop
 
 void NodeApplication::begin() {
+  registerCommands();
   board_.begin();
   serial_.begin(CONSOLE_BAUD_RATE);
   console_.begin(serial_, wireless_);
@@ -198,13 +197,13 @@ void NodeApplication::onTransmitStarted(uint32_t nowMillis) {
     if (echoReply_.pending) {
       // The reply is already on the air, so writing the event does not delay it.
       echoReply_.pending = false;
-      EventWriter event("echo_served");
-      event.nodeId("src", echoReply_.source)
-          .unsignedInteger("n", echoReply_.number)
-          .unsignedInteger("size", echoReply_.size)
-          .decimal("rssi", echoReply_.rssi, 1)
-          .decimal("snr", echoReply_.snr, 2);
-      console_.writeEvent(event);
+      JsonDocument &event = console_.beginEvent("echo_served");
+      setNodeId(event["src"], echoReply_.source);
+      event["n"] = echoReply_.number;
+      event["size"] = echoReply_.size;
+      event["rssi"] = roundToDecimals(echoReply_.rssi, 1);
+      event["snr"] = roundToDecimals(echoReply_.snr, 2);
+      console_.writeEvent();
     }
     break;
   case MessageType::Hello:
@@ -226,20 +225,21 @@ void NodeApplication::onTransmitDone(uint32_t nowMillis) {
   const uint32_t measured = radio_.measuredTimeOnAirMicros();
   const bool isTest = header.type == static_cast<uint8_t>(MessageType::Test);
 
-  EventWriter event("tx");
-  event.text("type", messageTypeName(header.type))
-      .nodeId("dst", header.destination)
-      .unsignedInteger("seq", header.sequence)
-      .unsignedInteger("size", inFlight_.length)
-      .unsignedInteger("toa", measured)
-      .unsignedInteger("toa_calc", computeTimeOnAirMicros(inFlight_.length, radio_.settings()));
+  JsonDocument &event = console_.beginEvent("tx");
+  event["type"] = messageTypeName(header.type);
+  setNodeId(event["dst"], header.destination);
+  event["seq"] = header.sequence;
+  event["size"] = inFlight_.length;
+  event["toa"] = measured;
+  event["toa_calc"] = computeTimeOnAirMicros(inFlight_.length, radio_.settings());
   if (isTest) {
     TestFields fields{};
     TestRunService::decodePayload(inFlight_.data + FRAME_HEADER_SIZE,
                                   inFlight_.length - FRAME_OVERHEAD, fields);
-    event.unsignedInteger("run", fields.run).unsignedInteger("index", fields.index);
+    event["run"] = fields.run;
+    event["index"] = fields.index;
   }
-  console_.writeEvent(event);
+  console_.writeEvent();
 
   if (isTest && runs_.isSending() && runs_.sender().frameInFlight) {
     const int64_t endMicros = radio_.transmitStartMicros() + measured;
@@ -276,22 +276,22 @@ void NodeApplication::onFrameReceived(const ReceivedFrame &frame, uint32_t nowMi
     return;
   }
   if (header.source == identity_.nodeId()) {
-    EventWriter event("id_conflict");
-    event.unsignedInteger("epoch", header.epoch)
-        .unsignedInteger("seq", header.sequence)
-        .decimal("rssi", frame.rssi, 1)
-        .decimal("snr", frame.snr, 2);
-    console_.writeEvent(event);
+    JsonDocument &event = console_.beginEvent("id_conflict");
+    event["epoch"] = header.epoch;
+    event["seq"] = header.sequence;
+    event["rssi"] = roundToDecimals(frame.rssi, 1);
+    event["snr"] = roundToDecimals(frame.snr, 2);
+    console_.writeEvent();
     debug("id conflict");
     return;
   }
   if (!duplicates_.acceptIfNew(header.source, header.epoch, header.sequence, nowMillis)) {
-    EventWriter event("duplicate");
-    event.nodeId("src", header.source)
-        .unsignedInteger("epoch", header.epoch)
-        .unsignedInteger("seq", header.sequence)
-        .text("type", messageTypeName(header.type));
-    console_.writeEvent(event);
+    JsonDocument &event = console_.beginEvent("duplicate");
+    setNodeId(event["src"], header.source);
+    event["epoch"] = header.epoch;
+    event["seq"] = header.sequence;
+    event["type"] = messageTypeName(header.type);
+    console_.writeEvent();
     return;
   }
 
@@ -340,27 +340,25 @@ void NodeApplication::handleHello(const FrameHeader &header, const uint8_t *payl
   PresenceService::decodePayload(payload, length, content);
   neighbors_.recordHello(header.source, content.model, content.version, content.transmitted);
 
-  EventWriter event("hello");
-  event.nodeId("src", header.source)
-      .unsignedInteger("epoch", header.epoch)
-      .unsignedInteger("seq", header.sequence)
-      .text("model", boardModelName(content.model))
-      .unsignedInteger("version", content.version)
-      .unsignedInteger("tx", content.transmitted)
-      .decimal("rssi", frame.rssi, 1)
-      .decimal("snr", frame.snr, 2)
-      .decimal("ferr", frame.frequencyError, 0)
-      .beginArray("neighbors");
+  JsonDocument &event = console_.beginEvent("hello");
+  setNodeId(event["src"], header.source);
+  event["epoch"] = header.epoch;
+  event["seq"] = header.sequence;
+  event["model"] = boardModelName(content.model);
+  event["version"] = content.version;
+  event["tx"] = content.transmitted;
+  event["rssi"] = roundToDecimals(frame.rssi, 1);
+  event["snr"] = roundToDecimals(frame.snr, 2);
+  event["ferr"] = lroundf(frame.frequencyError);
+  JsonArray neighbors = event["neighbors"].to<JsonArray>();
   for (uint8_t index = 0; index < content.neighborCount; ++index) {
     const HelloNeighborEntry &entry = content.neighbors[index];
-    event.beginObject()
-        .nodeId("id", entry.id)
-        .decimal("rssi", entry.rssi, 1)
-        .decimal("snr", entry.snr, 2)
-        .endObject();
+    JsonObject neighbor = neighbors.add<JsonObject>();
+    setNodeId(neighbor["id"], entry.id);
+    neighbor["rssi"] = entry.rssi;
+    neighbor["snr"] = roundToDecimals(entry.snr, 2);
   }
-  event.endArray();
-  console_.writeEvent(event);
+  console_.writeEvent();
   debug("hello %04X %.0f dBm", header.source, frame.rssi);
 }
 
@@ -392,16 +390,16 @@ void NodeApplication::handleEchoReply(const FrameHeader &header, const uint8_t *
   EchoService::decodeReplyQuality(payload, remoteRssi, remoteSnr);
   const int64_t roundTripMicros = frame.receivedAtMicros - echo_.startMicros();
 
-  EventWriter event("echo");
-  event.nodeId("dst", header.source)
-      .unsignedInteger("n", number)
-      .unsignedInteger("size", length)
-      .wideInteger("rtt", roundTripMicros)
-      .decimal("rssi", frame.rssi, 1)
-      .decimal("snr", frame.snr, 2)
-      .decimal("remote_rssi", remoteRssi, 1)
-      .decimal("remote_snr", remoteSnr, 2);
-  console_.writeEvent(event);
+  JsonDocument &event = console_.beginEvent("echo");
+  setNodeId(event["dst"], header.source);
+  event["n"] = number;
+  event["size"] = length;
+  event["rtt"] = roundTripMicros;
+  event["rssi"] = roundToDecimals(frame.rssi, 1);
+  event["snr"] = roundToDecimals(frame.snr, 2);
+  event["remote_rssi"] = roundToDecimals(remoteRssi, 1);
+  event["remote_snr"] = roundToDecimals(remoteSnr, 2);
+  console_.writeEvent();
   echo_.clear();
   debug("echo %04X %.1f ms", header.source, roundTripMicros / 1000.0);
 }
@@ -425,16 +423,16 @@ void NodeApplication::handleTestFrame(const FrameHeader &header, const uint8_t *
   ReceiverRun *run = runs_.recordTestFrame(header.source, fields, frame.rssi, frame.snr, nowMillis,
                                            timeOnAirMillis, opened, completed);
 
-  EventWriter event("test_rx");
-  event.nodeId("src", header.source)
-      .unsignedInteger("run", fields.run)
-      .unsignedInteger("index", fields.index)
-      .unsignedInteger("count", fields.count)
-      .unsignedInteger("size", length)
-      .decimal("rssi", frame.rssi, 1)
-      .decimal("snr", frame.snr, 2)
-      .decimal("ferr", frame.frequencyError, 0);
-  console_.writeEvent(event);
+  JsonDocument &event = console_.beginEvent("test_rx");
+  setNodeId(event["src"], header.source);
+  event["run"] = fields.run;
+  event["index"] = fields.index;
+  event["count"] = fields.count;
+  event["size"] = length;
+  event["rssi"] = roundToDecimals(frame.rssi, 1);
+  event["snr"] = roundToDecimals(frame.snr, 2);
+  event["ferr"] = lroundf(frame.frequencyError);
+  console_.writeEvent();
 
   if (run == nullptr) {
     return;
@@ -521,6 +519,31 @@ void NodeApplication::enqueueTestFrame() {
 // ---------------------------------------------------------------------------------------------
 // Console
 
+void NodeApplication::registerCommands() {
+  // The description of each command is its usage: the help lists it and usage errors carry it.
+  helpCommand_ = commandInterpreter_.addCommand("help");
+  helpCommand_.setDescription("help");
+  statusCommand_ = commandInterpreter_.addCommand("status");
+  statusCommand_.setDescription("status");
+  radioCommand_ = commandInterpreter_.addBoundlessCommand("radio");
+  radioCommand_.setDescription(
+      "radio | radio reset | radio <key> <value> ... (freq sf bw cr preamble sync power lna)");
+  echoCommand_ = commandInterpreter_.addCommand("echo");
+  echoCommand_.addPositionalArgument("id");
+  echoCommand_.addPositionalArgument("size", "16");
+  echoCommand_.setDescription("echo <id> [size]");
+  runCommand_ = commandInterpreter_.addCommand("run");
+  runCommand_.addPositionalArgument("count");
+  runCommand_.addPositionalArgument("size", "");
+  runCommand_.addPositionalArgument("interval", "");
+  runCommand_.setDescription("run <count> <size> <interval_ms> | run stop");
+  wifiCommand_ = commandInterpreter_.addCommand("wifi");
+  wifiCommand_.addPositionalArgument("state");
+  wifiCommand_.setDescription("wifi on|off");
+  resendCommand_ = commandInterpreter_.addCommand("resend");
+  resendCommand_.setDescription("resend");
+}
+
 void NodeApplication::serviceConsole() {
   char line[CONSOLE_LINE_CAPACITY + 1];
   bool overflowed = false;
@@ -529,95 +552,98 @@ void NodeApplication::serviceConsole() {
       return;
     }
     if (overflowed) {
-      char *tokens[MAXIMUM_COMMAND_TOKENS];
-      const size_t count = tokenize(line, tokens);
-      emitError(count > 0 && count != COMMAND_TOKEN_OVERFLOW ? tokens[0] : "", "line_too_long");
+      char word[COMMAND_WORD_CAPACITY];
+      copyFirstWord(line, word, sizeof(word));
+      emitError(word, "line_too_long");
       continue;
     }
     executeCommand(line);
   }
 }
 
-void NodeApplication::executeCommand(char *line) {
-  char *tokens[MAXIMUM_COMMAND_TOKENS];
-  const size_t count = tokenize(line, tokens);
-  if (count == 0) {
-    return;
+void NodeApplication::executeCommand(const char *line) {
+  commandInterpreter_.parse(line);
+  while (commandInterpreter_.errored()) {
+    reportCommandError(commandInterpreter_.getError(), line);
   }
-  if (count == COMMAND_TOKEN_OVERFLOW) {
-    emitError(tokens[0], "usage", "too many arguments");
-    return;
+  while (commandInterpreter_.available()) {
+    const Command command = commandInterpreter_.getCmd();
+    if (command == helpCommand_) {
+      commandHelp();
+    } else if (command == statusCommand_) {
+      commandStatus();
+    } else if (command == radioCommand_) {
+      commandRadio(command);
+    } else if (command == echoCommand_) {
+      commandEcho(command);
+    } else if (command == runCommand_) {
+      commandRun(command);
+    } else if (command == wifiCommand_) {
+      commandWifi(command);
+    } else if (command == resendCommand_) {
+      commandResend();
+    }
   }
-  const char *command = tokens[0];
-  if (strcmp(command, "help") == 0) {
-    commandHelp();
-  } else if (strcmp(command, "status") == 0) {
-    commandStatus();
-  } else if (strcmp(command, "radio") == 0) {
-    commandRadio(count, tokens);
-  } else if (strcmp(command, "echo") == 0) {
-    commandEcho(count, tokens);
-  } else if (strcmp(command, "run") == 0) {
-    commandRun(count, tokens);
-  } else if (strcmp(command, "wifi") == 0) {
-    commandWifi(count, tokens);
-  } else if (strcmp(command, "resend") == 0) {
-    commandResend(count);
-  } else {
-    emitError(command, "unknown_command");
+}
+
+void NodeApplication::reportCommandError(const CommandError &error, const char *line) {
+  char word[COMMAND_WORD_CAPACITY];
+  copyFirstWord(line, word, sizeof(word));
+  switch (error.getType()) {
+  case CommandErrorType::EMPTY_LINE:
+  case CommandErrorType::PARSE_SUCCESSFUL:
+    return;
+  case CommandErrorType::COMMAND_NOT_FOUND:
+    emitError(word, "unknown_command");
+    return;
+  default:
+    emitError(word, "usage", error.getCommand().getDescription().c_str());
+    return;
   }
 }
 
 void NodeApplication::commandHelp() {
-  static const char *const lines[] = {
-      "commands:",
-      "  help",
-      "  status",
-      "  radio",
-      "  radio <key> <value> [<key> <value> ...]",
-      "    keys: freq sf bw cr preamble sync power lna",
-      "  radio reset",
-      "  echo <id> [size]",
-      "  run <count> <size> <interval_ms>",
-      "  run stop",
-      "  wifi on|off",
-      "  resend",
-  };
-  for (const char *text : lines) {
-    console_.writeDebug(text);
+  const Command *const commands[] = {&helpCommand_, &statusCommand_, &radioCommand_, &echoCommand_,
+                                     &runCommand_,  &wifiCommand_,   &resendCommand_};
+  console_.writeDebug("commands:");
+  for (const Command *command : commands) {
+    String usage = "  ";
+    usage += command->getDescription();
+    console_.writeDebug(usage.c_str());
   }
 }
 
 void NodeApplication::commandStatus() {
-  EventWriter status("status");
-  status.nodeId("id", identity_.nodeId())
-      .text("model", board_.modelName())
-      .unsignedInteger("epoch", identity_.epoch())
-      .unsignedInteger("tx", transmittedCount_)
-      .unsignedInteger("rx", receivedCount_)
-      .unsignedInteger("dropped", console_.droppedLineCount())
-      .unsignedInteger("heap", ESP.getFreeHeap());
-  console_.writeEvent(status);
+  JsonDocument &status = console_.beginEvent("status");
+  setNodeId(status["id"], identity_.nodeId());
+  status["model"] = board_.modelName();
+  status["epoch"] = identity_.epoch();
+  status["tx"] = transmittedCount_;
+  status["rx"] = receivedCount_;
+  status["dropped"] = console_.droppedLineCount();
+  status["heap"] = ESP.getFreeHeap();
+  console_.writeEvent();
   emitRadio();
   emitWifi();
 
   const uint32_t now = millis();
   for (size_t index = 0; index < neighbors_.count(); ++index) {
     const Neighbor &neighbor = neighbors_.at(index);
-    EventWriter event("neighbor");
-    event.nodeId("id", neighbor.id)
-        .text("model", boardModelName(neighbor.model))
-        .unsignedInteger("version", neighbor.version)
-        .unsignedInteger("tx", neighbor.transmitted)
-        .decimal("rssi", neighbor.rssi, 1)
-        .decimal("snr", neighbor.snr, 2)
-        .unsignedInteger("age", now - neighbor.lastHeardMillis);
-    console_.writeEvent(event);
+    JsonDocument &event = console_.beginEvent("neighbor");
+    setNodeId(event["id"], neighbor.id);
+    event["model"] = boardModelName(neighbor.model);
+    event["version"] = neighbor.version;
+    event["tx"] = neighbor.transmitted;
+    event["rssi"] = roundToDecimals(neighbor.rssi, 1);
+    event["snr"] = roundToDecimals(neighbor.snr, 2);
+    event["age"] = now - neighbor.lastHeardMillis;
+    console_.writeEvent();
   }
 }
 
-void NodeApplication::commandRadio(size_t argumentCount, char **arguments) {
-  if (argumentCount == 1) {
+void NodeApplication::commandRadio(const Command &command) {
+  const int argumentCount = command.countArgs();
+  if (argumentCount == 0) {
     emitRadio();
     return;
   }
@@ -629,20 +655,22 @@ void NodeApplication::commandRadio(size_t argumentCount, char **arguments) {
     emitError("radio", "radio_failure", "radio not started");
     return;
   }
-  if (argumentCount == 2 && strcmp(arguments[1], "reset") == 0) {
+  if (argumentCount == 1 && command.getArgument(0).getValue() == "reset") {
     requestRadioSettings(defaultRadioSettings());
     return;
   }
-  if ((argumentCount - 1) % 2 != 0) {
-    emitError("radio", "usage", "radio <key> <value> ...");
+  if (argumentCount % 2 != 0) {
+    emitError("radio", "usage", command.getDescription().c_str());
     return;
   }
 
   RadioSettings candidate = hasPendingSettings_ ? pendingSettings_ : radio_.settings();
   char detail[ERROR_DETAIL_CAPACITY];
-  for (size_t index = 1; index + 1 < argumentCount; index += 2) {
-    const SettingUpdate update = updateRadioSetting(
-        candidate, arguments[index], arguments[index + 1], board_, detail, sizeof(detail));
+  for (int index = 0; index + 1 < argumentCount; index += 2) {
+    const String key = command.getArgument(index).getValue();
+    const String value = command.getArgument(index + 1).getValue();
+    const SettingUpdate update =
+        updateRadioSetting(candidate, key.c_str(), value.c_str(), board_, detail, sizeof(detail));
     if (update != SettingUpdate::Accepted) {
       emitError("radio", settingUpdateReason(update), detail);
       return;
@@ -651,11 +679,7 @@ void NodeApplication::commandRadio(size_t argumentCount, char **arguments) {
   requestRadioSettings(candidate);
 }
 
-void NodeApplication::commandEcho(size_t argumentCount, char **arguments) {
-  if (argumentCount < 2 || argumentCount > 3) {
-    emitError("echo", "usage", "echo <id> [size]");
-    return;
-  }
+void NodeApplication::commandEcho(const Command &command) {
   if (isRunActive() || echo_.isPending()) {
     emitError("echo", "busy");
     return;
@@ -665,22 +689,22 @@ void NodeApplication::commandEcho(size_t argumentCount, char **arguments) {
     return;
   }
   uint16_t destination = 0;
-  if (!parseNodeId(arguments[1], destination) || destination == identity_.nodeId()) {
+  const String id = command.getArgument("id").getValue();
+  if (!parseNodeId(id.c_str(), destination) || destination == identity_.nodeId()) {
     emitError("echo", "usage", "echo <id> [size] with the id of another node");
     return;
   }
-  unsigned long size = DEFAULT_ECHO_SIZE;
-  if (argumentCount == 3) {
-    const NumberParse parse =
-        parseUnsigned(arguments[2], MINIMUM_ECHO_SIZE, MAXIMUM_PAYLOAD_SIZE, size);
-    if (parse == NumberParse::Invalid) {
-      emitError("echo", "usage", "echo <id> [size]");
-      return;
-    }
-    if (parse == NumberParse::OutOfRange) {
-      emitError("echo", "out_of_range", "size 4..239");
-      return;
-    }
+  unsigned long size = 0;
+  const String sizeText = command.getArgument("size").getValue();
+  const NumberParse parse =
+      parseUnsigned(sizeText.c_str(), MINIMUM_ECHO_SIZE, MAXIMUM_PAYLOAD_SIZE, size);
+  if (parse == NumberParse::Invalid) {
+    emitError("echo", "usage", command.getDescription().c_str());
+    return;
+  }
+  if (parse == NumberParse::OutOfRange) {
+    emitError("echo", "out_of_range", "size 4..239");
+    return;
   }
 
   const uint16_t number = ++echoCounter_;
@@ -693,17 +717,16 @@ void NodeApplication::commandEcho(size_t argumentCount, char **arguments) {
   echo_.prepare(destination, number, static_cast<uint16_t>(size), millis());
 }
 
-void NodeApplication::commandRun(size_t argumentCount, char **arguments) {
-  if (argumentCount == 2 && strcmp(arguments[1], "stop") == 0) {
+void NodeApplication::commandRun(const Command &command) {
+  const String countText = command.getArgument("count").getValue();
+  const String sizeText = command.getArgument("size").getValue();
+  const String intervalText = command.getArgument("interval").getValue();
+  if (countText == "stop" && sizeText.length() == 0 && intervalText.length() == 0) {
     if (!runs_.isSending()) {
       emitError("run", "usage", "no run in progress");
       return;
     }
     runs_.requestStop();
-    return;
-  }
-  if (argumentCount != 4) {
-    emitError("run", "usage", "run <count> <size> <interval_ms> | run stop");
     return;
   }
   if (isRunActive() || echo_.isPending()) {
@@ -718,14 +741,14 @@ void NodeApplication::commandRun(size_t argumentCount, char **arguments) {
   unsigned long count = 0;
   unsigned long size = 0;
   unsigned long interval = 0;
-  const NumberParse countParse = parseUnsigned(arguments[1], 1, 65535, count);
+  const NumberParse countParse = parseUnsigned(countText.c_str(), 1, 65535, count);
   const NumberParse sizeParse =
-      parseUnsigned(arguments[2], MINIMUM_TEST_SIZE, MAXIMUM_PAYLOAD_SIZE, size);
+      parseUnsigned(sizeText.c_str(), MINIMUM_TEST_SIZE, MAXIMUM_PAYLOAD_SIZE, size);
   const NumberParse intervalParse =
-      parseUnsigned(arguments[3], 0, MAXIMUM_RUN_INTERVAL_MS, interval);
+      parseUnsigned(intervalText.c_str(), 0, MAXIMUM_RUN_INTERVAL_MS, interval);
   if (countParse == NumberParse::Invalid || sizeParse == NumberParse::Invalid ||
       intervalParse == NumberParse::Invalid) {
-    emitError("run", "usage", "run <count> <size> <interval_ms>");
+    emitError("run", "usage", command.getDescription().c_str());
     return;
   }
   if (countParse == NumberParse::OutOfRange) {
@@ -744,30 +767,27 @@ void NodeApplication::commandRun(size_t argumentCount, char **arguments) {
   const uint32_t now = millis();
   const uint16_t run = runs_.startSending(static_cast<uint16_t>(count), static_cast<uint16_t>(size),
                                           static_cast<uint16_t>(interval), now);
-  EventWriter event("run_start");
-  event.unsignedInteger("run", run)
-      .unsignedInteger("count", count)
-      .unsignedInteger("size", size)
-      .unsignedInteger("interval", interval);
-  console_.writeEvent(event);
+  JsonDocument &event = console_.beginEvent("run_start");
+  event["run"] = run;
+  event["count"] = count;
+  event["size"] = size;
+  event["interval"] = interval;
+  console_.writeEvent();
   debug("run %u start %lux%lu", run, count, size);
   updateSuspension(now);
 }
 
-void NodeApplication::commandWifi(size_t argumentCount, char **arguments) {
-  if (argumentCount != 2) {
-    emitError("wifi", "usage", "wifi on|off");
-    return;
-  }
-  if (strcmp(arguments[1], "on") == 0) {
+void NodeApplication::commandWifi(const Command &command) {
+  const String state = command.getArgument("state").getValue();
+  if (state == "on") {
     if (!wireless_.begin(accessPointName_, J5_ACCESS_POINT_PASSWORD, ACCESS_POINT_CHANNEL,
                          ACCESS_POINT_MAXIMUM_CLIENTS)) {
       emitError("wifi", "wifi_failure", "access point did not start");
     }
-  } else if (strcmp(arguments[1], "off") == 0) {
+  } else if (state == "off") {
     wireless_.end();
   } else {
-    emitError("wifi", "usage", "wifi on|off");
+    emitError("wifi", "usage", command.getDescription().c_str());
     return;
   }
   wireless_.takeClientChange();
@@ -776,11 +796,7 @@ void NodeApplication::commandWifi(size_t argumentCount, char **arguments) {
   updateStatusLine();
 }
 
-void NodeApplication::commandResend(size_t argumentCount) {
-  if (argumentCount != 1) {
-    emitError("resend", "usage", "resend");
-    return;
-  }
+void NodeApplication::commandResend() {
   if (isRunActive()) {
     emitError("resend", "busy");
     return;
@@ -827,12 +843,12 @@ void NodeApplication::applyRadioSettings(const RadioSettings &settings) {
 
 void NodeApplication::serviceTimers(uint32_t nowMillis) {
   if (echo_.isPending() && echo_.hasExpired(nowMillis)) {
-    EventWriter event("echo_lost");
-    event.nodeId("dst", echo_.destination())
-        .unsignedInteger("n", echo_.number())
-        .unsignedInteger("size", echo_.size())
-        .unsignedInteger("timeout", echo_.timeoutMillis());
-    console_.writeEvent(event);
+    JsonDocument &event = console_.beginEvent("echo_lost");
+    setNodeId(event["dst"], echo_.destination());
+    event["n"] = echo_.number();
+    event["size"] = echo_.size();
+    event["timeout"] = echo_.timeoutMillis();
+    console_.writeEvent();
     debug("echo %04X lost", echo_.destination());
     echo_.clear();
   }
@@ -862,38 +878,40 @@ void NodeApplication::serviceTimers(uint32_t nowMillis) {
 
 void NodeApplication::finishSenderRun(bool aborted) {
   const SenderRun &run = runs_.sender();
-  const int64_t duration = run.sent > 0 ? run.lastEndMicros - run.firstStartMicros : 0;
-  EventWriter event("run_done");
-  event.unsignedInteger("run", run.run)
-      .unsignedInteger("count", run.count)
-      .unsignedInteger("sent", run.sent)
-      .wideInteger("duration", duration)
-      .flag("aborted", aborted);
-  console_.writeEvent(event);
+  JsonDocument &event = console_.beginEvent("run_done");
+  event["run"] = run.run;
+  event["count"] = run.count;
+  event["sent"] = run.sent;
+  event["duration"] = run.sent > 0 ? run.lastEndMicros - run.firstStartMicros : 0;
+  event["aborted"] = aborted;
+  console_.writeEvent();
   debug("run %u done %u/%u", run.run, run.sent, run.count);
   runs_.finishSending();
   updateSuspension(millis());
 }
 
 void NodeApplication::finishReceiverRun(ReceiverRun &run, const char *reason) {
-  EventWriter event("run_end");
-  event.nodeId("src", run.source)
-      .unsignedInteger("run", run.run)
-      .unsignedInteger("count", run.count)
-      .unsignedInteger("received", run.received)
-      .decimal("pdr", static_cast<float>(run.received) / run.count, 4);
+  JsonDocument &event = console_.beginEvent("run_end");
+  setNodeId(event["src"], run.source);
+  event["run"] = run.run;
+  event["count"] = run.count;
+  event["received"] = run.received;
+  event["pdr"] = roundToDecimals(static_cast<double>(run.received) / run.count, 4);
   if (run.received > 0) {
-    event.decimal("rssi_avg", run.rssiSum / run.received, 1)
-        .decimal("rssi_min", run.rssiMinimum, 1)
-        .decimal("rssi_max", run.rssiMaximum, 1)
-        .decimal("snr_avg", run.snrSum / run.received, 2);
+    event["rssi_avg"] = roundToDecimals(run.rssiSum / run.received, 1);
+    event["rssi_min"] = roundToDecimals(run.rssiMinimum, 1);
+    event["rssi_max"] = roundToDecimals(run.rssiMaximum, 1);
+    event["snr_avg"] = roundToDecimals(run.snrSum / run.received, 2);
   } else {
-    event.nullValue("rssi_avg").nullValue("rssi_min").nullValue("rssi_max").nullValue("snr_avg");
+    event["rssi_avg"] = nullptr;
+    event["rssi_min"] = nullptr;
+    event["rssi_max"] = nullptr;
+    event["snr_avg"] = nullptr;
   }
-  event.unsignedInteger("first", run.firstMillis)
-      .unsignedInteger("last", run.lastMillis)
-      .text("reason", reason);
-  console_.writeEvent(event);
+  event["first"] = run.firstMillis;
+  event["last"] = run.lastMillis;
+  event["reason"] = reason;
+  console_.writeEvent();
   debug("run %u end %u/%u", run.run, run.received, run.count);
   runs_.closeRun(run);
   updateSuspension(millis());
@@ -909,65 +927,66 @@ void NodeApplication::updateSuspension(uint32_t nowMillis) {
 // Events and debug text
 
 void NodeApplication::emitBoot() {
-  EventWriter event("boot");
-  event.nodeId("id", identity_.nodeId())
-      .text("model", board_.modelName())
-      .unsignedInteger("epoch", identity_.epoch())
-      .text("firmware", FIRMWARE_VERSION)
-      .unsignedInteger("protocol", PROTOCOL_VERSION)
-      .text("key", strcmp(J5_NETWORK_KEY, DEFAULT_NETWORK_KEY) == 0 ? "default" : "custom");
-  console_.writeEvent(event);
+  JsonDocument &event = console_.beginEvent("boot");
+  setNodeId(event["id"], identity_.nodeId());
+  event["model"] = board_.modelName();
+  event["epoch"] = identity_.epoch();
+  event["firmware"] = FIRMWARE_VERSION;
+  event["protocol"] = PROTOCOL_VERSION;
+  event["key"] = strcmp(J5_NETWORK_KEY, DEFAULT_NETWORK_KEY) == 0 ? "default" : "custom";
+  console_.writeEvent();
 }
 
 void NodeApplication::emitRadio() {
   const RadioSettings &settings = radio_.settings();
-  EventWriter event("radio");
-  event.decimal("freq", settings.frequencyMhz, 3)
-      .unsignedInteger("sf", settings.spreadingFactor)
-      .unsignedInteger("bw", settings.bandwidthKhz)
-      .unsignedInteger("cr", settings.codingRateDenominator)
-      .unsignedInteger("preamble", settings.preambleLength)
-      .unsignedInteger("sync", settings.syncWord)
-      .integer("power", settings.transmitPowerDbm)
-      .integer("chip", radio_.transceiverPower());
+  JsonDocument &event = console_.beginEvent("radio");
+  event["freq"] = roundToDecimals(settings.frequencyMhz, 3);
+  event["sf"] = settings.spreadingFactor;
+  event["bw"] = settings.bandwidthKhz;
+  event["cr"] = settings.codingRateDenominator;
+  event["preamble"] = settings.preambleLength;
+  event["sync"] = settings.syncWord;
+  event["power"] = settings.transmitPowerDbm;
+  event["chip"] = radio_.transceiverPower();
   if (board_.hasLowNoiseAmplifier()) {
-    event.text("lna", settings.lowNoiseAmplifierEnabled ? "on" : "bypass");
+    event["lna"] = settings.lowNoiseAmplifierEnabled ? "on" : "bypass";
   } else {
-    event.nullValue("lna");
+    event["lna"] = nullptr;
   }
-  console_.writeEvent(event);
+  console_.writeEvent();
 }
 
 void NodeApplication::emitWifi() {
-  EventWriter event("wifi");
-  event.text("state", wireless_.isEnabled() ? "on" : "off")
-      .text("ssid", accessPointName_)
-      .unsignedInteger("channel", ACCESS_POINT_CHANNEL)
-      .unsignedInteger("clients", wireless_.clientCount());
-  console_.writeEvent(event);
+  JsonDocument &event = console_.beginEvent("wifi");
+  event["state"] = wireless_.isEnabled() ? "on" : "off";
+  event["ssid"] = accessPointName_;
+  event["channel"] = ACCESS_POINT_CHANNEL;
+  event["clients"] = wireless_.clientCount();
+  console_.writeEvent();
 }
 
 void NodeApplication::emitError(const char *command, const char *reason, const char *detail,
                                 int16_t code) {
-  EventWriter event("error");
-  event.text("cmd", command).text("reason", reason);
+  JsonDocument &event = console_.beginEvent("error");
+  event["cmd"] = command;
+  event["reason"] = reason;
   if (detail != nullptr && detail[0] != '\0') {
-    event.text("detail", detail);
+    event["detail"] = detail;
   }
   if (code != 0) {
-    event.integer("code", code);
+    event["code"] = code;
   }
-  console_.writeEvent(event);
+  console_.writeEvent();
   debug("error %s %s", command, reason);
 }
 
 void NodeApplication::emitDrop(const char *reason, const ReceivedFrame &frame) {
-  EventWriter event("drop");
-  event.text("reason", reason)
-      .unsignedInteger("size", frame.length)
-      .decimal("rssi", frame.rssi, 1)
-      .decimal("snr", frame.snr, 2);
-  console_.writeEvent(event);
+  JsonDocument &event = console_.beginEvent("drop");
+  event["reason"] = reason;
+  event["size"] = frame.length;
+  event["rssi"] = roundToDecimals(frame.rssi, 1);
+  event["snr"] = roundToDecimals(frame.snr, 2);
+  console_.writeEvent();
 }
 
 void NodeApplication::debug(const char *format, ...) {

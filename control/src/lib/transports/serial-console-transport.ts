@@ -170,15 +170,14 @@ export class SerialConsoleTransport implements ConsoleTransport {
 
 /** True when the browser offers Web Serial in this context (Chromium over HTTPS or localhost). */
 export function isWebSerialAvailable(): boolean {
-  return typeof navigator !== "undefined" && navigator.serial !== undefined;
+  return typeof navigator !== "undefined" && "serial" in navigator;
 }
 
 /** Asks the operator to choose a serial port and returns a transport for it. */
 export async function requestSerialConsoleTransport(): Promise<SerialConsoleTransport> {
-  const serial = navigator.serial;
-  if (serial === undefined) {
+  if (!isWebSerialAvailable()) {
     throw new Error("Este navegador no ofrece Web Serial.");
   }
-  const port = await serial.requestPort();
+  const port = await navigator.serial.requestPort();
   return new SerialConsoleTransport(port);
 }

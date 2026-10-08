@@ -14,11 +14,11 @@ arduino-cli compile --profile heltec_v4_3 firmware
 arduino-cli upload --profile heltec_v4_3 --port /dev/ttyACM0 firmware
 ```
 
-La primera compilación con un perfil descarga sus propias copias del core esp32 3.3.12, RadioLib 7.8.1 y U8g2 2.36.19.
+La primera compilación con un perfil descarga sus propias copias del core esp32 3.3.12 y de las bibliotecas ArduinoJson 7.4.3, RadioLib 7.8.1, SimpleCLI 1.1.4 y U8g2 2.36.19.
 
 ### Con el IDE de Arduino
 
-El IDE 2.3 no lee los perfiles. Hay que instalar a mano el core esp32 3.3.12, RadioLib 7.8.1 y U8g2 2.36.19, y elegir la placa y las opciones del menú Tools:
+El IDE 2.3 no lee los perfiles. Hay que instalar a mano el core esp32 3.3.12 y las bibliotecas ArduinoJson 7.4.3, RadioLib 7.8.1, SimpleCLI 1.1.4 y U8g2 2.36.19, y elegir la placa y las opciones del menú Tools:
 
 | Opción | V2 | V4.3 |
 |---|---|---|
@@ -51,7 +51,7 @@ El core de ESP32 pasa ese archivo a cada compilación, también desde el IDE. WP
 | Carpeta | Archivos | Responsabilidad |
 |---|---|---|
 | `src/` | `configuration.h` | Constantes del firmware y claves compiladas |
-| `src/application/` | `node_application` | Bucle principal, comandos de consola y emisión de eventos |
+| `src/application/` | `node_application` | Bucle principal, comandos de consola (con SimpleCLI) y emisión de eventos |
 | `src/board/` | `board_support` | Modelo de placa, alimentación, etapa de RF de la V4.3 y traducción de la potencia |
 | `src/radio/` | `radio_link` | Transceptor LoRa: parámetros en caliente, transmisión y recepción con marcas de tiempo |
 | | `radio_settings` | Parámetros de radio, valores por defecto y validación del comando `radio` |
@@ -64,7 +64,7 @@ El core de ESP32 pasa ese archivo a cada compilación, también desde el IDE. WP
 | `src/services/` | `presence_service` | Calendario y cuerpo del HELLO |
 | | `echo_service` | Pedido de eco pendiente y cuerpos del eco |
 | | `test_run_service` | Corridas del emisor y estadísticas del receptor |
-| `src/console/` | `console`, `event_writer` | Consola y armado de eventos JSON |
+| `src/console/` | `console` | Consola y armado de eventos JSON (con ArduinoJson) |
 | | `serial_transport`, `wireless_transport` | Transportes de la consola: serie y WebSocket sobre el punto de acceso |
 | `src/display/` | `debug_display` | OLED: fila de estado y registro de depuración |
 

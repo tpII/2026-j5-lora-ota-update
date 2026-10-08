@@ -1,8 +1,14 @@
-import type { BoardModel, LnaMode, RadioEvent } from "$lib/console/console-event.ts";
+import type * as z from "zod/mini";
+import {
+  radioSettingsSchema,
+  type BoardModel,
+  type LnaMode,
+  type RadioEvent,
+} from "$lib/console/console-event.ts";
 import { computeTimeOnAirMicroseconds, type TimeOnAirParameters } from "./time-on-air.ts";
 
 /** Radio settings of a node, with the field names of the `radio` event (docs/protocol/radio.md). */
-export type RadioSettings = Omit<RadioEvent, "t" | "ev">;
+export type RadioSettings = z.infer<typeof radioSettingsSchema>;
 
 export const MINIMUM_FREQUENCY_MEGAHERTZ = 915.0;
 export const MAXIMUM_FREQUENCY_MEGAHERTZ = 928.0;
@@ -63,17 +69,7 @@ export const FREQUENCY_TOLERANCE_MEGAHERTZ = 0.0005;
 
 /** Settings carried by a `radio` event, without the header and any field the contract lacks. */
 export function radioSettingsOf(event: RadioEvent): RadioSettings {
-  return {
-    freq: event.freq,
-    sf: event.sf,
-    bw: event.bw,
-    cr: event.cr,
-    preamble: event.preamble,
-    sync: event.sync,
-    power: event.power,
-    chip: event.chip,
-    lna: event.lna,
-  };
+  return radioSettingsSchema.parse(event);
 }
 
 export function transmitPowerRangeOf(model: BoardModel | null): TransmitPowerRange {
