@@ -98,6 +98,23 @@ static void testEchoPayload() {
   CHECK(rssi == -88.0f && snr == -3.25f);
 }
 
+static void testEchoDeadline() {
+  // The loop reads the clock at 1000 and the echo command, later in the same pass, at 1001.
+  EchoService echo;
+  echo.prepare(0x00F4, 1, 16, 1001);
+  CHECK(!echo.hasExpired(1000));
+  // 18 ms on air: the reply has twice that plus the margin, 1036 ms from the start of the request.
+  echo.markTransmitting(0, 1002, 18000);
+  CHECK(echo.timeoutMillis() == 1036);
+  CHECK(!echo.hasExpired(2037));
+  CHECK(echo.hasExpired(2038));
+  // Across the wrap of millis().
+  echo.prepare(0x00F4, 2, 16, 0xFFFFFF00u);
+  echo.markTransmitting(0, 0xFFFFFF00u, 18000);
+  CHECK(!echo.hasExpired(0xFFFFFF00u + 1035));
+  CHECK(echo.hasExpired(0xFFFFFF00u + 1036));
+}
+
 static void testTestRuns() {
   uint8_t buffer[255];
   CHECK(TestRunService::encodePayload(TestFields{3, 299, 300, 0}, 239, buffer) == 239);
@@ -153,6 +170,7 @@ int main() {
   testDuplicateFilter();
   testHelloPayload();
   testEchoPayload();
+  testEchoDeadline();
   testTestRuns();
   testEventFields();
   if (failureCount == 0) {

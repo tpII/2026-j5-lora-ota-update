@@ -39,7 +39,11 @@ bool EchoService::isReplyExpected(uint16_t source, uint16_t number) const {
 }
 
 bool EchoService::hasExpired(uint32_t nowMillis) const {
-  return pending_ && nowMillis - startMillis_ >= timeoutMillis_;
+  // Signed, because the main loop reads the clock once per pass and a command handled later in
+  // the same pass registers its request with a newer reading: an unsigned difference wraps around
+  // and expires the echo before it is sent.
+  return pending_ &&
+         static_cast<int32_t>(nowMillis - startMillis_) >= static_cast<int32_t>(timeoutMillis_);
 }
 
 size_t EchoService::encodeRequest(uint16_t number, uint16_t size, uint8_t *output) {
