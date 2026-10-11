@@ -12,6 +12,8 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.worker.json"
   },
   "dependencies": {
+    "@shikijs/langs-precompiled": "^4.5.0",
+    "shiki": "^4.5.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

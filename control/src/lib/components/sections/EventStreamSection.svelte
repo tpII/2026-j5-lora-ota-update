@@ -7,6 +7,7 @@
     STATUS_COMMAND,
   } from "$lib/console/console-command.ts";
   import { CONSOLE_EVENT_NAMES } from "$lib/console/console-event.ts";
+  import { highlightJsonLine } from "$lib/console/console-line-highlighter.ts";
   import type { ConsoleRecord } from "$lib/nodes/node-connection.ts";
   import { formatClockTime, formatNumber } from "$lib/utils/format.ts";
   import { EVENT_DESCRIPTIONS, TRANSPORT_LABELS } from "$lib/utils/labels.ts";
@@ -180,7 +181,12 @@
             <span class="font-semibold">{nodeLabel(record.connectionKey)}</span>
             <span class="truncate">{kindLabel(record)}</span>
             <span class="col-span-full break-all whitespace-pre-wrap md:col-span-1">
-              {record.kind === "command" ? `› ${record.text}` : record.text}
+              {#if record.kind === "event" || record.kind === "unrecognized"}
+                <!-- One line, so no white space falls between the colored segments. -->
+                {#each highlightJsonLine(record.text) as segment, index (index)}<span style={segment.style}>{segment.text}</span>{/each}
+              {:else}
+                {record.kind === "command" ? `› ${record.text}` : record.text}
+              {/if}
               {#if record.kind === "unrecognized"}
                 <span class="font-sans italic">({record.problem})</span>
               {/if}

@@ -52,7 +52,7 @@ El panel tiene que abrir aunque la computadora esté asociada al punto de acceso
 ## Secciones
 
 - **Nodos conectados**: un recuadro por conexión con el identificador, el modelo de placa, el transporte, un resumen de la radio, los clientes WiFi y la actividad en curso. Al abrir una conexión, el panel envía `status` para conocer el identificador del nodo.
-- **Flujo de eventos**: las líneas de todos los nodos, con filtros por nodo y por tipo de evento. El texto de depuración aparece atenuado. En pantallas de menos de 768 píxeles de ancho, como la de un celular, la hora, el nodo y el tipo de cada línea van en un renglón y el contenido en el de abajo. Desde esta sección también se envían comandos sueltos.
+- **Flujo de eventos**: las líneas de todos los nodos, con filtros por nodo y por tipo de evento. El JSON de los eventos aparece coloreado y el texto de depuración, atenuado. En pantallas de menos de 768 píxeles de ancho, como la de un celular, la hora, el nodo y el tipo de cada línea van en un renglón y el contenido en el de abajo. Desde esta sección también se envían comandos sueltos.
 - **Vecinos**: lo que cada nodo sabe de sus vecinos a partir de `hello` y `neighbor`, incluido cómo escucha cada vecino a los suyos.
 - **Radio**: un formulario por nodo, validado con los rangos de [`docs/protocol/radio.md`](../docs/protocol/radio.md) y del modelo de placa, con las advertencias de la [ADR 0004](../docs/adrs/0004-only-500-khz-channels-on-air.md). El selector del LNA de la V4.3 muestra el modo que informa el nodo pero está deshabilitado, porque con el LNA activo una señal fuerte puede dañar el SX1262; el modo solo se cambia desde la consola, con `radio lna`.
 - **Eco**: ecos sueltos o en serie, con el RTT y la calidad en los dos sentidos.
@@ -63,6 +63,7 @@ El panel tiene que abrir aunque la computadora esté asociada al punto de acceso
   - **Emisor**: suspende sus HELLO, aplica la misma modulación, pide al vecino ecos de 4 bytes (100 por defecto) y al final vuelve a su modulación y reanuda los HELLO, aunque la prueba se detenga o falle. Muestra la RSSI y la SNR de ida y de vuelta, la entrega, el RTT y los bits útiles.
 
   Los dos modos exportan sus métricas a `measurements/` en una carpeta propia.
+
 - **Exportar**: la ficha de la medición y la exportación. Con la API File System Access, el panel pide la carpeta `measurements/` y crea dentro la subcarpeta con el número siguiente; sin ella, descarga los tres archivos.
 
 ## Estructura
@@ -93,6 +94,7 @@ La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al l
 - Svelte 5 para la interfaz y Tailwind 4 para los estilos.
 - Zod describe cada evento de la consola una sola vez, como esquema, en `lib/console/console-event.ts`; los tipos de TypeScript se infieren de esos esquemas. El panel importa la variante `zod/mini`, de la que el empaquetador conserva solo lo que se usa.
 - vite-plugin-pwa y Workbox generan el manifiesto y el service worker. El manifiesto está en `vite.config.ts`.
+- Shiki colorea el JSON del flujo de eventos, en `lib/console/console-line-highlighter.ts`. Se cargan solo la gramática de JSON y el tema `light-plus`, el tema claro de VS Code. La gramática viene precompilada (`@shikijs/langs-precompiled`), con sus expresiones regulares ya escritas para JavaScript, así que el motor que la ejecuta no necesita WebAssembly ni el conversor de expresiones de Oniguruma: el resaltador arranca en forma sincrónica y suma unos 39 KB comprimidos al panel. Cada línea coloreada se guarda en una caché, así que solo se procesan las líneas nuevas.
 - `@types/w3c-web-serial` y `@types/wicg-file-system-access` declaran Web Serial y el selector de carpetas de File System Access, que la biblioteca DOM de TypeScript todavía no incluye. `tsconfig.app.json` los incluye en `types`.
 
 ## Criterios ante huecos del contrato
