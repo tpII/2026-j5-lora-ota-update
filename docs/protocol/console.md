@@ -70,9 +70,18 @@ Al arrancar, al encender o apagar el punto de acceso y cuando un cliente se cone
 | `channel` | Canal WiFi |
 | `clients` | Clientes WebSocket conectados |
 
+### `presence`
+
+Con el comando `presence`, con `status` y cuando vence la suspensión de los HELLO.
+
+| Campo | Descripción |
+|---|---|
+| `state` | `"on"` si el nodo envía sus HELLO; `"off"` mientras el operador los suspende |
+| `remaining` | Segundos que faltan para que la suspensión venza y los HELLO vuelvan solos; `null` con `"on"` |
+
 ### `status`
 
-Con el comando `status`. Lo siguen un `radio`, un `wifi` y un `neighbor` por cada vecino.
+Con el comando `status`. Lo siguen un `radio`, un `wifi`, un `presence` y un `neighbor` por cada vecino.
 
 | Campo | Descripción |
 |---|---|
@@ -259,7 +268,7 @@ Una línea de texto con palabras separadas por espacios, en minúscula. En el mo
 | Comando | Qué hace |
 |---|---|
 | `help` | Lista los comandos como texto de depuración |
-| `status` | Emite `status`, `radio`, `wifi` y un `neighbor` por vecino |
+| `status` | Emite `status`, `radio`, `wifi`, `presence` y un `neighbor` por vecino |
 | `radio` | Emite `radio` con los parámetros actuales |
 | `radio <clave> <valor> [<clave> <valor> ...]` | Cambia uno o más parámetros de radio a la vez; si alguno es inválido, no cambia ninguno. Claves en [radio](radio.md) |
 | `radio reset` | Vuelve a los parámetros por defecto |
@@ -268,8 +277,12 @@ Una línea de texto con palabras separadas por espacios, en minúscula. En el mo
 | `run stop` | Detiene la corrida en curso |
 | `wifi on`, `wifi off` | Enciende o apaga el punto de acceso |
 | `resend` | Retransmite tal cual la última trama propia, para verificar el descarte de repetidos |
+| `presence off <segundos>` | Suspende los HELLO del nodo durante `segundos` como máximo (1 a 3600). Al vencer el plazo vuelven solos y el nodo emite `presence` |
+| `presence on` | Reanuda los HELLO; el primero sale entre 1 y 3 s después, como al arrancar |
 
 Durante una corrida, `radio` con argumentos, `echo` y `resend` responden `error` con motivo `busy`.
+
+Mientras los HELLO están suspendidos, el OLED tampoco se redibuja, para que sus bloqueos de unos 30 ms no demoren las respuestas de eco. Una corrida suspende los HELLO por su cuenta; al terminar, los reanuda solo si el operador no los había suspendido.
 
 ## Métricas que salen de los eventos
 
@@ -280,3 +293,4 @@ Durante una corrida, `radio` con argumentos, `echo` y `resend` responden `error`
 | *Goodput* de una corrida | `received × size × 8 / duration`, con `received` de `run_end` en el receptor y `duration` de `run_done` en el emisor, en bits por segundo |
 | M4, latencia de ida y vuelta | `rtt` de cada `echo`; cada `echo_lost` cuenta como pérdida |
 | M6, calidad de enlace | `rssi` y `snr` de `hello`, `test_rx` y `echo` |
+| Prueba de comunicación | Con cada `echo`: `remote_rssi` y `remote_snr` para la ida, `rssi` y `snr` para la vuelta y `rtt`. Los bits útiles son `size × 8` por sentido de cada eco respondido; la tasa de bits útiles los divide por la suma de los `rtt` |

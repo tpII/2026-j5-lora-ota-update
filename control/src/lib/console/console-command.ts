@@ -37,6 +37,8 @@ export const MINIMUM_RUN_COUNT = 1;
 export const MAXIMUM_RUN_COUNT = 65535;
 export const MINIMUM_RUN_INTERVAL = 0;
 export const MAXIMUM_RUN_INTERVAL = 60000;
+export const MINIMUM_PRESENCE_HOLD_SECONDS = 1;
+export const MAXIMUM_PRESENCE_HOLD_SECONDS = 3600;
 
 export const HELP_COMMAND = "help";
 export const STATUS_COMMAND = "status";
@@ -44,6 +46,7 @@ export const RADIO_QUERY_COMMAND = "radio";
 export const RADIO_RESET_COMMAND = "radio reset";
 export const RUN_STOP_COMMAND = "run stop";
 export const RESEND_COMMAND = "resend";
+export const PRESENCE_ON_COMMAND = "presence on";
 
 /** Keys of the `radio` command, in the order of docs/protocol/radio.md. */
 export const RADIO_SETTING_KEYS = [
@@ -229,6 +232,14 @@ export function buildRunCommand(count: number, size: number, interval: number): 
     return reject(problems);
   }
   return accept(`run ${count} ${size} ${interval}`);
+}
+
+/** `presence off <seconds>`: holds the HELLO messages, at most for `seconds`. */
+export function buildPresenceOffCommand(seconds: number): CommandResult {
+  if (!isIntegerBetween(seconds, MINIMUM_PRESENCE_HOLD_SECONDS, MAXIMUM_PRESENCE_HOLD_SECONDS)) {
+    return reject([{ field: "seconds", message: "La suspensión de los HELLO va de 1 a 3600 s." }]);
+  }
+  return accept(`presence off ${seconds}`);
 }
 
 /** `wifi on` or `wifi off`. */

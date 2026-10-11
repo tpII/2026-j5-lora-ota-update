@@ -543,6 +543,10 @@ void NodeApplication::registerCommands() {
   wifiCommand_.setDescription("wifi on|off");
   resendCommand_ = commandInterpreter_.addCommand("resend");
   resendCommand_.setDescription("resend");
+  presenceCommand_ = commandInterpreter_.addCommand("presence");
+  presenceCommand_.addPositionalArgument("state");
+  presenceCommand_.addPositionalArgument("seconds", "");
+  presenceCommand_.setDescription("presence on | presence off <seconds>");
 }
 
 void NodeApplication::serviceConsole() {
@@ -583,6 +587,8 @@ void NodeApplication::executeCommand(const char *line) {
       commandWifi(command);
     } else if (command == resendCommand_) {
       commandResend();
+    } else if (command == presenceCommand_) {
+      commandPresence(command);
     }
   }
 }
@@ -604,8 +610,9 @@ void NodeApplication::reportCommandError(const CommandError &error, const char *
 }
 
 void NodeApplication::commandHelp() {
-  const Command *const commands[] = {&helpCommand_, &statusCommand_, &radioCommand_, &echoCommand_,
-                                     &runCommand_,  &wifiCommand_,   &resendCommand_};
+  const Command *const commands[] = {&helpCommand_,   &statusCommand_,  &radioCommand_,
+                                     &echoCommand_,   &runCommand_,     &wifiCommand_,
+                                     &resendCommand_, &presenceCommand_};
   console_.writeDebug("commands:");
   for (const Command *command : commands) {
     String usage = "  ";
@@ -624,10 +631,11 @@ void NodeApplication::commandStatus() {
   status["dropped"] = console_.droppedLineCount();
   status["heap"] = ESP.getFreeHeap();
   console_.writeEvent();
+  const uint32_t now = millis();
   emitRadio();
   emitWifi();
+  emitPresence(now);
 
-  const uint32_t now = millis();
   for (size_t index = 0; index < neighbors_.count(); ++index) {
     const Neighbor &neighbor = neighbors_.at(index);
     JsonObject event = console_.beginEvent("neighbor");
@@ -815,6 +823,34 @@ void NodeApplication::commandResend() {
   }
 }
 
+void NodeApplication::commandPresence(const Command &command) {
+  const String state = command.getArgument("state").getValue();
+  const String secondsText = command.getArgument("seconds").getValue();
+  const uint32_t now = millis();
+  if (state == "on" && secondsText.length() == 0) {
+    presence_.release(now);
+  } else if (state == "off") {
+    unsigned long seconds = 0;
+    const NumberParse parse =
+        parseUnsigned(secondsText.c_str(), 1, MAXIMUM_PRESENCE_HOLD_S, seconds);
+    if (parse == NumberParse::Invalid) {
+      emitError("presence", "usage", command.getDescription().c_str());
+      return;
+    }
+    if (parse == NumberParse::OutOfRange) {
+      emitError("presence", "out_of_range", "seconds 1..3600");
+      return;
+    }
+    presence_.hold(static_cast<uint32_t>(seconds) * 1000, now);
+  } else {
+    emitError("presence", "usage", command.getDescription().c_str());
+    return;
+  }
+  emitPresence(now);
+  debug("hello %s", presence_.isHeld() ? "off" : "on");
+  updateSuspension(now);
+}
+
 bool NodeApplication::isRunActive() const { return runs_.isSending() || runs_.isReceiving(); }
 
 void NodeApplication::requestRadioSettings(const RadioSettings &settings) {
@@ -874,6 +910,12 @@ void NodeApplication::serviceTimers(uint32_t nowMillis) {
     updateStatusLine();
   }
 
+  if (presence_.hasHoldExpired(nowMillis)) {
+    presence_.release(nowMillis);
+    emitPresence(nowMillis);
+    debug("hello on (hold expired)");
+  }
+
   updateSuspension(nowMillis);
 }
 
@@ -921,7 +963,9 @@ void NodeApplication::finishReceiverRun(ReceiverRun &run, const char *reason) {
 void NodeApplication::updateSuspension(uint32_t nowMillis) {
   const bool active = isRunActive();
   presence_.setSuspended(active, nowMillis);
-  display_.setSuspended(active);
+  // The display also stays still during a hold, so that its 30 ms redraws do not delay the
+  // replies of a communication test.
+  display_.setSuspended(active || presence_.isHeld());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -963,6 +1007,17 @@ void NodeApplication::emitWifi() {
   event["ssid"] = accessPointName_;
   event["channel"] = ACCESS_POINT_CHANNEL;
   event["clients"] = wireless_.clientCount();
+  console_.writeEvent();
+}
+
+void NodeApplication::emitPresence(uint32_t nowMillis) {
+  JsonObject event = console_.beginEvent("presence");
+  event["state"] = presence_.isHeld() ? "off" : "on";
+  if (presence_.isHeld()) {
+    event["remaining"] = (presence_.holdRemainingMillis(nowMillis) + 999) / 1000;
+  } else {
+    event["remaining"] = nullptr;
+  }
   console_.writeEvent();
 }
 

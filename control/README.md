@@ -1,6 +1,6 @@
 # Panel de control
 
-Aplicación web con la que el operador maneja los nodos de la red J5. Se conecta a la consola de cada nodo por USB, con Web Serial, o por WiFi, con un WebSocket contra el punto de acceso del nodo. Muestra el flujo de eventos, los vecinos y los parámetros de radio, pide ecos, transmite corridas, ejecuta la prueba de capacidad y exporta las mediciones con el formato de [`measurements/README.md`](../measurements/README.md). Es una aplicación de una sola página, estática e instalable como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). El contrato con el firmware está en [`docs/protocol/console.md`](../docs/protocol/console.md).
+Aplicación web con la que el operador maneja los nodos de la red J5. Se conecta a la consola de cada nodo por USB, con Web Serial, o por WiFi, con un WebSocket contra el punto de acceso del nodo. Muestra el flujo de eventos, los vecinos y los parámetros de radio, pide ecos, transmite corridas, ejecuta la prueba de capacidad y la prueba de comunicación y exporta las mediciones con el formato de [`measurements/README.md`](../measurements/README.md). Es una aplicación de una sola página, estática e instalable como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). El contrato con el firmware está en [`docs/protocol/console.md`](../docs/protocol/console.md).
 
 ## Requisitos
 
@@ -58,6 +58,11 @@ El panel tiene que abrir aunque la computadora esté asociada al punto de acceso
 - **Eco**: ecos sueltos o en serie, con el RTT y la calidad en los dos sentidos.
 - **Corridas**: corridas manuales y el resumen de todas las corridas de los nodos conectados.
 - **Prueba de capacidad**: recorre una matriz de modulaciones y largos sobre dos nodos, con pausa, reanudación, avance y tiempo restante estimado. Por defecto mide de SF7 a SF12 a 500 kHz, CR 4/5, 239 bytes y 300 paquetes por punto.
+- **Prueba de comunicación**: para el campo, con un operador en cada nodo y cada uno conectado al suyo. Los operadores acuerdan el SF, el ancho de banda y la tasa de código, y cada uno elige un modo:
+  - **Receptor**: se activa antes de empezar y se desactiva al terminar. Al activarlo, el nodo suspende sus HELLO y aplica la modulación acordada; mientras está activo, el panel registra los ecos que responde, con la RSSI y la SNR de cada pedido. Al desactivarlo, el nodo vuelve a la modulación anterior y reanuda los HELLO.
+  - **Emisor**: suspende sus HELLO, aplica la misma modulación, pide al vecino ecos de 4 bytes (100 por defecto) y al final vuelve a su modulación y reanuda los HELLO, aunque la prueba se detenga o falle. Muestra la RSSI y la SNR de ida y de vuelta, la entrega, el RTT y los bits útiles.
+
+  Los dos modos exportan sus métricas a `measurements/` en una carpeta propia.
 - **Exportar**: la ficha de la medición y la exportación. Con la API File System Access, el panel pide la carpeta `measurements/` y crea dentro la subcarpeta con el número siguiente; sin ella, descarga los tres archivos.
 
 ## Estructura
@@ -75,7 +80,7 @@ src/
     ├── transports/                  Web Serial y WebSocket detrás de una misma interfaz
     ├── nodes/                       conexión y estado derivado de cada nodo
     ├── radio/                       parámetros de radio y tiempo de aire
-    ├── measurements/                corridas, prueba de capacidad, eco y exportación
+    ├── measurements/                corridas, pruebas de capacidad y de comunicación, eco y exportación
     ├── utils/                       formato de valores, textos de la interfaz y utilidades
     └── testing/                     sesiones grabadas y nodo simulado para las pruebas
 public/                              íconos
@@ -100,6 +105,9 @@ La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al l
 - En `metadata.json`, `operators` es un texto libre y `date` lleva el desplazamiento horario de la computadora.
 - El número `<NN>` de una exportación es el siguiente al mayor que ya existe para esa fecha y esa prueba.
 - La prueba de capacidad envía a los dos nodos la frecuencia, la modulación, el preámbulo y la palabra de sincronismo de cada punto; la potencia y el LNA quedan como estén.
+- La prueba de comunicación cambia solo el SF, el ancho de banda y la tasa de código. La frecuencia, el preámbulo y la palabra de sincronismo tienen que coincidir en los dos nodos, como en la red. Al terminar, cada modo devuelve a su nodo la modulación que informaba al empezar.
+- En el emisor, la suspensión de los HELLO dura lo que tardaría la serie si se perdieran todos los ecos, más un minuto. En el receptor dura una hora y el panel la renueva cada 30 minutos mientras el modo siga activo. Si el panel pierde la conexión, los HELLO vuelven solos al vencer el plazo, pero la modulación de prueba queda hasta que se cambie desde Radio o se reinicie el nodo.
+- El panel no puede saber si el vecino está en modo receptor: si no lo está, o usa otra modulación, todos los ecos se pierden.
 
 ## Pruebas
 

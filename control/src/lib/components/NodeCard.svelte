@@ -110,6 +110,22 @@
       {/if}
     </dd>
 
+    <dt class="text-slate-500">HELLO</dt>
+    <dd>
+      {#if node.presence === null}
+        —
+      {:else if node.presence.state === "on"}
+        activos
+      {:else}
+        <span class="text-amber-700">suspendidos</span>
+        {#if node.presence.remaining !== null}
+          <span class="text-slate-500">
+            (vuelven solos en {formatDuration(node.presence.remaining * 1000 - (panel.now - node.presence.hostTime))})
+          </span>
+        {/if}
+      {/if}
+    </dd>
+
     <dt class="text-slate-500">Estado</dt>
     <dd>
       {#if node.counters !== null}

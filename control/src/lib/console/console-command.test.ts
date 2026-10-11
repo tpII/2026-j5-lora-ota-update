@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   MAXIMUM_COMMAND_LENGTH,
   buildEchoCommand,
+  buildPresenceOffCommand,
   buildRadioSetCommand,
   buildRunCommand,
   buildWifiCommand,
@@ -130,6 +131,16 @@ describe("buildRunCommand", () => {
     expect(problemFieldsOf(buildRunCommand(0, 7, 60001))).toEqual(["count", "size", "interval"]);
     expect(problemFieldsOf(buildRunCommand(65536, 240, -1))).toEqual(["count", "size", "interval"]);
     expect(problemFieldsOf(buildRunCommand(10.5, 100, 0))).toEqual(["count"]);
+  });
+});
+
+describe("buildPresenceOffCommand", () => {
+  it("holds the HELLO messages for whole seconds from 1 to 3600", () => {
+    expect(commandOf(buildPresenceOffCommand(1))).toBe("presence off 1");
+    expect(commandOf(buildPresenceOffCommand(3600))).toBe("presence off 3600");
+    expect(problemFieldsOf(buildPresenceOffCommand(0))).toEqual(["seconds"]);
+    expect(problemFieldsOf(buildPresenceOffCommand(3601))).toEqual(["seconds"]);
+    expect(problemFieldsOf(buildPresenceOffCommand(1.5))).toEqual(["seconds"]);
   });
 });
 

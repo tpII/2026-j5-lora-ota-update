@@ -11,6 +11,7 @@ wifi 1 client(s)
 {"t":15012,"ev":"status","id":"3A7F","model":"V4.3","epoch":12,"tx":1,"rx":1,"dropped":0,"heap":231456}
 {"t":15012,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}
 {"t":15013,"ev":"wifi","state":"on","ssid":"J5-3A7F","channel":1,"clients":1}
+{"t":15013,"ev":"presence","state":"on","remaining":null}
 {"t":15013,"ev":"neighbor","id":"5C21","model":"V2","version":0,"tx":4,"rssi":-47.0,"snr":9.50,"age":2063}
 {"t":16000,"ev":"duplicate","src":"5C21","epoch":7,"seq":4,"type":"hello"}
 {"t":16500,"ev":"drop","reason":"crc","size":30,"rssi":-118.5,"snr":-14.25}

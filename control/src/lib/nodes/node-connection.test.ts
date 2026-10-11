@@ -77,7 +77,7 @@ describe("NodeConnection", () => {
     }
     expect(connection.state).toMatchObject({ identifier: "3A7F", model: "V4.3", epoch: 12 });
     const kinds = connection.log.map((record) => record.kind);
-    expect(kinds.filter((kind) => kind === "event")).toHaveLength(24);
+    expect(kinds.filter((kind) => kind === "event")).toHaveLength(25);
     expect(kinds.filter((kind) => kind === "unrecognized")).toHaveLength(2);
     expect(kinds.filter((kind) => kind === "debug")).toHaveLength(14);
     const sequences = connection.log.map((record) => record.sequence);

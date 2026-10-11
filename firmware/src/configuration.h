@@ -32,6 +32,7 @@ constexpr uint32_t HELLO_JITTER_MS = 2000;
 constexpr uint32_t FIRST_HELLO_MINIMUM_DELAY_MS = 1000;
 constexpr uint32_t FIRST_HELLO_MAXIMUM_DELAY_MS = 3000;
 constexpr uint32_t NEIGHBOR_EXPIRY_MS = 60000;
+constexpr uint32_t MAXIMUM_PRESENCE_HOLD_S = 3600;
 
 constexpr size_t MAXIMUM_NEIGHBORS = 16;
 constexpr size_t MAXIMUM_TRACKED_SOURCES = 16;

@@ -27,7 +27,7 @@ struct HelloContent {
 };
 
 // Schedules the periodic HELLO: every HELLO_PERIOD_MS with a random variation of
-// +/- HELLO_JITTER_MS, never while suspended.
+// +/- HELLO_JITTER_MS, never while suspended or held.
 class PresenceService {
 public:
   void begin(uint32_t nowMillis);
@@ -35,12 +35,25 @@ public:
   void scheduleNext(uint32_t nowMillis);
   void setSuspended(bool suspended, uint32_t nowMillis);
 
+  // Hold requested by the operator ("presence off"): no HELLO until release() or until the hold
+  // expires, so a hold left behind by a lost console does not silence the node for good.
+  void hold(uint32_t durationMillis, uint32_t nowMillis);
+  void release(uint32_t nowMillis);
+  bool isHeld() const { return held_; }
+  bool hasHoldExpired(uint32_t nowMillis) const;
+  uint32_t holdRemainingMillis(uint32_t nowMillis) const;
+
   static size_t encodePayload(const HelloContent &content, uint8_t *output);
   static bool decodePayload(const uint8_t *payload, size_t length, HelloContent &content);
 
 private:
+  void scheduleResumption(uint32_t nowMillis);
+
   uint32_t nextMillis_ = 0;
   bool suspended_ = false;
+  bool held_ = false;
+  uint32_t holdStartMillis_ = 0;
+  uint32_t holdDurationMillis_ = 0;
 };
 
 } // namespace firmware

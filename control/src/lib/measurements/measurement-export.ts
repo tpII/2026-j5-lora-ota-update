@@ -5,8 +5,12 @@
 import type { BoardModel, NodeIdentifier } from "$lib/console/console-event.ts";
 import { SUMMARY_COLUMNS, type TestRunSummaryRow } from "./test-run-ledger.ts";
 
+/** Tests exported from the Export section, with the summary of the test-run ledger. */
 export const MEASUREMENT_TESTS = ["power-sweep", "capacity-test"] as const;
 export type MeasurementTest = (typeof MEASUREMENT_TESTS)[number];
+
+/** Every test that names an export folder; the communication test exports from its own section. */
+export type ExportedTest = MeasurementTest | "communication-test";
 
 export const METADATA_FILE_NAME = "metadata.json";
 export const EVENTS_FILE_NAME = "events.jsonl";
@@ -90,7 +94,7 @@ export function formatLocalTimestamp(date: Date, offsetMinutes = localOffsetOf(d
 
 export function formatFolderName(
   localDate: string,
-  test: MeasurementTest,
+  test: ExportedTest,
   sequenceNumber: number,
 ): string {
   return `${localDate}-${test}-${pad(sequenceNumber)}`;
@@ -100,7 +104,7 @@ export function formatFolderName(
 export function selectNextFolderName(
   existingNames: Iterable<string>,
   localDate: string,
-  test: MeasurementTest,
+  test: ExportedTest,
 ): string {
   const prefix = `${localDate}-${test}-`;
   let highest = 0;
@@ -162,7 +166,7 @@ export function buildEventLines(events: Iterable<ExportedEvent>): string {
   return content;
 }
 
-function formatCsvValue(value: string | number | null): string {
+export function formatCsvValue(value: string | number | null): string {
   if (value === null) {
     return "";
   }

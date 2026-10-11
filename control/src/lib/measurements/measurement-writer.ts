@@ -7,7 +7,7 @@ import {
   formatFolderName,
   selectNextFolderName,
   type MeasurementFile,
-  type MeasurementTest,
+  type ExportedTest,
 } from "./measurement-export.ts";
 
 export type ExportMethod = "directory" | "download";
@@ -35,7 +35,7 @@ export function isPickerCancellation(error: unknown): boolean {
 export async function writeMeasurementToDirectory(
   files: readonly MeasurementFile[],
   localDate: string,
-  test: MeasurementTest,
+  test: ExportedTest,
 ): Promise<ExportOutcome> {
   if (!isDirectoryPickerAvailable()) {
     throw new Error("Este navegador no permite elegir carpetas.");
@@ -65,7 +65,7 @@ export async function writeMeasurementToDirectory(
 export function downloadMeasurementFiles(
   files: readonly MeasurementFile[],
   localDate: string,
-  test: MeasurementTest,
+  test: ExportedTest,
 ): ExportOutcome {
   for (const file of files) {
     const url = URL.createObjectURL(new Blob([file.content], { type: file.mediaType }));

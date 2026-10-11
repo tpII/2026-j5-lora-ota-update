@@ -124,6 +124,10 @@ _Avoid_: range test, power test
 A test that, for a given modulation and payload size, transmits packets back to back and measures goodput, packet delivery ratio and time on air against the Semtech formula.
 _Avoid_: throughput test
 
+**Communication test** (es: *prueba de comunicación*):
+A field test with one operator at each node: both operators agree on a modulation, one node enters receiver mode and the other, in sender mode, asks it for a series of minimum-length echoes. It records RSSI and SNR in both directions, delivery, round-trip time and useful bits. While it lasts, both nodes hold their HELLO messages; afterwards each returns to its previous modulation.
+_Avoid_: link test, ping test
+
 **Channel capacity** (es: *capacidad del canal*):
 The highest sustained goodput with a packet delivery ratio of at least 99 % for a given modulation.
 _Avoid_: bandwidth, bitrate, throughput

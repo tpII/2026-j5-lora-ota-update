@@ -22,6 +22,10 @@ export interface SimulatedNodeBehavior {
   readonly omitsRunEnd?: boolean;
   /** As sender, announces the run and waits for `releaseRun()` before transmitting it. */
   readonly holdsRun?: boolean;
+  /** Echo requests from another node that this node does not hear. */
+  readonly losesEchoRequest?: (number: number) => boolean;
+  /** Refuses `presence` with this reason. */
+  readonly presenceRefusal?: string;
 }
 
 interface RadioState {
@@ -76,6 +80,9 @@ export class SimulatedNode implements CampaignNode {
   #runCounter = 0;
   #sequence = 0;
   #heldRun: PendingRun | null = null;
+  #echoCounter = 0;
+  /** Seconds of the HELLO hold in course; null while the HELLO messages are on. */
+  presenceHoldSeconds: number | null = null;
   #stopRequested = false;
   readonly #receptions = new Map<string, ReceptionTally>();
 
@@ -102,6 +109,11 @@ export class SimulatedNode implements CampaignNode {
   subscribe(listener: (event: ConsoleEvent, hostTime: number) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /** Current modulation, to check what a test left behind. */
+  get modulation(): { readonly sf: number; readonly bw: number; readonly cr: number } {
+    return { sf: this.#radio.sf, bw: this.#radio.bw, cr: this.#radio.cr };
   }
 
   /** Transmits a run held by the `holdsRun` behavior. */
@@ -159,6 +171,12 @@ export class SimulatedNode implements CampaignNode {
       case "run":
         this.#executeRun(words.slice(1));
         break;
+      case "echo":
+        this.#executeEcho(words.slice(1));
+        break;
+      case "presence":
+        this.#executePresence(words.slice(1));
+        break;
       case "status":
         this.#emitEvent(
           "status",
@@ -190,6 +208,64 @@ export class SimulatedNode implements CampaignNode {
     }
     this.#emitRadio();
     this.#emitLine(`radio ${this.#radio.sf}/${this.#radio.bw} +${this.#radio.power} dBm`);
+  }
+
+  #executePresence(argumentsList: readonly string[]): void {
+    if (this.behavior.presenceRefusal !== undefined) {
+      this.#emitError("presence", this.behavior.presenceRefusal);
+      return;
+    }
+    if (argumentsList[0] === "off") {
+      this.presenceHoldSeconds = Number(argumentsList[1]);
+      this.#emitEvent("presence", `"state":"off","remaining":${this.presenceHoldSeconds}`);
+    } else {
+      this.presenceHoldSeconds = null;
+      this.#emitEvent("presence", `"state":"on","remaining":null`);
+    }
+  }
+
+  #executeEcho(argumentsList: readonly string[]): void {
+    const destination = argumentsList[0] ?? "";
+    const size = Number(argumentsList[1] ?? "16");
+    const number = ++this.#echoCounter;
+    const timeOnAir = timeOnAirFor(computeFrameLength(size), this.#radio);
+    const peer = this.peer;
+    const heard =
+      peer !== null &&
+      peer.identifier === destination &&
+      peer.#hearsChannel(this.#radio) &&
+      peer.behavior.losesEchoRequest?.(number) !== true;
+    if (!heard) {
+      const timeout = 2 * Math.ceil(timeOnAir / 1000) + 1000;
+      this.#clock.advanceBy(timeout);
+      this.#emitEvent(
+        "echo_lost",
+        `"dst":"${destination}","n":${number},"size":${size},"timeout":${timeout}`,
+      );
+      return;
+    }
+    this.#clock.advanceBy(timeOnAir / 1000);
+    const forwardRssi = -60 - (number % 3);
+    const forwardSnr = 7.5 + (number % 2) * 0.25;
+    peer.#emitEvent(
+      "echo_served",
+      `"src":"${this.identifier}","n":${number},"size":${size},"rssi":${forwardRssi},"snr":${forwardSnr}`,
+    );
+    this.#clock.advanceBy(timeOnAir / 1000);
+    const roundTrip = 2 * timeOnAir + 3000;
+    this.#emitEvent(
+      "echo",
+      `"dst":"${destination}","n":${number},"size":${size},"rtt":${roundTrip},"rssi":-62,"snr":6.5,"remote_rssi":${forwardRssi},"remote_snr":${forwardSnr}`,
+    );
+  }
+
+  #hearsChannel(senderRadio: RadioState): boolean {
+    return (
+      Math.abs(senderRadio.freq - this.#radio.freq) < 0.0005 &&
+      senderRadio.sf === this.#radio.sf &&
+      senderRadio.bw === this.#radio.bw &&
+      senderRadio.cr === this.#radio.cr
+    );
   }
 
   #executeRun(argumentsList: readonly string[]): void {
@@ -260,12 +336,7 @@ export class SimulatedNode implements CampaignNode {
     index: number,
     senderRadio: RadioState,
   ): void {
-    const sameChannel =
-      Math.abs(senderRadio.freq - this.#radio.freq) < 0.0005 &&
-      senderRadio.sf === this.#radio.sf &&
-      senderRadio.bw === this.#radio.bw &&
-      senderRadio.cr === this.#radio.cr;
-    if (!sameChannel || this.behavior.losesPacket?.(run.run, index) === true) {
+    if (!this.#hearsChannel(senderRadio) || this.behavior.losesPacket?.(run.run, index) === true) {
       return;
     }
     const rssi = -40 - (index % 3) * 0.5;

@@ -56,6 +56,7 @@ const LNA_MODES = ["on", "bypass"] as const;
 const boardModelSchema = oneOf(["V2", "V4.3"]);
 export const lnaModeSchema = oneOf(LNA_MODES);
 const wifiStateSchema = oneOf(["on", "off"]);
+const presenceStateSchema = oneOf(["on", "off"]);
 const keyKindSchema = oneOf(["default", "custom"]);
 const transmissionTypeSchema = oneOf(["hello", "echo_request", "echo_reply", "test"]);
 const dropReasonSchema = oneOf(["crc", "short", "tag", "type", "body"]);
@@ -64,6 +65,7 @@ const runEndReasonSchema = oneOf(["complete", "timeout"]);
 export type BoardModel = z.infer<typeof boardModelSchema>;
 export type LnaMode = z.infer<typeof lnaModeSchema>;
 export type WifiState = z.infer<typeof wifiStateSchema>;
+export type PresenceState = z.infer<typeof presenceStateSchema>;
 export type KeyKind = z.infer<typeof keyKindSchema>;
 export type RunEndReason = z.infer<typeof runEndReasonSchema>;
 
@@ -139,6 +141,14 @@ const wifiEventSchema = z.extend(eventHeaderSchema, {
   ssid: textSchema,
   channel: numberSchema,
   clients: numberSchema,
+});
+
+const presenceEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("presence"),
+  /** "off" while the operator holds the HELLO messages. */
+  state: presenceStateSchema,
+  /** Seconds until the hold expires and the HELLO messages resume; null when they are on. */
+  remaining: numberOrNullSchema,
 });
 
 const statusEventSchema = z.extend(eventHeaderSchema, {
@@ -324,6 +334,7 @@ export const consoleEventSchema = z.discriminatedUnion("ev", [
   bootEventSchema,
   radioEventSchema,
   wifiEventSchema,
+  presenceEventSchema,
   statusEventSchema,
   neighborEventSchema,
   transmissionEventSchema,

@@ -61,7 +61,7 @@ El core de ESP32 pasa ese archivo a cada compilación, también desde el IDE. WP
 | | `duplicate_filter` | Descarte de repetidos por origen, época y secuencia |
 | | `neighbor_table` | Tabla de vecinos |
 | | `byte_order.h`, `link_quality.h` | Codificación de enteros, RSSI y SNR en los cuerpos |
-| `src/services/` | `presence_service` | Calendario y cuerpo del HELLO |
+| `src/services/` | `presence_service` | Calendario y cuerpo del HELLO, y su suspensión a pedido del operador |
 | | `echo_service` | Pedido de eco pendiente y cuerpos del eco |
 | | `test_run_service` | Corridas del emisor y estadísticas del receptor |
 | `src/console/` | `console`, `event_fields` | Consola, eventos JSON (con ArduinoJson) y formato de sus campos |

@@ -1,6 +1,6 @@
 /**
  * Reactive state of the control panel. It owns the connections, the test-run ledger, the event
- * journal and the capacity-test campaign, and publishes immutable snapshots of them for the views.
+ * journal, the capacity-test campaign and both sides of the communication test, and publishes immutable snapshots of them for the views.
  * The domain modules stay free of Svelte; this class only connects them and throttles updates.
  */
 import { BoundedLog } from "$lib/utils/bounded-log.ts";
@@ -14,6 +14,22 @@ import {
   type CapacityTestConfiguration,
 } from "$lib/measurements/capacity-test-plan.ts";
 import type { NodeIdentifier } from "$lib/console/console-event.ts";
+import {
+  CommunicationTest,
+  type CommunicationTestConfiguration,
+  type CommunicationTestSnapshot,
+} from "$lib/measurements/communication-test.ts";
+import {
+  COMMUNICATION_TEST,
+  buildCommunicationTestFiles,
+  buildReceiverFiles,
+  type CommunicationTestDescription,
+} from "$lib/measurements/communication-test-metrics.ts";
+import {
+  CommunicationReceiver,
+  type ReceiverModeSnapshot,
+} from "$lib/measurements/communication-receiver.ts";
+import type { Modulation } from "$lib/measurements/command-confirmation.ts";
 import { EchoSeries, type EchoSeriesSnapshot } from "$lib/measurements/echo-series.ts";
 import { EventJournal } from "$lib/measurements/event-journal.ts";
 import {
@@ -21,6 +37,8 @@ import {
   buildMetadata,
   formatLocalDate,
   type MeasurementDescription,
+  type ExportedEvent,
+  type MeasurementFile,
   type ParticipatingNode,
 } from "$lib/measurements/measurement-export.ts";
 import {
@@ -94,6 +112,8 @@ export class ControlPanel {
   echoSeries = $state.raw<EchoSeriesSnapshot | null>(null);
   /** Connection whose node runs the echo series. */
   echoSeriesKey = $state<string | null>(null);
+  communicationTest = $state.raw<CommunicationTestSnapshot | null>(null);
+  receiverMode = $state.raw<ReceiverModeSnapshot | null>(null);
   notices = $state.raw<readonly PanelNotice[]>([]);
   /** Host time, updated every second, for ages and remaining times. */
   now = $state(Date.now());
@@ -108,6 +128,8 @@ export class ControlPanel {
   readonly #journal = new EventJournal();
   #campaign: CapacityTestCampaign | null = null;
   #echoSeries: EchoSeries | null = null;
+  #communicationTest: CommunicationTest | null = null;
+  #receiverMode: CommunicationReceiver | null = null;
   #connectionCounter = 0;
   /** Connections that reached the open status, whose loss deserves a notice. */
   readonly #openedKeys = new Set<string>();
@@ -117,7 +139,7 @@ export class ControlPanel {
   constructor() {
     setInterval(() => this.#tick(), TICK_INTERVAL_MILLISECONDS);
     window.addEventListener("beforeunload", (event) => {
-      if (this.isCampaignActive) {
+      if (this.isCampaignActive || this.isCommunicationTestActive || this.isReceiverModeActive) {
         event.preventDefault();
       }
     });
@@ -207,6 +229,13 @@ export class ControlPanel {
     if (this.isCampaignActive) {
       return;
     }
+    if (this.isCommunicationTestActive || this.isReceiverModeActive) {
+      this.notify(
+        "error",
+        "Hay una prueba de comunicación en curso o el modo receptor está activo.",
+      );
+      return;
+    }
     const sender = this.#nodePort(senderKey);
     const receiver = this.#nodePort(receiverKey);
     if (sender === null || receiver === null || sender.identifier === receiver.identifier) {
@@ -254,6 +283,241 @@ export class ControlPanel {
     this.#campaign?.stop();
   }
 
+  get isCommunicationTestActive(): boolean {
+    const status = this.communicationTest?.status;
+    return status === "preparing" || status === "measuring" || status === "restoring";
+  }
+
+  /** True from the activation of receiver mode until its deactivation ends. */
+  get isReceiverModeActive(): boolean {
+    const status = this.receiverMode?.status;
+    return status === "activating" || status === "active" || status === "deactivating";
+  }
+
+  /** True while any test changes the radio settings or the HELLO messages of a node. */
+  get isRadioTestActive(): boolean {
+    return (
+      this.isCampaignActive ||
+      this.isEchoSeriesActive ||
+      this.isCommunicationTestActive ||
+      this.isReceiverModeActive
+    );
+  }
+
+  /**
+   * Starts the sender side of a communication test: the node of `key` asks `destination` for the
+   * echoes. The operator of the destination must have activated receiver mode with the same
+   * modulation.
+   */
+  startCommunicationTest(
+    configuration: CommunicationTestConfiguration,
+    key: string,
+    destination: NodeIdentifier,
+  ): void {
+    if (this.isRadioTestActive) {
+      this.notify("error", "Hay otra prueba en curso o el modo receptor está activo.");
+      return;
+    }
+    const node = this.#nodePort(key);
+    const radio = this.#connections.get(key)?.state.radio ?? null;
+    if (node === null || radio === null) {
+      this.notify(
+        "error",
+        "El nodo tiene que estar conectado, identificado y con sus parámetros de radio conocidos.",
+      );
+      return;
+    }
+    const test = new CommunicationTest({
+      node,
+      radio,
+      destination,
+      configuration,
+      onChange: (snapshot) => {
+        this.communicationTest = snapshot;
+      },
+    });
+    this.#communicationTest = test;
+    this.communicationTest = test.snapshot;
+    test.run().then(
+      (snapshot) => {
+        if (snapshot.status === "failed" && snapshot.failure !== null) {
+          this.notify("error", `La prueba de comunicación falló: ${snapshot.failure}`);
+        } else {
+          this.notify(
+            "information",
+            snapshot.status === "finished"
+              ? "La prueba de comunicación terminó."
+              : "La prueba de comunicación se detuvo.",
+          );
+        }
+        this.#reportRestoration(snapshot.restored, snapshot.restorationProblems);
+      },
+      (error: unknown) => {
+        this.notify("error", `La prueba de comunicación falló: ${describeTransportError(error)}`);
+      },
+    );
+  }
+
+  stopCommunicationTest(): void {
+    this.#communicationTest?.stop();
+  }
+
+  discardCommunicationTest(): void {
+    if (!this.isCommunicationTestActive) {
+      this.#communicationTest = null;
+      this.communicationTest = null;
+    }
+  }
+
+  /**
+   * Puts the node of `key` in receiver mode: HELLO held and the modulation agreed with the
+   * operator of the sender. Echoes from any node are answered and recorded until deactivation.
+   */
+  activateReceiverMode(key: string, modulation: Modulation): void {
+    if (this.isRadioTestActive) {
+      this.notify("error", "Hay otra prueba en curso o el modo receptor ya está activo.");
+      return;
+    }
+    const node = this.#nodePort(key);
+    const radio = this.#connections.get(key)?.state.radio ?? null;
+    if (node === null || radio === null) {
+      this.notify(
+        "error",
+        "El nodo tiene que estar conectado, identificado y con sus parámetros de radio conocidos.",
+      );
+      return;
+    }
+    const receiver = new CommunicationReceiver({
+      node,
+      radio,
+      modulation,
+      onChange: (snapshot) => {
+        this.receiverMode = snapshot;
+      },
+    });
+    this.#receiverMode = receiver;
+    this.receiverMode = receiver.snapshot;
+    receiver.activate().then(
+      (snapshot) => {
+        if (snapshot.status === "failed") {
+          this.notify("error", `No se pudo activar el modo receptor: ${snapshot.failure ?? ""}`);
+          this.#reportRestoration(snapshot.restored, snapshot.restorationProblems);
+        }
+      },
+      (error: unknown) => {
+        this.notify(
+          "error",
+          `No se pudo activar el modo receptor: ${describeTransportError(error)}`,
+        );
+      },
+    );
+  }
+
+  deactivateReceiverMode(): void {
+    this.#receiverMode?.deactivate().then(
+      (snapshot) => {
+        this.#reportRestoration(snapshot.restored, snapshot.restorationProblems);
+      },
+      (error: unknown) => {
+        this.notify(
+          "error",
+          `No se pudo desactivar el modo receptor: ${describeTransportError(error)}`,
+        );
+      },
+    );
+  }
+
+  discardReceiverMode(): void {
+    if (!this.isReceiverModeActive) {
+      this.#receiverMode = null;
+      this.receiverMode = null;
+    }
+  }
+
+  /**
+   * Exports the last communication test of the sender: its metrics, its echoes and the events of
+   * the node while it lasted. Returns null when the operator cancelled the folder chooser.
+   */
+  async exportCommunicationTest(
+    description: CommunicationTestDescription,
+  ): Promise<ExportOutcome | null> {
+    const snapshot = this.communicationTest;
+    if (snapshot === null || snapshot.startHostTime === null || this.isCommunicationTestActive) {
+      return null;
+    }
+    const node = snapshot.requester;
+    const exportDate = new Date();
+    const files = buildCommunicationTestFiles(
+      snapshot,
+      description,
+      this.#participatingNodesAmong([node, snapshot.responder]),
+      this.#eventsOf(node, snapshot.startHostTime, snapshot.endHostTime),
+      exportDate,
+      __PANEL_VERSION__,
+    );
+    return this.#writeCommunicationTestFiles(files, exportDate);
+  }
+
+  /** Exports what the node answered in receiver mode; null when the chooser was cancelled. */
+  async exportReceiverMode(
+    description: CommunicationTestDescription,
+  ): Promise<ExportOutcome | null> {
+    const snapshot = this.receiverMode;
+    if (snapshot === null || this.isReceiverModeActive) {
+      return null;
+    }
+    const exportDate = new Date();
+    const files = buildReceiverFiles(
+      snapshot,
+      description,
+      this.#participatingNodesAmong([snapshot.node]),
+      this.#eventsOf(snapshot.node, snapshot.activationHostTime, snapshot.deactivationHostTime),
+      exportDate,
+      __PANEL_VERSION__,
+    );
+    return this.#writeCommunicationTestFiles(files, exportDate);
+  }
+
+  #participatingNodesAmong(identifiers: readonly NodeIdentifier[]): ParticipatingNode[] {
+    const wanted = new Set(identifiers);
+    return this.#journal.participatingNodes().filter((node) => wanted.has(node.id));
+  }
+
+  #eventsOf(node: NodeIdentifier, start: number, end: number | null): ExportedEvent[] {
+    const last = end ?? Date.now();
+    return [...this.#journal.events(new Set([node]))].filter(
+      (event) => event.hostTime >= start && event.hostTime <= last,
+    );
+  }
+
+  async #writeCommunicationTestFiles(
+    files: readonly MeasurementFile[],
+    exportDate: Date,
+  ): Promise<ExportOutcome | null> {
+    const localDate = formatLocalDate(exportDate);
+    try {
+      if (this.directoryPickerAvailable) {
+        return await writeMeasurementToDirectory(files, localDate, COMMUNICATION_TEST);
+      }
+      return downloadMeasurementFiles(files, localDate, COMMUNICATION_TEST);
+    } catch (error) {
+      if (isPickerCancellation(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  #reportRestoration(restored: boolean | null, problems: readonly string[]): void {
+    if (restored === false) {
+      this.notify(
+        "error",
+        `No se pudo dejar el nodo como estaba: ${problems.join(" ")} ` +
+          "Conviene revisar la radio desde la sección Radio o reiniciar el nodo.",
+      );
+    }
+  }
+
   /** Forgets the results of a campaign that ended; the summary rows stay in the ledger. */
   discardCampaign(): void {
     if (!this.isCampaignActive) {
@@ -275,6 +539,13 @@ export class ControlPanel {
     count: number,
   ): void {
     if (this.isEchoSeriesActive) {
+      return;
+    }
+    if (this.isCommunicationTestActive || this.isReceiverModeActive) {
+      this.notify(
+        "error",
+        "Hay una prueba de comunicación en curso o el modo receptor está activo.",
+      );
       return;
     }
     const node = this.#nodePort(requesterKey);

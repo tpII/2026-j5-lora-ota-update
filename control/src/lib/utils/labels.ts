@@ -1,6 +1,8 @@
 /** Spanish texts for the values the panel shows. */
 import type { CampaignStatus, PointStatus } from "$lib/measurements/capacity-test-campaign.ts";
 import type { CapacityTestSeries } from "$lib/measurements/capacity-test-plan.ts";
+import type { CommunicationTestStatus } from "$lib/measurements/communication-test.ts";
+import type { ReceiverModeStatus } from "$lib/measurements/communication-receiver.ts";
 import type { ConsoleEventName, LnaMode } from "$lib/console/console-event.ts";
 import type { MeasurementTest } from "$lib/measurements/measurement-export.ts";
 import type { ConnectionStatus } from "$lib/nodes/node-connection.ts";
@@ -11,6 +13,7 @@ export const EVENT_DESCRIPTIONS: { readonly [Name in ConsoleEventName]: string }
   boot: "arranque",
   radio: "parámetros de radio",
   wifi: "punto de acceso",
+  presence: "estado de los HELLO",
   status: "estado",
   neighbor: "vecino",
   tx: "transmisión",
@@ -74,6 +77,26 @@ export const CAMPAIGN_STATUS_LABELS: { readonly [Status in CampaignStatus]: stri
   stopping: "Deteniendo",
   stopped: "Detenida",
   finished: "Terminada",
+};
+
+export const COMMUNICATION_TEST_STATUS_LABELS: {
+  readonly [Status in CommunicationTestStatus]: string;
+} = {
+  ready: "Lista para empezar",
+  preparing: "Suspendiendo los HELLO y aplicando la modulación",
+  measuring: "Enviando ecos",
+  restoring: "Restableciendo la radio y los HELLO",
+  finished: "Terminada",
+  stopped: "Detenida",
+  failed: "Falló",
+};
+
+export const RECEIVER_MODE_STATUS_LABELS: { readonly [Status in ReceiverModeStatus]: string } = {
+  activating: "Suspendiendo los HELLO y aplicando la modulación",
+  active: "Activo: responde ecos",
+  deactivating: "Restableciendo la radio y los HELLO",
+  inactive: "Desactivado",
+  failed: "No se pudo activar",
 };
 
 export const SERIES_LABELS: { readonly [Series in CapacityTestSeries]: string } = {

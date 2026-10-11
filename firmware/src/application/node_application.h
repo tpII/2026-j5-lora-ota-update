@@ -80,6 +80,7 @@ private:
   void commandRun(const Command &command);
   void commandWifi(const Command &command);
   void commandResend();
+  void commandPresence(const Command &command);
   bool isRunActive() const;
   void requestRadioSettings(const RadioSettings &settings);
   void applyRadioSettings(const RadioSettings &settings);
@@ -94,6 +95,7 @@ private:
   void emitBoot();
   void emitRadio();
   void emitWifi();
+  void emitPresence(uint32_t nowMillis);
   void emitError(const char *command, const char *reason, const char *detail = nullptr,
                  int16_t code = 0);
   void emitDrop(const char *reason, const ReceivedFrame &frame);
@@ -121,6 +123,7 @@ private:
   Command runCommand_;
   Command wifiCommand_;
   Command resendCommand_;
+  Command presenceCommand_;
 
   OutgoingFrame queue_[TRANSMIT_QUEUE_CAPACITY] = {};
   size_t queueHead_ = 0;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import CapacityTestSection from "./lib/components/sections/CapacityTestSection.svelte";
+  import CommunicationTestSection from "./lib/components/sections/CommunicationTestSection.svelte";
   import EchoSection from "./lib/components/sections/EchoSection.svelte";
   import EventStreamSection from "./lib/components/sections/EventStreamSection.svelte";
   import ExportSection from "./lib/components/sections/ExportSection.svelte";
@@ -11,7 +12,15 @@
   import RunSection from "./lib/components/sections/RunSection.svelte";
   import { ControlPanel } from "./lib/state/control-panel.svelte.ts";
 
-  type SectionKey = "events" | "neighbors" | "radio" | "echo" | "runs" | "capacity" | "export";
+  type SectionKey =
+    | "events"
+    | "neighbors"
+    | "radio"
+    | "echo"
+    | "runs"
+    | "capacity"
+    | "communication"
+    | "export";
 
   const SECTIONS: readonly { readonly key: SectionKey; readonly label: string }[] = [
     { key: "events", label: "Flujo de eventos" },
@@ -20,6 +29,7 @@
     { key: "echo", label: "Eco" },
     { key: "runs", label: "Corridas" },
     { key: "capacity", label: "Prueba de capacidad" },
+    { key: "communication", label: "Prueba de comunicación" },
     { key: "export", label: "Exportar" },
   ];
 
@@ -102,6 +112,14 @@
   </div>
   <div id="section-capacity" role="tabpanel" aria-labelledby="tab-capacity" hidden={activeSection !== "capacity"}>
     <CapacityTestSection {panel} />
+  </div>
+  <div
+    id="section-communication"
+    role="tabpanel"
+    aria-labelledby="tab-communication"
+    hidden={activeSection !== "communication"}
+  >
+    <CommunicationTestSection {panel} />
   </div>
   <div id="section-export" role="tabpanel" aria-labelledby="tab-export" hidden={activeSection !== "export"}>
     <ExportSection {panel} />

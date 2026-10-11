@@ -11,6 +11,7 @@ import type {
   HelloNeighborReport,
   KeyKind,
   NodeIdentifier,
+  PresenceState,
   RunEndEvent,
   WifiState,
 } from "$lib/console/console-event.ts";
@@ -28,6 +29,14 @@ export interface WifiStatus {
   readonly ssid: string;
   readonly channel: number;
   readonly clients: number;
+}
+
+/** HELLO messages of the node, from the last `presence` event. */
+export interface PresenceStatus {
+  readonly state: PresenceState;
+  /** Seconds until a hold expires, as the node reported them; null when the HELLO are on. */
+  readonly remaining: number | null;
+  readonly hostTime: number;
 }
 
 /** Counters reported by the last `status` event. */
@@ -141,6 +150,7 @@ export interface NodeState {
   readonly bootCount: number;
   readonly radio: RadioSettings | null;
   readonly wifi: WifiStatus | null;
+  readonly presence: PresenceStatus | null;
   readonly counters: NodeCounters | null;
   /** Sorted by identifier. */
   readonly neighbors: readonly NeighborRecord[];
@@ -170,6 +180,7 @@ export const INITIAL_NODE_STATE: NodeState = {
   bootCount: 0,
   radio: null,
   wifi: null,
+  presence: null,
   counters: null,
   neighbors: [],
   echoResults: [],
@@ -282,6 +293,8 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
         protocolVersion: event.protocol,
         networkKey: event.key,
         bootCount: base.bootCount + 1,
+        // The node always boots with its HELLO messages on.
+        presence: { state: "on", remaining: null, hostTime },
         neighbors: [],
         senderRun: null,
         receptions: base.receptions.filter((reception) => reception.end !== null),
@@ -315,6 +328,11 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
           channel: event.channel,
           clients: event.clients,
         },
+      };
+    case "presence":
+      return {
+        ...state,
+        presence: { state: event.state, remaining: event.remaining, hostTime },
       };
     case "neighbor":
       return {

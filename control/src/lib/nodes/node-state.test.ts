@@ -138,6 +138,31 @@ describe("applyConsoleEvent with a recorded session", () => {
     expect(isNeighborExpired(neighbor, BOOT_HOST_TIME + 15013 + 57938)).toBe(true);
   });
 
+  it("follows the HELLO hold until a boot turns the HELLO back on", () => {
+    expect(state.presence).toMatchObject({ state: "on", remaining: null });
+    const held = applyConsoleEvent(
+      state,
+      { t: 1, ev: "presence", state: "off", remaining: 600 },
+      5,
+    );
+    expect(held.presence).toEqual({ state: "off", remaining: 600, hostTime: 5 });
+    const rebooted = applyConsoleEvent(
+      held,
+      {
+        t: 1,
+        ev: "boot",
+        id: "3A7F",
+        model: "V4.3",
+        epoch: 13,
+        firmware: "0.1.0",
+        protocol: 1,
+        key: "default",
+      },
+      9,
+    );
+    expect(rebooted.presence).toEqual({ state: "on", remaining: null, hostTime: 9 });
+  });
+
   it("returns a new object for every event and leaves the previous state untouched", () => {
     const before = replay(readFixtureEvents(NODE_SESSION_LOG, BOOT_HOST_TIME).slice(0, 3));
     const snapshot = structuredClone(before);

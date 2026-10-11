@@ -12,13 +12,19 @@ static uint32_t randomBetween(uint32_t minimum, uint32_t maximum) {
   return minimum + esp_random() % (maximum - minimum + 1);
 }
 
+// Signed, because the main loop reads the clock once per pass and a command handled later in the
+// same pass starts the hold with a newer reading.
+static int32_t elapsedSince(uint32_t startMillis, uint32_t nowMillis) {
+  return static_cast<int32_t>(nowMillis - startMillis);
+}
+
 void PresenceService::begin(uint32_t nowMillis) {
   nextMillis_ =
       nowMillis + randomBetween(FIRST_HELLO_MINIMUM_DELAY_MS, FIRST_HELLO_MAXIMUM_DELAY_MS);
 }
 
 bool PresenceService::isDue(uint32_t nowMillis) const {
-  return !suspended_ && static_cast<int32_t>(nowMillis - nextMillis_) >= 0;
+  return !suspended_ && !held_ && static_cast<int32_t>(nowMillis - nextMillis_) >= 0;
 }
 
 void PresenceService::scheduleNext(uint32_t nowMillis) {
@@ -32,10 +38,46 @@ void PresenceService::setSuspended(bool suspended, uint32_t nowMillis) {
   }
   suspended_ = suspended;
   if (!suspended_) {
-    // Resume soon, but not at the same instant as the other end of the run.
-    nextMillis_ =
-        nowMillis + randomBetween(FIRST_HELLO_MINIMUM_DELAY_MS, FIRST_HELLO_MAXIMUM_DELAY_MS);
+    scheduleResumption(nowMillis);
   }
+}
+
+void PresenceService::hold(uint32_t durationMillis, uint32_t nowMillis) {
+  held_ = true;
+  holdStartMillis_ = nowMillis;
+  holdDurationMillis_ = durationMillis;
+}
+
+void PresenceService::release(uint32_t nowMillis) {
+  if (!held_) {
+    return;
+  }
+  held_ = false;
+  scheduleResumption(nowMillis);
+}
+
+bool PresenceService::hasHoldExpired(uint32_t nowMillis) const {
+  return held_ &&
+         elapsedSince(holdStartMillis_, nowMillis) >= static_cast<int32_t>(holdDurationMillis_);
+}
+
+uint32_t PresenceService::holdRemainingMillis(uint32_t nowMillis) const {
+  if (!held_) {
+    return 0;
+  }
+  const int32_t elapsed = elapsedSince(holdStartMillis_, nowMillis);
+  if (elapsed <= 0) {
+    return holdDurationMillis_;
+  }
+  return static_cast<uint32_t>(elapsed) >= holdDurationMillis_
+             ? 0
+             : holdDurationMillis_ - static_cast<uint32_t>(elapsed);
+}
+
+void PresenceService::scheduleResumption(uint32_t nowMillis) {
+  // Resume soon, but not at the same instant as the other node of the run or of the test.
+  nextMillis_ =
+      nowMillis + randomBetween(FIRST_HELLO_MINIMUM_DELAY_MS, FIRST_HELLO_MAXIMUM_DELAY_MS);
 }
 
 size_t PresenceService::encodePayload(const HelloContent &content, uint8_t *output) {

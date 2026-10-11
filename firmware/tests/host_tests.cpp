@@ -88,6 +88,33 @@ static void testHelloPayload() {
   CHECK(!PresenceService::decodePayload(buffer, length - 1, decoded));
 }
 
+static void testPresenceHold() {
+  PresenceService presence;
+  presence.begin(0);
+  CHECK(presence.isDue(10000));
+
+  // The loop reads the clock at 5000 and the presence command, later in the same pass, at 5001.
+  presence.hold(60000, 5001);
+  CHECK(presence.isHeld() && !presence.isDue(10000));
+  CHECK(!presence.hasHoldExpired(5000));
+  CHECK(presence.holdRemainingMillis(5000) == 60000);
+  CHECK(presence.holdRemainingMillis(35001) == 30000);
+  CHECK(!presence.hasHoldExpired(65000));
+  CHECK(presence.hasHoldExpired(65001));
+
+  // Released, the first HELLO comes after the same delay as at boot.
+  presence.release(70000);
+  CHECK(!presence.isHeld() && presence.holdRemainingMillis(70000) == 0);
+  CHECK(!presence.isDue(70000 + FIRST_HELLO_MINIMUM_DELAY_MS - 1));
+  CHECK(presence.isDue(70000 + FIRST_HELLO_MAXIMUM_DELAY_MS));
+
+  // A run that ends during a hold does not bring the HELLO back.
+  presence.hold(60000, 80000);
+  presence.setSuspended(true, 81000);
+  presence.setSuspended(false, 82000);
+  CHECK(!presence.isDue(90000));
+}
+
 static void testEchoPayload() {
   uint8_t buffer[255];
   const size_t length = EchoService::encodeReply(42, -87.6f, -3.3f, 16, buffer);
@@ -169,6 +196,7 @@ int main() {
   testTimeOnAir();
   testDuplicateFilter();
   testHelloPayload();
+  testPresenceHold();
   testEchoPayload();
   testEchoDeadline();
   testTestRuns();
