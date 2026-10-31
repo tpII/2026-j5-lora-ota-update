@@ -8,6 +8,7 @@ import type { MeasurementTest } from "$lib/measurements/measurement-export.ts";
 import type { ConnectionStatus } from "$lib/nodes/node-connection.ts";
 import type { ReceptionOutcome } from "$lib/measurements/test-run-ledger.ts";
 import type { TransportKind } from "$lib/transports/console-transport.ts";
+import type { VmFault } from "$lib/vm/virtual-machine.ts";
 
 export const EVENT_DESCRIPTIONS: { readonly [Name in ConsoleEventName]: string } = {
   boot: "arranque",
@@ -28,6 +29,9 @@ export const EVENT_DESCRIPTIONS: { readonly [Name in ConsoleEventName]: string }
   duplicate: "paquete repetido",
   drop: "paquete descartado",
   id_conflict: "identificador repetido",
+  vm: "estado de la VM",
+  vm_print: "salida de la VM",
+  vm_fault: "falla de la VM",
   error: "error",
 };
 
@@ -41,7 +45,18 @@ const ERROR_REASON_DESCRIPTIONS: Readonly<Record<string, string>> = {
   busy: "hay una corrida o un eco en curso",
   radio_failure: "la radio rechazó la operación",
   wifi_failure: "no se pudo encender el punto de acceso",
-  line_too_long: "la línea supera los 200 caracteres",
+  line_too_long: "la línea supera los 200 caracteres (o el largo de un programa, en load_program)",
+  version_not_newer: "la versión del programa no es mayor que la activa",
+  invalid_program: "el código del programa no es válido",
+};
+
+export const VM_FAULT_LABELS: { readonly [Fault in VmFault]: string } = {
+  division_by_zero: "división por cero",
+  instruction_limit: "se superó el tope de instrucciones del tick",
+  end_of_program: "el programa terminó sin HALT",
+  invalid_opcode: "opcode inválido",
+  invalid_register: "registro inválido",
+  truncated_instruction: "instrucción incompleta al final del programa",
 };
 
 export function describeErrorReason(reason: string): string {

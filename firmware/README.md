@@ -65,8 +65,9 @@ El core de ESP32 pasa ese archivo a cada compilación, también desde el IDE. WP
 | | `echo_service` | Pedido de eco pendiente y cuerpos del eco |
 | | `test_run_service` | Corridas del emisor y estadísticas del receptor |
 | `src/console/` | `console`, `event_fields` | Consola, eventos JSON (con ArduinoJson) y formato de sus campos |
-| | `serial_transport`, `wireless_transport` | Transportes de la consola: serie y WebSocket sobre el punto de acceso |
+| | `serial_transport`, `wireless_transport`, `console_line_limit.h` | Transportes de la consola: serie y WebSocket sobre el punto de acceso, y largo máximo de cada línea |
 | `src/display/` | `debug_display` | OLED: fila de estado y registro de depuración |
+| `src/vm/` | `virtual_machine` | Micro VM de registros: carga y validación del programa, ticks y fallas |
 
 Cada módulo es un par `.h` y `.cpp` con el mismo nombre, salvo los que son solo un encabezado. Los `#include` entre carpetas usan rutas relativas.
 
@@ -85,7 +86,7 @@ El script pide a arduino-cli la base de compilación del perfil, expande sus opc
 
 ## Pruebas
 
-`tests/run_host_tests.sh` compila y ejecuta en la computadora las pruebas de los módulos que no dependen del hardware: la fórmula del tiempo de aire, el descarte de repetidos, los cuerpos de los mensajes y el armado de los campos de los eventos. El script toma ArduinoJson de la copia que descarga la primera compilación con un perfil. La radio, los transportes y el OLED se prueban sobre las placas.
+`tests/run_host_tests.sh` compila y ejecuta en la computadora las pruebas de los módulos que no dependen del hardware: la fórmula del tiempo de aire, el descarte de repetidos, los cuerpos de los mensajes, el armado de los campos de los eventos, la VM y el largo máximo de las líneas de consola. El script toma ArduinoJson de la copia que descarga la primera compilación con un perfil. La radio, los transportes y el OLED se prueban sobre las placas.
 
 ## Notas de hardware
 

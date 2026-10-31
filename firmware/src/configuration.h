@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vm/virtual_machine.h"
+
 // Secrets are compiled into the firmware. To use other values, create firmware/build_opt.h (ignored
 // by git) with one option per line, for example: -DJ5_NETWORK_KEY="\"another key\""
 #ifndef J5_NETWORK_KEY
@@ -22,7 +24,10 @@ constexpr const char *DEFAULT_NETWORK_KEY = "bichofeo";
 
 constexpr uint32_t CONSOLE_BAUD_RATE = 921600;
 constexpr size_t CONSOLE_LINE_CAPACITY = 200;
+// Only load_program may be longer: it carries the program as two hexadecimal digits per byte.
+constexpr size_t PROGRAM_LINE_CAPACITY = 2 * PROGRAM_CAPACITY + 32;
 constexpr size_t SERIAL_TRANSMIT_BUFFER_SIZE = 4096;
+constexpr size_t SERIAL_RECEIVE_BUFFER_SIZE = PROGRAM_LINE_CAPACITY + 256;
 
 constexpr uint8_t ACCESS_POINT_CHANNEL = 1;
 constexpr uint8_t ACCESS_POINT_MAXIMUM_CLIENTS = 4;
@@ -45,6 +50,10 @@ constexpr uint32_t MAXIMUM_RUN_INTERVAL_MS = 60000;
 constexpr uint32_t RESPONSE_MARGIN_MS = 1000;
 
 constexpr uint32_t DISPLAY_REFRESH_INTERVAL_MS = 200;
+
+constexpr uint32_t VM_TICK_PERIOD_MS = 10000;
+constexpr uint32_t VM_INSTRUCTIONS_PER_POLL = 64;
+constexpr uint32_t VM_MAXIMUM_INSTRUCTIONS_PER_TICK = 10000;
 
 } // namespace firmware
 

@@ -25,6 +25,7 @@ c++ -std=c++17 -Wall -Wextra -DARDUINO_HELTEC_WIFI_LORA_32_V2 \
   "${SOURCE_DIRECTORY}/services/presence_service.cpp" \
   "${SOURCE_DIRECTORY}/services/test_run_service.cpp" \
   "${SOURCE_DIRECTORY}/radio/time_on_air.cpp" \
+  "${SOURCE_DIRECTORY}/vm/virtual_machine.cpp" \
   -o "${OUTPUT_DIRECTORY}/host_tests"
 
 "${OUTPUT_DIRECTORY}/host_tests"

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   MAXIMUM_COMMAND_LENGTH,
+  MAXIMUM_PROGRAM_COMMAND_LENGTH,
   buildEchoCommand,
+  buildLoadProgramCommand,
+  buildLoadRegistersCommand,
   buildPresenceOffCommand,
   buildRadioSetCommand,
   buildRunCommand,
@@ -157,5 +160,36 @@ describe("simple commands", () => {
 
   it("knows the line limit of the firmware", () => {
     expect(MAXIMUM_COMMAND_LENGTH).toBe(200);
+  });
+});
+
+describe("buildLoadRegistersCommand", () => {
+  it("writes the four values in decimal", () => {
+    expect(commandOf(buildLoadRegistersCommand([1, -2, 2147483647, 4294967295]))).toBe(
+      "load_registers 1 -2 2147483647 4294967295",
+    );
+  });
+
+  it("refuses missing, fractional and out-of-range values", () => {
+    expect(problemFieldsOf(buildLoadRegistersCommand([1, 2.5, 4294967296]))).toEqual(["r2", "r3", "r4"]);
+  });
+});
+
+describe("buildLoadProgramCommand", () => {
+  it("writes the version, the length and the code in hexadecimal", () => {
+    expect(commandOf(buildLoadProgramCommand(2, Uint8Array.of(0x01, 0x01, 0x00)))).toBe(
+      "load_program 2 3 010100",
+    );
+  });
+
+  it("may exceed the limit of the other commands with a full program", () => {
+    const command = commandOf(buildLoadProgramCommand(4294967295, new Uint8Array(1024)));
+    expect(command.length).toBeGreaterThan(MAXIMUM_COMMAND_LENGTH);
+    expect(command.length).toBeLessThanOrEqual(MAXIMUM_PROGRAM_COMMAND_LENGTH);
+  });
+
+  it("refuses version 0 and an empty or oversized program", () => {
+    expect(problemFieldsOf(buildLoadProgramCommand(0, new Uint8Array(0)))).toEqual(["version", "program"]);
+    expect(problemFieldsOf(buildLoadProgramCommand(1, new Uint8Array(1025)))).toEqual(["program"]);
   });
 });

@@ -7,6 +7,7 @@
  * of each field schema says what the field should contain, in Spanish, for the operator.
  */
 import * as z from "zod/mini";
+import { VM_FAULTS } from "$lib/vm/virtual-machine.ts";
 
 /** Four uppercase hexadecimal digits, for example "3A7F". "FFFF" designates every node. */
 export type NodeIdentifier = string;
@@ -61,6 +62,7 @@ const keyKindSchema = oneOf(["default", "custom"]);
 const transmissionTypeSchema = oneOf(["hello", "echo_request", "echo_reply", "test"]);
 const dropReasonSchema = oneOf(["crc", "short", "tag", "type", "body"]);
 const runEndReasonSchema = oneOf(["complete", "timeout"]);
+const vmFaultSchema = oneOf(VM_FAULTS);
 
 export type BoardModel = z.infer<typeof boardModelSchema>;
 export type LnaMode = z.infer<typeof lnaModeSchema>;
@@ -83,6 +85,8 @@ export const KNOWN_ERROR_REASONS = [
   "radio_failure",
   "wifi_failure",
   "line_too_long",
+  "version_not_newer",
+  "invalid_program",
 ] as const;
 export type KnownErrorReason = (typeof KNOWN_ERROR_REASONS)[number];
 
@@ -318,6 +322,37 @@ const identifierConflictEventSchema = z.extend(eventHeaderSchema, {
   snr: numberSchema,
 });
 
+const virtualMachineEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("vm"),
+  /** Version of the active program; 0 is the factory program, which is empty. */
+  version: numberSchema,
+  /** Program length in bytes. */
+  size: numberSchema,
+  /** Ticks of the active program so far. */
+  tick: numberSchema,
+  /** R1 to R4, as signed 32-bit integers. */
+  registers: z.tuple([numberSchema, numberSchema, numberSchema, numberSchema], {
+    error: "un arreglo de cuatro números",
+  }),
+});
+
+const virtualMachinePrintEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("vm_print"),
+  tick: numberSchema,
+  /** Register from 1 to 4. */
+  reg: numberSchema,
+  /** Signed 32-bit value of the register. */
+  value: numberSchema,
+});
+
+const virtualMachineFaultEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("vm_fault"),
+  tick: numberSchema,
+  /** Address of the instruction that failed. */
+  pc: numberSchema,
+  reason: vmFaultSchema,
+});
+
 const errorEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("error"),
   /** First word of the command, or "radio" for a radio failure. */
@@ -349,6 +384,9 @@ export const consoleEventSchema = z.discriminatedUnion("ev", [
   duplicateEventSchema,
   dropEventSchema,
   identifierConflictEventSchema,
+  virtualMachineEventSchema,
+  virtualMachinePrintEventSchema,
+  virtualMachineFaultEventSchema,
   errorEventSchema,
 ]);
 
@@ -363,6 +401,7 @@ export type EchoEvent = ConsoleEventOf<"echo">;
 export type EchoLostEvent = ConsoleEventOf<"echo_lost">;
 export type RunEndEvent = ConsoleEventOf<"run_end">;
 export type ErrorEvent = ConsoleEventOf<"error">;
+export type VirtualMachineEvent = ConsoleEventOf<"vm">;
 
 /** Event names in the order of docs/protocol/console.md. */
 export const CONSOLE_EVENT_NAMES: readonly ConsoleEventName[] = consoleEventSchema.def.options.map(

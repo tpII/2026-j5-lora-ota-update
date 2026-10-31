@@ -3,10 +3,15 @@
 #include <Arduino.h>
 #include <string.h>
 
+#include "console_line_limit.h"
+
 namespace firmware {
 
 void SerialTransport::begin(uint32_t baudRate) {
   Serial.setTxBufferSize(SERIAL_TRANSMIT_BUFFER_SIZE);
+  // A whole load_program line has to fit while the main loop is busy, for example redrawing the
+  // display: at 921600 baud it arrives in about 22 ms.
+  Serial.setRxBufferSize(SERIAL_RECEIVE_BUFFER_SIZE);
   Serial.begin(baudRate);
 #if ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
   // Native USB of the ESP32-S3: without a host reading the port, writes must not wait.
@@ -32,7 +37,7 @@ bool SerialTransport::readLine(char *buffer, size_t capacity, bool &overflowed) 
       pendingOverflowed_ = false;
       return true;
     }
-    if (pendingLength_ < CONSOLE_LINE_CAPACITY) {
+    if (pendingLength_ < consoleLineLimit(pending_, pendingLength_)) {
       pending_[pendingLength_++] = static_cast<char>(character);
     } else {
       pendingOverflowed_ = true;

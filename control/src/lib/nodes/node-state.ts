@@ -15,6 +15,7 @@ import type {
   RunEndEvent,
   WifiState,
 } from "$lib/console/console-event.ts";
+import type { VmFault } from "$lib/vm/virtual-machine.ts";
 import { radioSettingsOf, type RadioSettings } from "$lib/radio/radio-settings.ts";
 
 /** A node stops listing a neighbor after 60 s without packets from it (docs/protocol/frame.md). */
@@ -23,6 +24,7 @@ export const NEIGHBOR_EXPIRY_MILLISECONDS = 60_000;
 const MAXIMUM_ECHO_RESULTS = 200;
 const MAXIMUM_ERROR_RECORDS = 50;
 const MAXIMUM_FINISHED_RECEPTIONS = 20;
+const MAXIMUM_VM_PRINTS = 100;
 
 export interface WifiStatus {
   readonly state: WifiState;
@@ -139,6 +141,31 @@ export interface NodeErrorRecord {
   readonly code: number | null;
 }
 
+/** The node's virtual machine, from its `vm` events and the values printed since. */
+export interface VirtualMachineStatus {
+  /** 0 is the factory program, which is empty. */
+  readonly version: number;
+  readonly size: number;
+  readonly tick: number;
+  /** R1 to R4. A PRINT updates the register it shows. */
+  readonly registers: readonly number[];
+  readonly hostTime: number;
+}
+
+export interface VirtualMachinePrintRecord {
+  readonly hostTime: number;
+  readonly tick: number;
+  readonly register: number;
+  readonly value: number;
+}
+
+export interface VirtualMachineFaultRecord {
+  readonly hostTime: number;
+  readonly tick: number;
+  readonly address: number;
+  readonly reason: VmFault;
+}
+
 export interface NodeState {
   readonly identifier: NodeIdentifier | null;
   readonly model: BoardModel | null;
@@ -165,6 +192,11 @@ export interface NodeState {
   readonly duplicateCount: number;
   readonly dropCount: number;
   readonly identifierConflictCount: number;
+  /** Null until the node reports it with `vm`, after `status` or a load. */
+  readonly virtualMachine: VirtualMachineStatus | null;
+  /** Newest last. */
+  readonly virtualMachinePrints: readonly VirtualMachinePrintRecord[];
+  readonly lastVirtualMachineFault: VirtualMachineFaultRecord | null;
   /** Value of `t` and host time of the last event, to estimate the uptime of the node. */
   readonly lastEventNodeTime: number | null;
   readonly lastEventHostTime: number | null;
@@ -191,6 +223,9 @@ export const INITIAL_NODE_STATE: NodeState = {
   duplicateCount: 0,
   dropCount: 0,
   identifierConflictCount: 0,
+  virtualMachine: null,
+  virtualMachinePrints: [],
+  lastVirtualMachineFault: null,
   lastEventNodeTime: null,
   lastEventHostTime: null,
 };
@@ -298,6 +333,9 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
         neighbors: [],
         senderRun: null,
         receptions: base.receptions.filter((reception) => reception.end !== null),
+        // The active program is not kept across reboots: the node returns to the factory program.
+        virtualMachine: { version: 0, size: 0, tick: 0, registers: [0, 0, 0, 0], hostTime },
+        lastVirtualMachineFault: null,
       };
     }
     case "status": {
@@ -476,6 +514,51 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
       return { ...state, dropCount: state.dropCount + 1 };
     case "id_conflict":
       return { ...state, identifierConflictCount: state.identifierConflictCount + 1 };
+    case "vm":
+      return {
+        ...state,
+        virtualMachine: {
+          version: event.version,
+          size: event.size,
+          tick: event.tick,
+          registers: [...event.registers],
+          hostTime,
+        },
+      };
+    case "vm_print": {
+      const record: VirtualMachinePrintRecord = {
+        hostTime,
+        tick: event.tick,
+        register: event.reg,
+        value: event.value,
+      };
+      const previous = state.virtualMachine;
+      return {
+        ...state,
+        virtualMachine:
+          previous === null
+            ? null
+            : {
+                ...previous,
+                tick: event.tick,
+                registers: previous.registers.map((value, index) =>
+                  index === event.reg - 1 ? event.value : value,
+                ),
+                hostTime,
+              },
+        virtualMachinePrints: appendBounded(state.virtualMachinePrints, record, MAXIMUM_VM_PRINTS),
+      };
+    }
+    case "vm_fault":
+      return {
+        ...state,
+        lastVirtualMachineFault: {
+          hostTime,
+          tick: event.tick,
+          address: event.pc,
+          reason: event.reason,
+        },
+      };
     case "error":
       return recordError(state, event, hostTime);
   }

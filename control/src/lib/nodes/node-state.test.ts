@@ -279,3 +279,47 @@ describe("applyConsoleEvent with test runs", () => {
     });
   });
 });
+
+describe("applyConsoleEvent with the virtual machine", () => {
+  const HOST_TIME = 1_759_840_000_000;
+  const loaded = applyConsoleEvent(
+    INITIAL_NODE_STATE,
+    { t: 10, ev: "vm", version: 3, size: 21, tick: 0, registers: [1, 2, 3, 4] },
+    HOST_TIME,
+  );
+
+  it("takes the program and the registers from vm", () => {
+    expect(loaded.virtualMachine).toMatchObject({ version: 3, size: 21, tick: 0, registers: [1, 2, 3, 4] });
+  });
+
+  it("updates the printed register and keeps the output", () => {
+    const printed = applyConsoleEvent(
+      loaded,
+      { t: 20, ev: "vm_print", tick: 1, reg: 2, value: -6 },
+      HOST_TIME + 10,
+    );
+    expect(printed.virtualMachine?.registers).toEqual([1, -6, 3, 4]);
+    expect(printed.virtualMachine?.tick).toBe(1);
+    expect(printed.virtualMachinePrints).toEqual([
+      { hostTime: HOST_TIME + 10, tick: 1, register: 2, value: -6 },
+    ]);
+  });
+
+  it("records the last fault", () => {
+    const faulted = applyConsoleEvent(
+      loaded,
+      { t: 30, ev: "vm_fault", tick: 1, pc: 6, reason: "division_by_zero" },
+      HOST_TIME + 20,
+    );
+    expect(faulted.lastVirtualMachineFault).toMatchObject({ address: 6, reason: "division_by_zero" });
+  });
+
+  it("returns to the factory program after a boot", () => {
+    const rebooted = applyConsoleEvent(
+      loaded,
+      { t: 5, ev: "boot", id: "3A7F", model: "V2", epoch: 2, firmware: "0.1.0", protocol: 1, key: "default" },
+      HOST_TIME + 30,
+    );
+    expect(rebooted.virtualMachine).toMatchObject({ version: 0, size: 0, registers: [0, 0, 0, 0] });
+  });
+});

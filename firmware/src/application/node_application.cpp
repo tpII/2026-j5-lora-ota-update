@@ -71,6 +71,41 @@ static void copyFirstWord(const char *line, char *word, size_t capacity) {
 
 static uint32_t roundUpToMillis(uint32_t micros) { return (micros + 999) / 1000; }
 
+// A register value: decimal, signed or not, or hexadecimal with 0x. Values above INT32_MAX keep
+// their bit pattern, so 0xFFFFFFFF and -1 load the same register contents.
+static bool parseRegisterValue(const char *text, int32_t &value) {
+  const bool negative = *text == '-';
+  const char *digits = negative ? text + 1 : text;
+  const bool hexadecimal = digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X');
+  if (hexadecimal) {
+    digits += 2;
+  }
+  if (*digits == '\0' || *digits == '-' || *digits == '+') {
+    return false;
+  }
+  char *end = nullptr;
+  errno = 0;
+  const unsigned long long magnitude = strtoull(digits, &end, hexadecimal ? 16 : 10);
+  if (errno != 0 || end == nullptr || *end != '\0') {
+    return false;
+  }
+  if (negative) {
+    if (magnitude > 2147483648ULL) {
+      return false;
+    }
+    value = static_cast<int32_t>(static_cast<uint32_t>(0U - static_cast<uint32_t>(magnitude)));
+    return true;
+  }
+  if (magnitude > 0xFFFFFFFFULL) {
+    return false;
+  }
+  value = static_cast<int32_t>(static_cast<uint32_t>(magnitude));
+  return true;
+}
+
+// The program of a load_program command, decoded before the virtual machine checks it.
+static uint8_t decodedProgram[PROGRAM_CAPACITY];
+
 // ---------------------------------------------------------------------------------------------
 // Start and main loop
 
@@ -81,6 +116,7 @@ void NodeApplication::begin() {
   console_.begin(serial_, wireless_);
   display_.begin();
   identity_.begin();
+  vm_.begin(VM_MAXIMUM_INSTRUCTIONS_PER_TICK);
   snprintf(accessPointName_, sizeof(accessPointName_), "J5-%04X", identity_.nodeId());
 
   const int16_t radioState = radio_.begin(board_, defaultRadioSettings());
@@ -113,6 +149,7 @@ void NodeApplication::poll() {
   serviceTransmitter(now);
   serviceConsole();
   serviceTimers(now);
+  serviceVirtualMachine(now);
   // Sending a frame to the display blocks for about 30 ms. Never while the radio is transmitting,
   // has frames waiting or expects an echo reply, so it returns to reception in time.
   if (!radio_.isTransmitting() && queueCount_ == 0 && !echo_.isPending()) {
@@ -493,7 +530,7 @@ bool NodeApplication::enqueueRawFrame(const uint8_t *data, size_t length, bool p
 void NodeApplication::enqueueHello() {
   HelloContent content{};
   content.model = static_cast<uint8_t>(board_.model());
-  content.version = 0;
+  content.version = vm_.version();
   content.transmitted = transmittedCount_;
   const size_t count = neighbors_.count();
   content.neighborCount =
@@ -547,22 +584,26 @@ void NodeApplication::registerCommands() {
   presenceCommand_.addPositionalArgument("state");
   presenceCommand_.addPositionalArgument("seconds", "");
   presenceCommand_.setDescription("presence on | presence off <seconds>");
+  // Boundless, because SimpleCLI would take a negative value such as -5 for an argument name.
+  loadRegistersCommand_ = commandInterpreter_.addBoundlessCommand("load_registers");
+  loadRegistersCommand_.setDescription("load_registers <r1> <r2> <r3> <r4>");
+  loadProgramCommand_ = commandInterpreter_.addBoundlessCommand("load_program");
+  loadProgramCommand_.setDescription("load_program <version> <length> <hex>");
 }
 
 void NodeApplication::serviceConsole() {
-  char line[CONSOLE_LINE_CAPACITY + 1];
   bool overflowed = false;
   for (int command = 0; command < MAXIMUM_COMMANDS_PER_POLL; ++command) {
-    if (!console_.readCommand(line, sizeof(line), overflowed)) {
+    if (!console_.readCommand(commandLine_, sizeof(commandLine_), overflowed)) {
       return;
     }
     if (overflowed) {
       char word[COMMAND_WORD_CAPACITY];
-      copyFirstWord(line, word, sizeof(word));
+      copyFirstWord(commandLine_, word, sizeof(word));
       emitError(word, "line_too_long");
       continue;
     }
-    executeCommand(line);
+    executeCommand(commandLine_);
   }
 }
 
@@ -589,6 +630,10 @@ void NodeApplication::executeCommand(const char *line) {
       commandResend();
     } else if (command == presenceCommand_) {
       commandPresence(command);
+    } else if (command == loadRegistersCommand_) {
+      commandLoadRegisters(command);
+    } else if (command == loadProgramCommand_) {
+      commandLoadProgram(command);
     }
   }
 }
@@ -610,9 +655,10 @@ void NodeApplication::reportCommandError(const CommandError &error, const char *
 }
 
 void NodeApplication::commandHelp() {
-  const Command *const commands[] = {&helpCommand_,   &statusCommand_,  &radioCommand_,
-                                     &echoCommand_,   &runCommand_,     &wifiCommand_,
-                                     &resendCommand_, &presenceCommand_};
+  const Command *const commands[] = {&helpCommand_,       &statusCommand_,   &radioCommand_,
+                                     &echoCommand_,       &runCommand_,      &wifiCommand_,
+                                     &resendCommand_,     &presenceCommand_, &loadRegistersCommand_,
+                                     &loadProgramCommand_};
   console_.writeDebug("commands:");
   for (const Command *command : commands) {
     String usage = "  ";
@@ -635,6 +681,7 @@ void NodeApplication::commandStatus() {
   emitRadio();
   emitWifi();
   emitPresence(now);
+  emitVirtualMachine();
 
   for (size_t index = 0; index < neighbors_.count(); ++index) {
     const Neighbor &neighbor = neighbors_.at(index);
@@ -851,6 +898,86 @@ void NodeApplication::commandPresence(const Command &command) {
   updateSuspension(now);
 }
 
+void NodeApplication::commandLoadRegisters(const Command &command) {
+  if (command.countArgs() != REGISTER_COUNT) {
+    emitError("load_registers", "usage", command.getDescription().c_str());
+    return;
+  }
+  int32_t values[REGISTER_COUNT];
+  for (uint8_t index = 0; index < REGISTER_COUNT; ++index) {
+    const String text = command.getArgument(index).getValue();
+    if (!parseRegisterValue(text.c_str(), values[index])) {
+      emitError("load_registers", "out_of_range", "-2147483648..4294967295 or 0x hexadecimal");
+      return;
+    }
+  }
+  vm_.setRegisters(values);
+  emitVirtualMachine();
+  debug("VM: registers loaded");
+}
+
+void NodeApplication::commandLoadProgram(const Command &command) {
+  if (command.countArgs() != 3) {
+    emitError("load_program", "usage", command.getDescription().c_str());
+    return;
+  }
+  const String versionText = command.getArgument(0).getValue();
+  const String lengthText = command.getArgument(1).getValue();
+  unsigned long version = 0;
+  unsigned long length = 0;
+  const NumberParse versionParse = parseUnsigned(versionText.c_str(), 1, 0xFFFFFFFFUL, version);
+  const NumberParse lengthParse = parseUnsigned(lengthText.c_str(), 1, PROGRAM_CAPACITY, length);
+  if (versionParse == NumberParse::Invalid || lengthParse == NumberParse::Invalid) {
+    emitError("load_program", "usage", command.getDescription().c_str());
+    return;
+  }
+  char detail[ERROR_DETAIL_CAPACITY];
+  if (versionParse == NumberParse::OutOfRange) {
+    emitError("load_program", "out_of_range", "version 1..4294967295");
+    return;
+  }
+  if (lengthParse == NumberParse::OutOfRange) {
+    snprintf(detail, sizeof(detail), "length 1..%u", static_cast<unsigned>(PROGRAM_CAPACITY));
+    emitError("load_program", "out_of_range", detail);
+    return;
+  }
+
+  const String code = command.getArgument(2).getValue();
+  size_t decodedLength = 0;
+  if (code.length() != 2 * length) {
+    emitError("load_program", "invalid_program", "length does not match the code");
+    return;
+  }
+  if (!decodeHexBytes(code.c_str(), decodedProgram, sizeof(decodedProgram), decodedLength)) {
+    emitError("load_program", "invalid_program", "code is not hexadecimal");
+    return;
+  }
+
+  size_t errorOffset = 0;
+  switch (
+      vm_.loadProgram(static_cast<uint32_t>(version), decodedProgram, decodedLength, errorOffset)) {
+  case ProgramLoad::Accepted:
+    break;
+  case ProgramLoad::VersionNotNewer:
+    snprintf(detail, sizeof(detail), "current version %lu",
+             static_cast<unsigned long>(vm_.version()));
+    emitError("load_program", "version_not_newer", detail);
+    return;
+  case ProgramLoad::InvalidLength:
+    emitError("load_program", "out_of_range", "length");
+    return;
+  case ProgramLoad::Malformed:
+    snprintf(detail, sizeof(detail), "bad instruction at %u", static_cast<unsigned>(errorOffset));
+    emitError("load_program", "invalid_program", detail);
+    return;
+  }
+  emitVirtualMachine();
+  debug("VM: program v%lu", static_cast<unsigned long>(vm_.version()));
+  // The new program runs its first tick at once; the next ones follow the usual period.
+  lastTickMillis_ = millis();
+  vm_.startTick();
+}
+
 bool NodeApplication::isRunActive() const { return runs_.isSending() || runs_.isReceiving(); }
 
 void NodeApplication::requestRadioSettings(const RadioSettings &settings) {
@@ -969,6 +1096,48 @@ void NodeApplication::updateSuspension(uint32_t nowMillis) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Virtual machine
+
+void NodeApplication::serviceVirtualMachine(uint32_t nowMillis) {
+  if (!vm_.hasProgram()) {
+    return;
+  }
+  if (!vm_.isRunning()) {
+    if (nowMillis - lastTickMillis_ < VM_TICK_PERIOD_MS) {
+      return;
+    }
+    lastTickMillis_ = nowMillis;
+    vm_.startTick();
+  }
+  switch (vm_.execute(VM_INSTRUCTIONS_PER_POLL)) {
+  case VmStep::Printed: {
+    const uint8_t index = vm_.printedRegister();
+    const int32_t value = vm_.registerValue(index - 1);
+    JsonObject event = console_.beginEvent("vm_print");
+    event["tick"] = vm_.tickNumber();
+    event["reg"] = index;
+    event["value"] = value;
+    console_.writeEvent();
+    debug("VM: R%u - 0x%08lX", index, static_cast<unsigned long>(static_cast<uint32_t>(value)));
+    break;
+  }
+  case VmStep::Faulted: {
+    JsonObject event = console_.beginEvent("vm_fault");
+    event["tick"] = vm_.tickNumber();
+    event["pc"] = vm_.faultAddress();
+    event["reason"] = vmFaultName(vm_.fault());
+    console_.writeEvent();
+    debug("VM: %s", vmFaultName(vm_.fault()));
+    break;
+  }
+  case VmStep::Idle:
+  case VmStep::Running:
+  case VmStep::Halted:
+    break;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Events and debug text
 
 void NodeApplication::emitBoot() {
@@ -1017,6 +1186,18 @@ void NodeApplication::emitPresence(uint32_t nowMillis) {
     event["remaining"] = (presence_.holdRemainingMillis(nowMillis) + 999) / 1000;
   } else {
     event["remaining"] = nullptr;
+  }
+  console_.writeEvent();
+}
+
+void NodeApplication::emitVirtualMachine() {
+  JsonObject event = console_.beginEvent("vm");
+  event["version"] = vm_.version();
+  event["size"] = vm_.programLength();
+  event["tick"] = vm_.tickNumber();
+  JsonArray registers = event["registers"].to<JsonArray>();
+  for (uint8_t index = 0; index < REGISTER_COUNT; ++index) {
+    registers.add(vm_.registerValue(index));
   }
   console_.writeEvent();
 }

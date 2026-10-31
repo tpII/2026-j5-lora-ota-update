@@ -10,7 +10,10 @@
   import PanelHeader from "./lib/components/PanelHeader.svelte";
   import RadioSection from "./lib/components/sections/RadioSection.svelte";
   import RunSection from "./lib/components/sections/RunSection.svelte";
+  import VirtualMachineSection from "./lib/components/sections/VirtualMachineSection.svelte";
+  import VirtualMachineSimulatorSection from "./lib/components/sections/VirtualMachineSimulatorSection.svelte";
   import { ControlPanel } from "./lib/state/control-panel.svelte.ts";
+  import { ProgramDraft } from "./lib/state/program-draft.svelte.ts";
 
   type SectionKey =
     | "events"
@@ -20,6 +23,8 @@
     | "runs"
     | "capacity"
     | "communication"
+    | "vm"
+    | "simulator"
     | "export";
 
   const SECTIONS: readonly { readonly key: SectionKey; readonly label: string }[] = [
@@ -30,10 +35,13 @@
     { key: "runs", label: "Corridas" },
     { key: "capacity", label: "Prueba de capacidad" },
     { key: "communication", label: "Prueba de comunicación" },
+    { key: "vm", label: "VM" },
+    { key: "simulator", label: "Simulador" },
     { key: "export", label: "Exportar" },
   ];
 
   const panel = new ControlPanel();
+  const draft = new ProgramDraft();
   let activeSection = $state<SectionKey>("events");
 
   function selectAdjacentSection(event: KeyboardEvent): void {
@@ -120,6 +128,12 @@
     hidden={activeSection !== "communication"}
   >
     <CommunicationTestSection {panel} />
+  </div>
+  <div id="section-vm" role="tabpanel" aria-labelledby="tab-vm" hidden={activeSection !== "vm"}>
+    <VirtualMachineSection {panel} {draft} />
+  </div>
+  <div id="section-simulator" role="tabpanel" aria-labelledby="tab-simulator" hidden={activeSection !== "simulator"}>
+    <VirtualMachineSimulatorSection {draft} />
   </div>
   <div id="section-export" role="tabpanel" aria-labelledby="tab-export" hidden={activeSection !== "export"}>
     <ExportSection {panel} />

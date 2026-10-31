@@ -25,6 +25,11 @@ echo 5C21 lost
 {"t":26018,"ev":"tx","type":"echo_reply","dst":"5C21","seq":4,"size":32,"toa":18029,"toa_calc":17984}
 {"t":27000,"ev":"id_conflict","epoch":3,"seq":17,"rssi":-60.5,"snr":8.25}
 id conflict
+{"t":27200,"ev":"vm","version":1,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":27300,"ev":"vm_print","tick":1,"reg":1,"value":8}
+VM: R1 - 0x00000008
+{"t":27400,"ev":"vm_fault","tick":2,"pc":6,"reason":"division_by_zero"}
+VM: division_by_zero
 {"t":28000,"ev":"error","cmd":"radio","reason":"unreachable_power","detail":"power 4..28"}
 error radio unreachable_power
 {"t":28100,"ev":"error","cmd":"frobnicate","reason":"unknown_command"}

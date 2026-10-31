@@ -48,9 +48,9 @@ describe("parseConsoleLine with recorded sessions", () => {
   it("separates events, unrecognized objects and debug text", () => {
     const lines = parseFixture(NODE_SESSION_LOG);
     const kinds = lines.map((line) => line.kind);
-    expect(kinds.filter((kind) => kind === "event")).toHaveLength(25);
+    expect(kinds.filter((kind) => kind === "event")).toHaveLength(28);
     expect(kinds.filter((kind) => kind === "unrecognized")).toHaveLength(2);
-    expect(kinds.filter((kind) => kind === "debug")).toHaveLength(14);
+    expect(kinds.filter((kind) => kind === "debug")).toHaveLength(16);
   });
 
   it("keeps the wire field names and values", () => {

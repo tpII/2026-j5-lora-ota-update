@@ -70,7 +70,7 @@ Ningún nodo retransmite paquetes ajenos. La retransmisión llega con la malla (
 | Campo | Bytes | Descripción |
 |---|---|---|
 | `model` | 1 | Modelo de placa: `1` es V2 y `2` es V4.3 |
-| `version` | 4 | Versión del programa activo; `0` mientras no haya VM |
+| `version` | 4 | Versión del programa activo de la VM; `0` es el programa de fábrica |
 | `transmitted` | 4 | Paquetes transmitidos desde el arranque |
 | `neighbor_count` | 1 | Cantidad de vecinos que siguen, hasta 16 |
 | `id` | 2 | Por cada vecino: su identificador |

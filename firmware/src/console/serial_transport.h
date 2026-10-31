@@ -14,15 +14,15 @@ class SerialTransport {
 public:
   void begin(uint32_t baudRate);
 
-  // Returns true when a complete line is available. Lines longer than the console capacity are
-  // discarded and reported with overflowed set.
+  // Returns true when a complete line is available. Lines longer than consoleLineLimit() allows
+  // are discarded and reported with overflowed set.
   bool readLine(char *buffer, size_t capacity, bool &overflowed);
 
   // Returns false when the line was dropped.
   bool writeLine(const char *line, size_t length);
 
 private:
-  char pending_[CONSOLE_LINE_CAPACITY + 1] = {};
+  char pending_[PROGRAM_LINE_CAPACITY + 1] = {};
   size_t pendingLength_ = 0;
   bool pendingOverflowed_ = false;
 };

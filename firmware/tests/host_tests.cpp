@@ -5,12 +5,14 @@
 #include <cstdio>
 #include <cstring>
 
+#include "console/console_line_limit.h"
 #include "console/event_fields.h"
 #include "network/duplicate_filter.h"
 #include "radio/time_on_air.h"
 #include "services/echo_service.h"
 #include "services/presence_service.h"
 #include "services/test_run_service.h"
+#include "vm/virtual_machine.h"
 
 using namespace firmware;
 
@@ -192,6 +194,136 @@ static void testEventFields() {
                           "\"neighbors\":[{\"id\":\"00F4\"}]}") == 0);
 }
 
+// Runs a whole tick and returns how it ended; every PRINT is recorded in order.
+static VmStep runTick(VirtualMachine &machine, int32_t *printed = nullptr,
+                      size_t *printedCount = nullptr) {
+  machine.startTick();
+  for (;;) {
+    const VmStep step = machine.execute(3);
+    if (step == VmStep::Printed && printed != nullptr) {
+      printed[(*printedCount)++] = machine.registerValue(machine.printedRegister() - 1);
+    }
+    if (step == VmStep::Halted || step == VmStep::Faulted || step == VmStep::Idle) {
+      return step;
+    }
+  }
+}
+
+static bool loadHex(VirtualMachine &machine, uint32_t version, const char *hex) {
+  uint8_t code[PROGRAM_CAPACITY];
+  size_t length = 0;
+  size_t errorOffset = 0;
+  return decodeHexBytes(hex, code, sizeof(code), length) &&
+         machine.loadProgram(version, code, length, errorOffset) == ProgramLoad::Accepted;
+}
+
+static void testVirtualMachine() {
+  VirtualMachine machine;
+  machine.begin(100);
+  CHECK(machine.version() == 0 && !machine.hasProgram());
+
+  // LOAD R1, 5; LOAD R2, 3; ADDR R1, R2; PRINT R1; SUBI R1, 10; MULR R1, R2; PRINT R1; HALT.
+  CHECK(loadHex(machine, 1,
+                "020105000000"
+                "020203000000"
+                "110102"
+                "0101"
+                "12010a000000"
+                "150102"
+                "0101"
+                "00"));
+  int32_t printed[4] = {};
+  size_t printedCount = 0;
+  CHECK(runTick(machine, printed, &printedCount) == VmStep::Halted);
+  CHECK(printedCount == 2 && printed[0] == 8 && printed[1] == -6);
+  CHECK(machine.tickNumber() == 1);
+
+  // The registers persist between ticks.
+  CHECK(loadHex(machine, 2,
+                "100101000000"
+                "00"));
+  const int32_t zero[REGISTER_COUNT] = {0, 0, 0, 0};
+  machine.setRegisters(zero);
+  runTick(machine);
+  runTick(machine);
+  CHECK(machine.registerValue(0) == 2);
+
+  // A version that is not newer, a bad opcode, a bad register and a cut instruction.
+  uint8_t code[8] = {0x00};
+  size_t errorOffset = 0;
+  CHECK(machine.loadProgram(2, code, 1, errorOffset) == ProgramLoad::VersionNotNewer);
+  const uint8_t badOpcode[] = {0x01, 0x01, 0x3F};
+  CHECK(machine.loadProgram(3, badOpcode, sizeof(badOpcode), errorOffset) ==
+        ProgramLoad::Malformed);
+  CHECK(errorOffset == 2);
+  const uint8_t badRegister[] = {0x11, 0x01, 0x05};
+  CHECK(machine.loadProgram(3, badRegister, sizeof(badRegister), errorOffset) ==
+        ProgramLoad::Malformed);
+  const uint8_t cut[] = {0x02, 0x01, 0x00};
+  CHECK(machine.loadProgram(3, cut, sizeof(cut), errorOffset) == ProgramLoad::Malformed);
+  CHECK(machine.version() == 2);
+
+  // Wrapping arithmetic, division, modulo, logic and shifts.
+  const int32_t values[REGISTER_COUNT] = {INT32_MAX, -7, 2, 0};
+  CHECK(loadHex(machine, 3,
+                "100101000000" // ADDI R1, 1: wraps to INT32_MIN
+                "170203"       // DIVR R2, R3: -7 / 2 = -3
+                "190303"       // MODR R3, R3: 0
+                "2004ffffffff" // ANDI R4, -1: 0
+                "2a04"         // NOT R4: -1
+                "280401000000" // SHRI R4, 1: arithmetic, stays -1
+                "260321000000" // SHLI R3, 33: masked to 1, 0 << 1 = 0
+                "00"));
+  machine.setRegisters(values);
+  CHECK(runTick(machine) == VmStep::Halted);
+  CHECK(machine.registerValue(0) == INT32_MIN);
+  CHECK(machine.registerValue(1) == -3);
+  CHECK(machine.registerValue(2) == 0);
+  CHECK(machine.registerValue(3) == -1);
+
+  // INT32_MIN / -1 wraps instead of trapping.
+  CHECK(loadHex(machine, 4,
+                "1601ffffffff"
+                "00"));
+  const int32_t minimum[REGISTER_COUNT] = {INT32_MIN, 0, 0, 0};
+  machine.setRegisters(minimum);
+  CHECK(runTick(machine) == VmStep::Halted && machine.registerValue(0) == INT32_MIN);
+
+  // Faults end the tick and leave the address of the instruction.
+  CHECK(loadHex(machine, 5,
+                "0101"
+                "160100000000"
+                "00"));
+  CHECK(runTick(machine) == VmStep::Faulted);
+  CHECK(machine.fault() == VmFault::DivisionByZero && machine.faultAddress() == 2);
+  CHECK(loadHex(machine, 6, "0101"));
+  CHECK(runTick(machine) == VmStep::Faulted && machine.fault() == VmFault::EndOfProgram);
+
+  // The instruction limit stops a tick that never ends.
+  VirtualMachine limited;
+  limited.begin(3);
+  CHECK(loadHex(limited, 1,
+                "0101"
+                "0101"
+                "0101"
+                "0101"
+                "00"));
+  CHECK(runTick(limited) == VmStep::Faulted && limited.fault() == VmFault::InstructionLimit);
+
+  size_t length = 0;
+  CHECK(!decodeHexBytes("abc", code, sizeof(code), length));
+  CHECK(!decodeHexBytes("zz", code, sizeof(code), length));
+  CHECK(!decodeHexBytes("000000000000000000", code, sizeof(code), length));
+  CHECK(decodeHexBytes("0aFF", code, sizeof(code), length) && length == 2 && code[1] == 0xFF);
+}
+
+static void testConsoleLineLimit() {
+  CHECK(consoleLineLimit("status", 6) == CONSOLE_LINE_CAPACITY);
+  CHECK(consoleLineLimit("load_program", 12) == CONSOLE_LINE_CAPACITY);
+  CHECK(consoleLineLimit("load_program 1", 14) == PROGRAM_LINE_CAPACITY);
+  CHECK(consoleLineLimit("load_registers 1 2 3 4", 22) == CONSOLE_LINE_CAPACITY);
+}
+
 int main() {
   testTimeOnAir();
   testDuplicateFilter();
@@ -201,6 +333,8 @@ int main() {
   testEchoDeadline();
   testTestRuns();
   testEventFields();
+  testVirtualMachine();
+  testConsoleLineLimit();
   if (failureCount == 0) {
     std::printf("All host tests passed.\n");
     return 0;

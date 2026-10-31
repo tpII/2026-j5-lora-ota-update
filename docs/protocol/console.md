@@ -81,7 +81,7 @@ Con el comando `presence`, con `status` y cuando vence la suspensión de los HEL
 
 ### `status`
 
-Con el comando `status`. Lo siguen un `radio`, un `wifi`, un `presence` y un `neighbor` por cada vecino.
+Con el comando `status`. Lo siguen un `radio`, un `wifi`, un `presence`, un `vm` y un `neighbor` por cada vecino.
 
 | Campo | Descripción |
 |---|---|
@@ -238,6 +238,37 @@ Al recibir un paquete válido cuyo origen es el identificador propio.
 | `epoch`, `seq` | Época y secuencia del paquete |
 | `rssi`, `snr` | Calidad del paquete |
 
+### `vm`
+
+Con `status`, `load_registers` y cada `load_program` aceptado. La VM está descripta en [la VM](virtual-machine.md).
+
+| Campo | Descripción |
+|---|---|
+| `version` | Versión del programa activo; `0` es el programa de fábrica, que está vacío |
+| `size` | Largo del programa en bytes |
+| `tick` | Ticks del programa activo hasta ahora |
+| `registers` | Arreglo con R1 a R4, como enteros de 32 bits con signo |
+
+### `vm_print`
+
+Con cada instrucción `PRINT`. El nodo escribe además `VM: Rn - 0x00000000` como texto de depuración, que es lo que muestra el OLED.
+
+| Campo | Descripción |
+|---|---|
+| `tick` | Tick en curso |
+| `reg` | Registro, de 1 a 4 |
+| `value` | Valor del registro, como entero de 32 bits con signo |
+
+### `vm_fault`
+
+Cuando una falla termina un tick.
+
+| Campo | Descripción |
+|---|---|
+| `tick` | Tick que terminó |
+| `pc` | Dirección de la instrucción que falló |
+| `reason` | `"division_by_zero"`, `"instruction_limit"`, `"end_of_program"`, `"invalid_opcode"`, `"invalid_register"` o `"truncated_instruction"` |
+
 ### `error`
 
 Cuando un comando no se puede ejecutar o la radio falla.
@@ -259,7 +290,9 @@ Cuando un comando no se puede ejecutar o la radio falla.
 | `busy` | Hay una corrida o un eco en curso |
 | `radio_failure` | La radio rechazó la operación; ver `code` |
 | `wifi_failure` | No se pudo encender el punto de acceso |
-| `line_too_long` | La línea supera los 200 caracteres |
+| `line_too_long` | La línea supera los 200 caracteres, o el largo de un programa completo en `load_program` |
+| `version_not_newer` | La versión de `load_program` no es mayor que la del programa activo |
+| `invalid_program` | El código de `load_program` no es hexadecimal, no coincide con el largo o tiene una instrucción inválida; `detail` lo indica |
 
 ## Comandos
 
@@ -279,6 +312,10 @@ Una línea de texto con palabras separadas por espacios, en minúscula. En el mo
 | `resend` | Retransmite tal cual la última trama propia, para verificar el descarte de repetidos |
 | `presence off <segundos>` | Suspende los HELLO del nodo durante `segundos` como máximo (1 a 3600). Al vencer el plazo vuelven solos y el nodo emite `presence` |
 | `presence on` | Reanuda los HELLO; el primero sale entre 1 y 3 s después, como al arrancar |
+| `load_registers <r1> <r2> <r3> <r4>` | Asigna los cuatro registros de la VM. Cada valor va en decimal o en hexadecimal con `0x`, de −2147483648 a 4294967295; por encima de 2147483647 se guarda el patrón de bits. Emite `vm` |
+| `load_program <versión> <largo> <código>` | Reemplaza el programa de la VM. `versión` va de 1 a 4294967295 y tiene que ser mayor que la activa; `largo` va de 1 a 1024 bytes y `código` lleva dos dígitos hexadecimales por byte. Emite `vm` y ejecuta el primer tick enseguida |
+
+Las líneas tienen como máximo 200 caracteres, salvo `load_program`, que admite un programa completo: 2080 caracteres con la memoria de programa de 1024 bytes.
 
 Durante una corrida, `radio` con argumentos, `echo` y `resend` responden `error` con motivo `busy`.
 

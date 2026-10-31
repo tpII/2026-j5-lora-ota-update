@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "../board/board_support.h"
+#include "../configuration.h"
 #include "../console/console.h"
 #include "../console/serial_transport.h"
 #include "../console/wireless_transport.h"
@@ -19,11 +20,12 @@
 #include "../services/echo_service.h"
 #include "../services/presence_service.h"
 #include "../services/test_run_service.h"
+#include "../vm/virtual_machine.h"
 
 namespace firmware {
 
 // The node: a single main loop that serves the radio first, then the transmission queue, the
-// console, the timers and finally the display.
+// console, the timers, a slice of the virtual machine and finally the display.
 class NodeApplication {
 public:
   void begin();
@@ -81,6 +83,8 @@ private:
   void commandWifi(const Command &command);
   void commandResend();
   void commandPresence(const Command &command);
+  void commandLoadRegisters(const Command &command);
+  void commandLoadProgram(const Command &command);
   bool isRunActive() const;
   void requestRadioSettings(const RadioSettings &settings);
   void applyRadioSettings(const RadioSettings &settings);
@@ -91,11 +95,15 @@ private:
   void finishReceiverRun(ReceiverRun &run, const char *reason);
   void updateSuspension(uint32_t nowMillis);
 
+  // Virtual machine.
+  void serviceVirtualMachine(uint32_t nowMillis);
+
   // Events and debug text.
   void emitBoot();
   void emitRadio();
   void emitWifi();
   void emitPresence(uint32_t nowMillis);
+  void emitVirtualMachine();
   void emitError(const char *command, const char *reason, const char *detail = nullptr,
                  int16_t code = 0);
   void emitDrop(const char *reason, const ReceivedFrame &frame);
@@ -114,6 +122,7 @@ private:
   WirelessTransport wireless_;
   Console console_;
   DebugDisplay display_;
+  VirtualMachine vm_;
 
   SimpleCLI commandInterpreter_;
   Command helpCommand_;
@@ -124,6 +133,8 @@ private:
   Command wifiCommand_;
   Command resendCommand_;
   Command presenceCommand_;
+  Command loadRegistersCommand_;
+  Command loadProgramCommand_;
 
   OutgoingFrame queue_[TRANSMIT_QUEUE_CAPACITY] = {};
   size_t queueHead_ = 0;
@@ -142,6 +153,8 @@ private:
   uint32_t receivedCount_ = 0;
   uint16_t echoCounter_ = 0;
   uint32_t lastExpiryMillis_ = 0;
+  uint32_t lastTickMillis_ = 0;
+  char commandLine_[PROGRAM_LINE_CAPACITY + 1] = {};
   char accessPointName_[12] = {};
 };
 

@@ -10,18 +10,22 @@
 #include <unistd.h>
 
 #include "../configuration.h"
+#include "console_line_limit.h"
 
 namespace firmware {
 
 static constexpr size_t INBOUND_QUEUE_LENGTH = 8;
 static constexpr uint16_t MAXIMUM_PENDING_OUTBOUND = 32;
-static constexpr size_t MAXIMUM_DISCARDED_FRAME_SIZE = 4096;
+// Longer messages close the connection; shorter ones over the line limit are read and discarded.
+static constexpr size_t MAXIMUM_MESSAGE_SIZE = 2 * PROGRAM_LINE_CAPACITY;
 
 namespace {
 
+// Reserved with the length of each message, because a load_program line is ten times longer than
+// any other command.
 struct InboundLine {
-  char text[CONSOLE_LINE_CAPACITY + 1];
   bool overflowed;
+  char text[1];
 };
 
 struct OutboundLine {
@@ -101,37 +105,32 @@ static esp_err_t handleConsole(httpd_req_t *request) {
     return result;
   }
 
-  InboundLine line = {};
-  if (frame.type != HTTPD_WS_TYPE_TEXT || frame.len > CONSOLE_LINE_CAPACITY) {
-    if (frame.len > MAXIMUM_DISCARDED_FRAME_SIZE) {
-      return ESP_FAIL;
-    }
-    // Read and discard the message so the connection stays in step.
-    uint8_t *discarded = static_cast<uint8_t *>(malloc(frame.len + 1));
-    if (discarded == nullptr) {
-      return ESP_ERR_NO_MEM;
-    }
-    frame.payload = discarded;
-    result = frame.len > 0 ? httpd_ws_recv_frame(request, &frame, frame.len) : ESP_OK;
-    free(discarded);
-    if (result != ESP_OK || frame.type != HTTPD_WS_TYPE_TEXT) {
-      return result;
-    }
-    line.overflowed = true;
-  } else {
-    frame.payload = reinterpret_cast<uint8_t *>(line.text);
-    if (frame.len > 0) {
-      result = httpd_ws_recv_frame(request, &frame, frame.len);
-      if (result != ESP_OK) {
-        return result;
-      }
-    }
-    line.text[frame.len] = '\0';
-    trimLineEnd(line.text);
+  if (frame.len > MAXIMUM_MESSAGE_SIZE) {
+    return ESP_FAIL;
+  }
+  // Every message is read whole so the connection stays in step, even one that is discarded.
+  InboundLine *line = static_cast<InboundLine *>(malloc(sizeof(InboundLine) + frame.len));
+  if (line == nullptr) {
+    return ESP_ERR_NO_MEM;
+  }
+  frame.payload = reinterpret_cast<uint8_t *>(line->text);
+  result = frame.len > 0 ? httpd_ws_recv_frame(request, &frame, frame.len) : ESP_OK;
+  if (result != ESP_OK || frame.type != HTTPD_WS_TYPE_TEXT) {
+    free(line);
+    return result;
+  }
+  line->text[frame.len] = '\0';
+  trimLineEnd(line->text);
+  line->overflowed = strlen(line->text) > consoleLineLimit(line->text, strlen(line->text));
+  if (line->overflowed) {
+    // Only the first word is kept, to name the command in the error.
+    line->text[strcspn(line->text, " \t")] = '\0';
   }
 
   // A full queue drops the command; the operator sees no reply and can repeat it.
-  xQueueSend(inboundQueue, &line, 0);
+  if (xQueueSend(inboundQueue, &line, 0) != pdTRUE) {
+    free(line);
+  }
   return ESP_OK;
 }
 
@@ -156,7 +155,7 @@ bool WirelessTransport::begin(const char *ssid, const char *password, uint8_t ch
     return true;
   }
   if (inboundQueue == nullptr) {
-    inboundQueue = xQueueCreate(INBOUND_QUEUE_LENGTH, sizeof(InboundLine));
+    inboundQueue = xQueueCreate(INBOUND_QUEUE_LENGTH, sizeof(InboundLine *));
     if (inboundQueue == nullptr) {
       return false;
     }
@@ -220,13 +219,14 @@ bool WirelessTransport::readLine(char *buffer, size_t capacity, bool &overflowed
   if (inboundQueue == nullptr) {
     return false;
   }
-  InboundLine line;
+  InboundLine *line = nullptr;
   if (xQueueReceive(inboundQueue, &line, 0) != pdTRUE) {
     return false;
   }
-  strncpy(buffer, line.text, capacity - 1);
+  strncpy(buffer, line->text, capacity - 1);
   buffer[capacity - 1] = '\0';
-  overflowed = line.overflowed;
+  overflowed = line->overflowed;
+  free(line);
   return true;
 }
 

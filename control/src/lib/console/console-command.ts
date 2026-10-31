@@ -25,9 +25,15 @@ import {
   isTransmitPowerReachable,
   transmitPowerRangeOf,
 } from "$lib/radio/radio-settings.ts";
+import { MAXIMUM_INTEGER, MINIMUM_INTEGER } from "$lib/vm/assembler.ts";
+import { PROGRAM_CAPACITY, REGISTER_COUNT, formatProgramHex } from "$lib/vm/instruction-set.ts";
 
 /** The firmware rejects longer lines with `line_too_long`. */
 export const MAXIMUM_COMMAND_LENGTH = 200;
+/** Only `load_program` may be longer: PROGRAM_LINE_CAPACITY in firmware/src/configuration.h. */
+export const MAXIMUM_PROGRAM_COMMAND_LENGTH = 2 * PROGRAM_CAPACITY + 32;
+export const MINIMUM_PROGRAM_VERSION = 1;
+export const MAXIMUM_PROGRAM_VERSION = 2 ** 32 - 1;
 
 export const MINIMUM_ECHO_SIZE = 4;
 export const DEFAULT_ECHO_SIZE = 16;
@@ -240,6 +246,45 @@ export function buildPresenceOffCommand(seconds: number): CommandResult {
     return reject([{ field: "seconds", message: "La suspensión de los HELLO va de 1 a 3600 s." }]);
   }
   return accept(`presence off ${seconds}`);
+}
+
+/**
+ * `load_registers <r1> <r2> <r3> <r4>`: the values go in decimal; above 2³¹ − 1 the node keeps the
+ * bit pattern.
+ */
+export function buildLoadRegistersCommand(values: readonly number[]): CommandResult {
+  const problems: CommandProblem[] = [];
+  for (let index = 0; index < REGISTER_COUNT; ++index) {
+    const value = values[index];
+    if (value === undefined || !isIntegerBetween(value, MINIMUM_INTEGER, MAXIMUM_INTEGER)) {
+      problems.push({
+        field: `r${index + 1}`,
+        message: `R${index + 1} es un entero de 32 bits: de −2147483648 a 4294967295.`,
+      });
+    }
+  }
+  if (problems.length > 0) {
+    return reject(problems);
+  }
+  return accept(`load_registers ${values.slice(0, REGISTER_COUNT).join(" ")}`);
+}
+
+/** `load_program <version> <length> <hex>`: the only command longer than 200 characters. */
+export function buildLoadProgramCommand(version: number, code: Uint8Array): CommandResult {
+  const problems: CommandProblem[] = [];
+  if (!isIntegerBetween(version, MINIMUM_PROGRAM_VERSION, MAXIMUM_PROGRAM_VERSION)) {
+    problems.push({ field: "version", message: "La versión va de 1 a 4294967295." });
+  }
+  if (code.length === 0 || code.length > PROGRAM_CAPACITY) {
+    problems.push({
+      field: "program",
+      message: `El programa ocupa de 1 a ${PROGRAM_CAPACITY} bytes.`,
+    });
+  }
+  if (problems.length > 0) {
+    return reject(problems);
+  }
+  return { valid: true, command: `load_program ${version} ${code.length} ${formatProgramHex(code)}` };
 }
 
 /** `wifi on` or `wifi off`. */
