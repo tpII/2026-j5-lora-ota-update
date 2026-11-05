@@ -123,7 +123,7 @@
   <RegulatoryChannelNote />
 
   <div class="flex flex-wrap items-center gap-3">
-    <span id="measurement-test-caption" class="panel-caption">Prueba</span>
+    <span id="measurement-test-caption" class="panel-caption sr-only">Prueba</span>
     <div
       class="flex flex-wrap gap-1"
       role="tablist"
@@ -258,16 +258,10 @@
   <MeasurementSheetForm {panel} />
 
   <section class="panel-card flex flex-col gap-3" aria-labelledby="measurement-record-title">
-    <div>
-      <h3 id="measurement-record-title" class="panel-section-title">Registro</h3>
-      <p class="panel-hint">
-        El panel registra los eventos de los nodos conectados y las corridas desde que se abrió o desde que se
-        descartó el registro por última vez.
-      </p>
-    </div>
+    <h3 id="measurement-record-title" class="panel-section-title">Registro</h3>
 
     <p class="text-sm text-muted">
-      Registro: {formatNumber(panel.journalSize)} eventos
+      {formatNumber(panel.journalSize)} eventos de los nodos conectados
       {#if panel.journalStartTime !== null}desde las {formatShortClockTime(panel.journalStartTime)}{/if} y
       {formatNumber(panel.summaryRows.length)}
       {panel.summaryRows.length === 1 ? "corrida resumida" : "corridas resumidas"}.
@@ -298,7 +292,7 @@
                   onchange={(event) => sheet.setNodeIncluded(node.id, event.currentTarget.checked)}
                 />
                 <span class="font-mono">{node.id}</span>
-                <span class="text-faint">({node.model ?? "modelo desconocido"})</span>
+                <span class="text-faint">({node.model ?? "placa desconocida"})</span>
               </label>
             {/each}
           </div>
@@ -308,12 +302,6 @@
         {/if}
       </div>
 
-      {#if panel.directoryPickerAvailable}
-        <p class="panel-hint">
-          El panel pide la carpeta measurements/ del repositorio y crea dentro la subcarpeta con el número
-          siguiente, según measurements/README.md.
-        </p>
-      {/if}
       {#key `${selectedTest}:${recordGeneration}`}
         <MeasurementExportAction
           {panel}

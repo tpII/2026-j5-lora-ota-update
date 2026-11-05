@@ -79,10 +79,11 @@
     destinationInput?.focus({ preventScroll: true });
   }
 
-  const nodesWithEchoes = $derived(
-    panel.connections.filter(
-      (connection) => connection.state.echoResults.length > 0 || connection.state.servedEchoes.length > 0,
-    ),
+  const nodesWithEchoResults = $derived(
+    panel.connections.filter((connection) => connection.state.echoResults.length > 0),
+  );
+  const nodesWithServedEchoes = $derived(
+    panel.connections.filter((connection) => connection.state.servedEchoes.length > 0),
   );
 
   function requestEchoes(): void {
@@ -121,12 +122,15 @@
       requestEchoes();
     }}
   >
-    <h3 id="echo-card-title" class="panel-section-title">Eco con un vecino</h3>
-    <TargetNodeLine {panel} role="Nodo que pide" />
+    <h3 id="echo-card-title" class="panel-section-title">
+      {requester === null ? "Eco con un vecino" : "Eco desde "}<span class="font-mono"
+        >{requester?.state.identifier ?? ""}</span
+      >
+    </h3>
+    {#if requester === null}<TargetNodeLine {panel} role="Nodo que pide" />{/if}
     <p class="panel-hint">
-      El nodo elegido envía un pedido de eco con un cuerpo del largo indicado y el destino, por lo común
-      uno de sus vecinos, responde con otro del mismo largo. El tiempo de ida y vuelta (RTT) va desde que empieza a transmitirse el pedido
-      hasta que llega la respuesta. Cada nodo atiende un eco por vez.
+      El destino responde con un cuerpo del mismo largo. El RTT va desde que empieza a transmitirse el
+      pedido hasta que llega la respuesta. Cada nodo atiende un eco por vez.
     </p>
     <div class="flex flex-wrap items-end gap-3">
       <label class="panel-label">
@@ -191,8 +195,7 @@
     {/if}
     {#if expectedRoundTrip !== null}
       <p class="panel-hint">
-        Tiempo de aire del pedido más el de la respuesta, según la fórmula de Semtech:
-        {formatMicrosecondsAsMilliseconds(expectedRoundTrip)}.
+        Tiempo de aire de ida y vuelta (Semtech): {formatMicrosecondsAsMilliseconds(expectedRoundTrip)}.
       </p>
     {/if}
     {#if panel.echoSeries !== null}
@@ -213,15 +216,28 @@
                 : "; falló."}
       </p>
     {/if}
+    {#each nodesWithServedEchoes as connection (connection.key)}
+      {@const node = connection.state}
+      {@const last = node.servedEchoes.at(-1)}
+      <p class="text-sm text-muted">
+        <span class="font-mono">{node.identifier ?? connection.key}</span> respondió
+        {formatNumber(node.servedEchoes.length)}
+        {node.servedEchoes.length === 1 ? "eco" : "ecos"} de otros nodos.
+        {#if last !== undefined}
+          El último fue el n.º {last.number} de <span class="font-mono">{last.source}</span>, recibido con
+          {formatRssi(last.rssi)} y {formatSnr(last.snr)}.
+        {/if}
+      </p>
+    {/each}
   </form>
 
-  {#each nodesWithEchoes as connection (connection.key)}
+  {#each nodesWithEchoResults as connection (connection.key)}
     {@const node = connection.state}
     {@const statistics = summarizeEchoResults(node.echoResults)}
-    <div class="panel-card flex flex-col gap-3">
-      <h3 class="panel-section-title">Ecos de <span class="font-mono">{node.identifier ?? connection.key}</span></h3>
+    {#if statistics.length > 0}
+      <div class="panel-card flex flex-col gap-3">
+        <h3 class="panel-section-title">Ecos de <span class="font-mono">{node.identifier ?? connection.key}</span></h3>
 
-      {#if statistics.length > 0}
         <div class="overflow-x-auto">
           <table class="panel-table">
             <thead>
@@ -286,19 +302,7 @@
             </tbody>
           </table>
         </div>
-      {/if}
-
-      {#if node.servedEchoes.length > 0}
-        {@const last = node.servedEchoes.at(-1)}
-        <p class="text-sm text-muted">
-          Respondió {formatNumber(node.servedEchoes.length)}
-          {node.servedEchoes.length === 1 ? "eco" : "ecos"} de otros nodos.
-          {#if last !== undefined}
-            El último fue el n.º {last.number} de <span class="font-mono">{last.source}</span>, recibido con
-            {formatRssi(last.rssi)} y {formatSnr(last.snr)}.
-          {/if}
-        </p>
-      {/if}
-    </div>
+      </div>
+    {/if}
   {/each}
 </div>

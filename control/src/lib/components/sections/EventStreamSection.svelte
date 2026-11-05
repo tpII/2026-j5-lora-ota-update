@@ -15,11 +15,10 @@
   /** Node filter value that follows the node chosen above, whichever it is at each moment. */
   const SELECTED_NODE_FILTER = "selected";
 
-  type KindFilter = "all" | "events" | "debug" | "command" | "notice" | "unrecognized" | (typeof CONSOLE_EVENT_NAMES)[number];
+  type KindFilter = "all" | "no-debug" | "events" | "debug" | "command" | "notice" | "unrecognized" | (typeof CONSOLE_EVENT_NAMES)[number];
 
   let nodeFilter = $state("all");
   let kindFilter = $state<KindFilter>("all");
-  let showDebugText = $state(true);
   let autoscrollPaused = $state(false);
   /** Console the operator chose by hand in «Enviar a»; null while the field follows the chosen node. */
   let manualCommandTarget = $state<string | null>(null);
@@ -77,12 +76,11 @@
     } else if (nodeFilter !== "all" && record.connectionKey !== nodeFilter) {
       return false;
     }
-    if (record.kind === "debug" && !showDebugText) {
-      return false;
-    }
     switch (kindFilter) {
       case "all":
         return true;
+      case "no-debug":
+        return record.kind !== "debug";
       case "events":
         return record.kind === "event";
       case "debug":
@@ -181,6 +179,7 @@
       Tipo
       <select class="panel-input max-w-full" bind:value={kindFilter}>
         <option value="all">Todas las líneas</option>
+        <option value="no-debug">Todo salvo depuración</option>
         <option value="events">Todos los eventos</option>
         {#each CONSOLE_EVENT_NAMES as name (name)}
           <option value={name}>{name} ({EVENT_DESCRIPTIONS[name]})</option>
@@ -192,10 +191,6 @@
       </select>
     </label>
     <label class="flex items-center gap-2 text-sm">
-      <input type="checkbox" bind:checked={showDebugText} />
-      Mostrar texto de depuración
-    </label>
-    <label class="flex items-center gap-2 text-sm">
       <input type="checkbox" bind:checked={autoscrollPaused} />
       Pausar el desplazamiento automático
     </label>
@@ -204,7 +199,7 @@
 
   <div
     bind:this={listElement}
-    class="h-[28rem] overflow-y-auto rounded-lg border border-line bg-surface shadow-sm"
+    class="h-[28rem] overflow-y-auto rounded-lg border border-line bg-surface"
     role="log"
     aria-label="Flujo de eventos"
   >
@@ -230,7 +225,7 @@
                 {record.kind === "command" ? `› ${record.text}` : record.text}
               {/if}
               {#if record.kind === "unrecognized"}
-                <span class="font-sans italic">({record.problem})</span>
+                <span class="font-sans text-muted">({record.problem})</span>
               {/if}
             </span>
           </li>
@@ -285,7 +280,7 @@
       {#each [HELP_COMMAND, RESEND_COMMAND] as quickCommand (quickCommand)}
         <button
           type="button"
-          class="panel-button font-mono normal-case"
+          class="panel-button font-mono"
           disabled={commandTarget === ""}
           onclick={() => sendCommand(quickCommand)}
         >

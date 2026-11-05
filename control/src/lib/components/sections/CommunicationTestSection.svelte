@@ -181,31 +181,11 @@
     }}
   >
     <div class="flex flex-col gap-2">
-      <h3 class="panel-section-title">Prueba de comunicación</h3>
+      <h3 class="panel-section-title">Configuración de la prueba</h3>
       <p class="panel-hint">
-        Mide el enlace entre dos nodos vecinos con una modulación elegida, con un operador en cada nodo y cada uno
-        conectado al suyo. Los dos operadores acuerdan el SF, el ancho de banda y la tasa de código. Primero se activa
-        el modo receptor en un nodo y después se inicia la prueba en el otro, en modo emisor. El emisor pide ecos de
-        {COMMUNICATION_TEST_PAYLOAD_SIZE} bytes (el largo mínimo) uno tras otro y el receptor los responde. En los dos
-        modos el nodo suspende sus HELLO mientras dura la prueba y al final vuelve a la modulación anterior: el emisor
-        al terminar, detenerse o fallar, y el receptor al desactivarlo.
+        Con un operador en cada nodo, los dos acuerdan SF, ancho de banda y tasa de código; primero se activa el modo
+        receptor en un nodo y después se inicia la prueba en el otro, en modo emisor.
       </p>
-      <div class="rounded-md border border-line bg-raised p-3 text-sm text-muted">
-        <p class="font-medium">Qué se mide</p>
-        <ul class="mt-1 list-disc pl-5">
-          <li>
-            RSSI y SNR de ida (el pedido, medido en el receptor y devuelto en la respuesta) y de vuelta (la respuesta,
-            medida en el emisor).
-          </li>
-          <li>Ecos respondidos y perdidos, y la proporción de entrega (PDR).</li>
-          <li>Tiempo de ida y vuelta (RTT), desde que empieza a transmitirse el pedido hasta que llega la respuesta.</li>
-          <li>
-            Bits útiles: los del cuerpo de cada eco, que cruza el enlace dos veces. Se informan el total entregado,
-            la proporción de cada trama que es cuerpo y la tasa de bits útiles (bits útiles sobre la suma de los RTT).
-          </li>
-          <li>En el receptor: los ecos respondidos y la RSSI y la SNR con que llegó cada pedido.</li>
-        </ul>
-      </div>
       <TargetNodeLine {panel} role="Nodo conectado" connection={busy ? (node ?? null) : undefined} />
     </div>
 
@@ -379,9 +359,8 @@
         {/if}
       </div>
       <p class="panel-hint">
-        La suspensión de los HELLO se renueva cada 30 minutos mientras el panel siga conectado. Si se pierde la
-        conexión, los HELLO vuelven solos dentro de la hora, pero la modulación de prueba queda hasta cambiarla en la
-        radio del nodo, en la pestaña Red, o reiniciar el nodo.
+        La suspensión de los HELLO se renueva cada 30 minutos; sin conexión con el panel, los HELLO vuelven solos
+        dentro de la hora, pero la modulación de prueba queda hasta cambiarla en la pestaña Red o reiniciar el nodo.
       </p>
     {/if}
   </form>
@@ -398,7 +377,7 @@
       >
         {#snippet title()}
           Ecos de <span class="font-mono">{test.requester}</span> a <span class="font-mono">{test.responder}</span>
-          <span class="normal-case">· {formatModulation(test.settings)}</span>
+          · {formatModulation(test.settings)}
         {/snippet}
         {formatNumber(metrics.requested)} de {formatNumber(test.settings.count)} ecos
         {#if test.startHostTime !== null}
@@ -406,52 +385,55 @@
         {/if}
       </TestProgress>
 
-      <dl class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-4">
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">Entrega (PDR)</dt>
+      <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-4">
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Entrega (PDR)</dt>
           <dd class="text-lg font-semibold">{formatDeliveryRatio(metrics.deliveryRatio)}</dd>
           <dd class="text-xs text-muted">
             {formatNumber(metrics.answered)} respondidos · {formatNumber(metrics.lost)} perdidos
           </dd>
         </div>
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">RSSI de ida (en el receptor)</dt>
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">RSSI de ida (en el receptor)</dt>
           <dd class="text-lg font-semibold">{formatRssi(metrics.forward.rssi.average)}</dd>
           <dd class="text-xs text-muted">{formatRange(metrics.forward.rssi, formatRssi)}</dd>
         </div>
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">SNR de ida (en el receptor)</dt>
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">SNR de ida (en el receptor)</dt>
           <dd class="text-lg font-semibold">{formatSnr(metrics.forward.snr.average)}</dd>
           <dd class="text-xs text-muted">{formatRange(metrics.forward.snr, formatSnr)}</dd>
         </div>
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">RTT medio</dt>
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">RTT medio</dt>
           <dd class="text-lg font-semibold">{formatMicrosecondsAsMilliseconds(metrics.roundTrip.average, 2)}</dd>
           <dd class="text-xs text-muted">
             {formatRange(metrics.roundTrip, (value) => formatMicrosecondsAsMilliseconds(value, 2))}
           </dd>
+          <dd class="text-xs text-muted">desde que empieza a transmitirse el pedido hasta que llega la respuesta</dd>
         </div>
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">RSSI de vuelta (en el emisor)</dt>
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">RSSI de vuelta (en el emisor)</dt>
           <dd class="text-lg font-semibold">{formatRssi(metrics.reverse.rssi.average)}</dd>
           <dd class="text-xs text-muted">{formatRange(metrics.reverse.rssi, formatRssi)}</dd>
         </div>
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">SNR de vuelta (en el emisor)</dt>
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">SNR de vuelta (en el emisor)</dt>
           <dd class="text-lg font-semibold">{formatSnr(metrics.reverse.snr.average)}</dd>
           <dd class="text-xs text-muted">{formatRange(metrics.reverse.snr, formatSnr)}</dd>
         </div>
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">Bits útiles entregados</dt>
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Bits útiles entregados</dt>
           <dd class="text-lg font-semibold">{formatNumber(metrics.usefulBits)} bit</dd>
           <dd class="text-xs text-muted">
             {formatNumber(metrics.usefulShare * 100, 1)} % de cada trama de {metrics.frameLength} bytes
           </dd>
+          <dd class="text-xs text-muted">cuerpo de cada eco, que cruza el enlace dos veces</dd>
         </div>
-        <div class="rounded-md border border-line p-3">
-          <dt class="text-xs text-faint">Tasa de bits útiles</dt>
+        <div class="panel-rule pt-2">
+          <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Tasa de bits útiles</dt>
           <dd class="text-lg font-semibold">{formatBitRate(metrics.usefulBitRate)}</dd>
           <dd class="text-xs text-muted">nominal de la modulación: {formatBitRate(metrics.nominalBitRate)}</dd>
+          <dd class="text-xs text-muted">bits útiles sobre la suma de los RTT</dd>
         </div>
       </dl>
 
@@ -512,7 +494,7 @@
       >
         {#snippet title()}
           Modo receptor en <span class="font-mono">{receiver.node}</span>
-          <span class="normal-case">· {formatModulation(receiver.modulation)}</span>
+          · {formatModulation(receiver.modulation)}
         {/snippet}
         {formatNumber(receiver.servedEchoes.length)}
         {receiver.servedEchoes.length === 1 ? "eco respondido" : "ecos respondidos"} ·

@@ -43,7 +43,7 @@
     </label>
     <label class="panel-label">
       Operadores
-      <input class="panel-input" type="text" placeholder="personas que midieron" bind:value={sheet.operators} />
+      <input class="panel-input" type="text" bind:value={sheet.operators} />
     </label>
     <label class="panel-label sm:col-span-2">
       Notas

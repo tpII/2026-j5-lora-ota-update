@@ -328,7 +328,7 @@
   <div class="flex items-start gap-3">
     <BoardThumbnail model={node.model} class="w-24" />
     <div class="min-w-0">
-      <p class="font-pixel text-sm text-neon text-shadow-neon">{node.id}</p>
+      <p class="font-pixel text-sm text-neon">{node.id}</p>
       <p class="text-faint">{node.model ?? "Placa desconocida"}</p>
       <p class="text-faint">
         {node.connected ? "Conectado al panel" : `Datos de ${GRAPH_NODE_SOURCE_LABELS[node.source]}`}
@@ -359,7 +359,9 @@
     <dd class="text-muted tabular-nums">{describeLastHeard(node)}</dd>
   </dl>
   <p class="mt-2 text-faint">
-    {placements.get(node.id)?.pinned ? "Fijado: doble clic o Supr lo suelta." : "Arrastrarlo lo fija donde se suelta."}
+    {placements.get(node.id)?.pinned
+      ? "Fijado (el panel lo recuerda): doble clic o Supr lo suelta."
+      : "Arrastrarlo o moverlo con las flechas lo fija."}
     {#if node.connected && node.id !== selectedId}Un clic lo elige.{/if}
   </p>
 {/snippet}
@@ -380,8 +382,14 @@
   <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
     <h2 id="connection-graph-title" class="panel-section-title">Grafo de conexiones</h2>
     <div class="flex flex-wrap gap-2">
-      <button type="button" class="panel-button" disabled={openConnections.length === 0} onclick={queryEveryNode}>
-        Consultar el estado de todos los nodos conectados
+      <button
+        type="button"
+        class="panel-button"
+        title="Consultar el estado de todos los nodos conectados"
+        disabled={openConnections.length === 0}
+        onclick={queryEveryNode}
+      >
+        Consultar estado de todos
       </button>
       <button type="button" class="panel-button" disabled={pinCount === 0} onclick={() => model.releaseAll()}>
         Soltar todos los nodos
@@ -389,9 +397,7 @@
     </div>
   </div>
   <p class="panel-hint">
-    Los nodos se acomodan solos: un enlace es más largo cuanto más débil es su RSSI, en dBm, el número que lleva.
-    Arrastrar un nodo, o moverlo con las flechas, lo fija donde se suelta, para copiar la disposición física de las
-    placas; el panel recuerda esas posiciones.
+    El número de cada enlace es el RSSI del sentido más débil, en dBm; cuanto más débil, más largo el enlace.
   </p>
   <ul role="list" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
     <li class="flex items-center gap-1.5">
@@ -425,12 +431,6 @@
     bind:clientHeight={height}
     class="relative isolate h-[32rem] select-none sm:h-[28rem]"
   >
-    <!-- A faint glow under the graph, so it floats on the grid of the page. -->
-    <div
-      class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgb(92_225_240/0.08),transparent_65%)]"
-      aria-hidden="true"
-    ></div>
-
     {#if graph.nodes.length === 0}
       <div class="absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
         {#if panel.connections.length === 0}
@@ -449,10 +449,7 @@
       </div>
     {/if}
 
-    <svg
-      class="pointer-events-none absolute inset-0 size-full overflow-visible drop-shadow-[0_0_3px_rgb(92_225_240/0.7)]"
-      aria-hidden="true"
-    >
+    <svg class="pointer-events-none absolute inset-0 size-full overflow-visible" aria-hidden="true">
       {#each graph.links as link (linkKey(link))}
         {@const first = placements.get(link.first)}
         {@const second = placements.get(link.second)}
@@ -502,27 +499,24 @@
       >
         <span
           class="relative flex items-center justify-center font-pixel {isSelected
-            ? 'size-14 rounded-xl bg-neon-shade-strong text-sm text-neon-bright shadow-neon ring-2 ring-neon text-shadow-neon'
+            ? 'size-14 rounded-xl bg-neon-shade-strong text-sm text-neon-bright shadow-neon ring-2 ring-neon'
             : node.connected
-              ? 'size-11 rounded-lg bg-neon-shade text-xs text-neon ring-1 shadow-neon-soft ring-neon/80 group-hover:shadow-neon group-hover:ring-neon'
+              ? 'size-11 rounded-lg bg-neon-shade text-xs text-neon ring-1 ring-neon/80 group-hover:ring-neon'
               : 'size-10 rounded-full bg-sunken text-xs text-muted ring-1 ring-line-strong group-hover:text-neon group-hover:ring-neon/60'}"
         >
           {modelGlyph(node)}
           {#if hasActivationPending(node)}
-            <span class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-warn text-warn shadow-[0_0_6px_currentColor]" aria-hidden="true"
-            ></span>
+            <span class="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-warn ring-2 ring-canvas" aria-hidden="true"></span>
           {/if}
           {#if hasVmTrouble(node)}
-            <span
-              class="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-danger text-danger shadow-[0_0_6px_currentColor]"
-              aria-hidden="true"
+            <span class="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-danger ring-2 ring-canvas" aria-hidden="true"
             ></span>
           {/if}
           {#if placement.pinned}
             <span class="absolute -top-1 -left-1 size-1.5 rotate-45 bg-neon-bright" aria-hidden="true"></span>
           {/if}
         </span>
-        <span class="rounded-sm bg-screen/90 px-1 font-pixel text-xs {isSelected ? 'text-neon text-shadow-neon' : 'text-ink'}">
+        <span class="rounded-sm bg-screen/90 px-1 font-pixel text-xs {isSelected ? 'text-neon' : 'text-ink'}">
           {node.id}
         </span>
       </button>
@@ -534,7 +528,7 @@
       {#if middle !== null && rssi !== null}
         <button
           type="button"
-          class="absolute top-(--y) left-(--x) -translate-1/2 cursor-default rounded-sm bg-screen px-1.5 py-0.5 font-mono text-[0.6875rem] text-neon tabular-nums ring-1 ring-neon/35 hover:text-neon-bright hover:shadow-neon"
+          class="absolute top-(--y) left-(--x) -translate-1/2 cursor-default rounded-sm bg-screen px-1.5 py-0.5 font-mono text-[0.6875rem] text-neon tabular-nums ring-1 ring-neon/35 hover:text-neon-bright"
           style="--x: {middle.x.toFixed(1)}px; --y: {middle.y.toFixed(1)}px"
           aria-label="Enlace {link.first} – {link.second}, {formatSignedInteger(rssi)} dBm"
           aria-describedby={hovered?.kind === "link" && hovered.key === linkKey(link) ? "graph-tooltip" : undefined}
@@ -552,7 +546,7 @@
       <div
         id="graph-tooltip"
         role="tooltip"
-        class="pointer-events-none absolute top-(--y) left-(--left) z-10 w-64 rounded-md bg-sunken/95 p-3 text-xs shadow-neon-soft ring-1 ring-neon/40 backdrop-blur
+        class="pointer-events-none absolute top-(--y) left-(--left) z-10 w-64 rounded-md bg-sunken p-3 text-xs ring-1 ring-neon/40
           {tooltipAnchor.below ? 'mt-12' : '-mt-12 -translate-y-full'}"
         style="--left: {tooltipAnchor.left.toFixed(1)}px; --y: {tooltipAnchor.y.toFixed(1)}px"
       >

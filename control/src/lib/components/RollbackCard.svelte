@@ -1,5 +1,4 @@
 <script lang="ts">
-  import TargetNodeLine from "./TargetNodeLine.svelte";
   import { PROGRAM_COMMAND } from "$lib/console/console-command.ts";
   import { recoverProgram, type ImageVersionCheck } from "$lib/image/image-preparation.ts";
   import { disassemble } from "$lib/vm/disassembler.ts";
@@ -112,18 +111,16 @@
 
 <div class="panel-card flex flex-col gap-3">
   <h3 class="panel-section-title">Reversión</h3>
-  <TargetNodeLine {panel} role="Nodo origen" />
   <p class="panel-hint">
-    Los nodos nunca vuelven solos a una versión anterior y el protocolo no tiene una orden de abortar. Para revertir
-    o abortar una actualización, el operador carga un programa anterior como imagen con una versión nueva, mayor que
-    todas las de la red. El nodo elegido devuelve su programa activo con el comando program; el panel también
-    recuerda las imágenes que firmó desde que se abrió.
+    El protocolo no tiene orden de abortar: para revertir, se vuelve a firmar un programa anterior con una versión
+    mayor que todas las de la red.
   </p>
   <div>
     <button
       type="button"
       class="panel-button"
       disabled={!connected}
+      title="Envía el comando program al nodo elegido, que devuelve su programa activo"
       onclick={() => target !== null && panel.sendCommand(target.key, PROGRAM_COMMAND)}
     >
       Pedir el programa activo
@@ -199,7 +196,7 @@
       </table>
     </div>
   {/if}
-  {#if session.key === null}
+  {#if sources.length > 0 && session.key === null}
     <p class="panel-hint">Para volver a firmar hace falta la clave del operador.</p>
   {/if}
   {#if notice !== null}

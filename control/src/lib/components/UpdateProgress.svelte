@@ -144,10 +144,9 @@
 <div class="panel-card flex flex-col gap-3">
   <h3 class="panel-section-title">Estado de la actualización</h3>
   <p class="panel-hint">
-    Los nodos conectados informan sus versiones por la consola; de los demás, el panel sabe lo que anuncian sus
-    HELLO a los nodos conectados. Un nodo que solo aparece en la lista de vecinos de otro no tiene versiones
-    conocidas y bloquea la activación hasta que algún nodo conectado lo escuche. La recepción en curso solo se conoce
-    en los nodos conectados.
+    Un nodo que solo aparece en la lista de vecinos de otro bloquea la activación hasta que un nodo conectado escuche
+    su HELLO. Las imágenes viven solo en la RAM: un nodo que se reinicia vuelve a la versión 0 y recibe de sus
+    vecinos la imagen disponible.
   </p>
 
   {#if graph.nodes.length === 0}
@@ -174,7 +173,6 @@
             <tr>
               <td class="font-mono font-semibold">
                 {node.id}
-                {#if node.connected}<span class="panel-badge ml-1 bg-neon/10 font-sans text-neon">conectado</span>{/if}
               </td>
               <td>{node.model ?? "—"}</td>
               <td class="text-xs text-muted">{GRAPH_NODE_SOURCE_LABELS[node.source]}</td>
@@ -225,7 +223,7 @@
   {/if}
 
   <div class="flex flex-col gap-2">
-    <h4 class="text-sm font-semibold">Actividad de la transferencia en los nodos conectados</h4>
+    <h4 class="panel-caption">Actividad de la transferencia en los nodos conectados</h4>
     {#if activity.length === 0}
       <p class="text-sm text-muted">Todavía no hay ráfagas, reportes ni imágenes.</p>
     {:else}

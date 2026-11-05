@@ -128,10 +128,8 @@
   {#if expanded}
     <div id="operator-key-detail" class="flex flex-col gap-3">
       <p class="panel-hint">
-        El panel firma cada imagen con la clave privada Ed25519 del operador, que queda solo en la memoria de
-        esta pestaña del navegador: al recargar el panel hay que volver a cargarla. Los nodos verifican la firma
-        con la clave pública compilada en su firmware. El par por defecto del repositorio, con la clave privada en
-        keys/default_operator_key.pem, solo sirve para el banco.
+        La clave privada Ed25519 queda solo en esta pestaña: al recargar el panel hay que volver a cargarla. El par
+        por defecto (keys/default_operator_key.pem) solo sirve para el banco.
       </p>
 
       <div class="flex flex-wrap items-center gap-2">
@@ -159,7 +157,7 @@
       </div>
 
       {#if key === null}
-        <p class="text-sm text-muted">No hay una clave cargada: sin ella el panel no puede firmar imágenes.</p>
+        <p class="text-sm text-muted">Sin clave cargada.</p>
       {:else}
         <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt class="text-muted">Origen</dt>

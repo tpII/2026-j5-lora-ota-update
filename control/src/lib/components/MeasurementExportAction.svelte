@@ -57,11 +57,13 @@
   }
 </script>
 
-<div class="flex flex-col gap-2 rounded-md border border-line p-3">
+<div class="flex flex-col gap-2 border-t border-line pt-3">
   <p class="panel-hint">
-    Crea la carpeta measurements/&lt;AAAA-MM-DD&gt;-{test}-&lt;NN&gt;/ con {files}.
-    {#if !panel.directoryPickerAvailable}
-      Este navegador no permite elegir carpetas: descarga los {fileCount} archivos para moverlos a mano.
+    {#if panel.directoryPickerAvailable}
+      Pide la carpeta measurements/ del repositorio y crea dentro &lt;AAAA-MM-DD&gt;-{test}-&lt;NN&gt;/ con {files}.
+    {:else}
+      Crea la carpeta measurements/&lt;AAAA-MM-DD&gt;-{test}-&lt;NN&gt;/ con {files}. Este navegador no permite
+      elegir carpetas: descarga los {fileCount} archivos para moverlos a mano.
     {/if}
   </p>
   <div class="flex flex-wrap items-center gap-3">

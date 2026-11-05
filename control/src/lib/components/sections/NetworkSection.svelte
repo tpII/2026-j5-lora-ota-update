@@ -55,8 +55,12 @@
 
 <div class="flex flex-col gap-3">
   <section class="panel-card flex flex-col gap-3" aria-labelledby="network-radio-title">
-    <h3 id="network-radio-title" class="panel-section-title">Radio del nodo elegido</h3>
-    <TargetNodeLine {panel} />
+    <h3 id="network-radio-title" class="panel-section-title">
+      {connection === null ? "Radio del nodo elegido" : "Radio de "}<span class="font-mono"
+        >{connection?.state.identifier ?? ""}</span
+      >
+    </h3>
+    {#if connection === null}<TargetNodeLine {panel} />{/if}
     <RegulatoryChannelNote />
 
     {#if connection !== null}

@@ -71,9 +71,9 @@
         aria-selected={activeSection === section.key}
         aria-controls="section-{section.key}"
         tabindex={activeSection === section.key ? 0 : -1}
-        class="-mb-px border-b-2 px-3 py-2 font-display text-sm font-semibold tracking-wide uppercase {activeSection ===
+        class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {activeSection ===
         section.key
-          ? 'border-neon text-neon text-shadow-neon'
+          ? 'border-neon text-neon'
           : 'border-transparent text-muted hover:border-line-strong hover:text-ink'}"
         onclick={() => (activeSection = section.key)}
       >

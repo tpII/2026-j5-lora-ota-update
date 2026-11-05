@@ -244,13 +244,13 @@
         </label>
       </div>
 
-      <div class="flex flex-col gap-2 rounded-md border border-line p-3">
+      <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm font-medium">
           <input type="checkbox" bind:checked={payloadSweepEnabled} />
           Agregar un barrido de largos del cuerpo en dos modulaciones
         </label>
         {#if payloadSweepEnabled}
-          <div class="flex flex-wrap items-end gap-3">
+          <div class="flex flex-wrap items-end gap-3 pl-6">
             <label class="panel-label">
               Largos (bytes, separados por coma)
               <input class="panel-input w-56" type="text" bind:value={payloadSweepSizes} />
@@ -281,13 +281,13 @@
         {/if}
       </div>
 
-      <div class="flex flex-col gap-2 rounded-md border border-line p-3">
+      <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm font-medium">
           <input type="checkbox" bind:checked={codingRateSweepEnabled} />
           Agregar un barrido de tasas de código, de 4/5 a 4/8, en una modulación
         </label>
         {#if codingRateSweepEnabled}
-          <div class="flex flex-wrap items-end gap-2">
+          <div class="flex flex-wrap items-end gap-2 pl-6">
             <label class="panel-label">
               Factor de dispersión
               <select class="panel-input" bind:value={codingRateSweepModulation.sf}>
@@ -322,6 +322,34 @@
         {/each}
       </ul>
     {:else}
+      {#if campaign === null && plan.length > 0}
+        <div class="overflow-x-auto">
+          <table class="panel-table">
+            <thead>
+              <tr>
+                <th>N.º</th>
+                {#if payloadSweepEnabled || codingRateSweepEnabled}<th>Serie</th>{/if}
+                <th>Modulación</th>
+                <th>Largo</th>
+                <th>Paquetes</th>
+                <th>Duración estimada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each plan as point (point.index)}
+                <tr>
+                  <td>{point.index + 1}</td>
+                  {#if payloadSweepEnabled || codingRateSweepEnabled}<td>{SERIES_LABELS[point.series]}</td>{/if}
+                  <td class="whitespace-nowrap">{formatModulation(point)}</td>
+                  <td>{point.size} B</td>
+                  <td>{formatNumber(point.count)}</td>
+                  <td>{formatDuration(estimatePointDurationMilliseconds(point))}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
       <p class="text-sm text-muted">
         Plan: {plan.length} {plan.length === 1 ? "punto" : "puntos"} de {formatNumber(packetCount)} paquetes, con una
         duración estimada de {formatDuration(planDuration)}.
@@ -363,36 +391,6 @@
       pestaña, antes de empezar.
     </p>
   </form>
-
-  {#if campaign === null && plan.length > 0}
-    <div class="panel-card overflow-x-auto">
-      <h3 class="panel-section-title mb-2">Puntos del plan</h3>
-      <table class="panel-table">
-        <thead>
-          <tr>
-            <th>N.º</th>
-            <th>Serie</th>
-            <th>Modulación</th>
-            <th>Largo</th>
-            <th>Paquetes</th>
-            <th>Duración estimada</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each plan as point (point.index)}
-            <tr>
-              <td>{point.index + 1}</td>
-              <td>{SERIES_LABELS[point.series]}</td>
-              <td class="whitespace-nowrap">{formatModulation(point)}</td>
-              <td>{point.size} B</td>
-              <td>{formatNumber(point.count)}</td>
-              <td>{formatDuration(estimatePointDurationMilliseconds(point))}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
-  {/if}
 
   {#if campaign !== null}
     <div class="panel-card flex flex-col gap-3">
@@ -449,10 +447,6 @@
           </tbody>
         </table>
       </div>
-      <p class="panel-hint">
-        Los resultados quedan también en «Corridas registradas», al pie de la pestaña, y en el resumen que se
-        exporta.
-      </p>
     </div>
   {/if}
 </div>

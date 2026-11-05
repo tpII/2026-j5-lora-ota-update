@@ -45,7 +45,7 @@
     aria-valuemax="100"
     aria-valuenow={Math.round(percentage)}
   >
-    <div class="h-full bg-neon transition-all" style="width: {percentage}%"></div>
+    <div class="h-full bg-neon transition-[width] duration-300 ease-out" style="width: {percentage}%"></div>
   </div>
 {/if}
 {#if children !== undefined}

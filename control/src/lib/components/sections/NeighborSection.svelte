@@ -32,13 +32,6 @@
 </script>
 
 <div class="flex flex-col gap-3">
-  <p class="panel-hint">
-    Cada nodo emite un HELLO cada 10 s aproximadamente, con la calidad con que escucha a cada uno de sus
-    vecinos. Un vecino sale de la tabla del nodo después de 60 s sin paquetes suyos. «Consultar estado»,
-    en el detalle del nodo elegido, envía el comando status, que lista los vecinos que el nodo conoce en
-    ese momento.
-  </p>
-
   {#if identifiedConnections.length === 0}
     <div class="panel-card text-sm text-muted">No hay nodos identificados.</div>
   {/if}
@@ -51,9 +44,8 @@
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="panel-section-title">
           Vecinos de <span class="font-mono">{node.identifier}</span>
-          <span class="text-sm font-normal text-faint">({node.model ?? "modelo desconocido"})</span>
+          <span class="text-sm font-normal text-faint">({node.model ?? "placa desconocida"})</span>
         </h3>
-        {#if chosen}<span class="panel-badge bg-neon/10 text-neon">nodo elegido</span>{/if}
       </div>
 
       {#if node.neighbors.length === 0}
@@ -90,14 +82,16 @@
                   </td>
                   <td class="whitespace-nowrap">
                     hace {formatDuration(neighborAge(neighbor, panel.now))}
-                    {#if expired}<span class="panel-badge bg-raised text-muted">vencido</span>{/if}
+                    {#if expired}<span class="panel-badge bg-raised text-muted" title="Sin paquetes suyos en los últimos 60 s"
+                        >vencido</span
+                      >{/if}
                   </td>
                   <td>{formatNumber(neighbor.helloCount)}</td>
                   <td>{formatNumber(neighbor.transmitted)}</td>
                   <td class="font-mono">{formatImageVersion(neighbor.version)}</td>
                   <td class="font-mono">{formatImageVersion(neighbor.availableVersion)}</td>
                   <td class="min-w-36 text-xs {neighbor.vmFault !== null || neighbor.vmFailing ? 'text-danger' : ''}">
-                    {neighbor.vmFault === null ? "sin fallas" : VM_FAULT_LABELS[neighbor.vmFault]}
+                    {neighbor.vmFault === null ? "—" : VM_FAULT_LABELS[neighbor.vmFault]}
                     {#if neighbor.vmFailing}· el último tick falló{/if}
                   </td>
                   {#if withEchoButton}
@@ -137,6 +131,9 @@
             </tbody>
           </table>
         </div>
+      {/if}
+      {#if chosen}
+        <p class="panel-hint">Un HELLO cada 10 s aproximadamente; un vecino vence a los 60 s sin paquetes suyos.</p>
       {/if}
     </div>
   {/each}

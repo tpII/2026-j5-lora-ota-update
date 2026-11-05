@@ -113,12 +113,11 @@
 >
   <h3 class="panel-section-title">Firmar y cargar una imagen</h3>
   <p class="panel-hint">
-    El nodo solo acepta una versión mayor que su versión disponible y, si la imagen pasa la verificación, la envía
-    enseguida en una ráfaga completa. No la activa. El programa se escribe y se prueba en la pestaña Programa; acá
-    se firma tal como quedó en el editor.
+    El nodo solo acepta una versión mayor que su versión disponible y la envía enseguida en una ráfaga completa, sin
+    activarla.
   </p>
 
-  <div class="flex flex-wrap items-center gap-3 rounded-md border border-line p-3">
+  <div class="flex flex-wrap items-end gap-3">
     <div class="flex min-w-0 flex-1 flex-col gap-1">
       <span class="panel-caption">Programa del editor</span>
       {#if assembly.valid}

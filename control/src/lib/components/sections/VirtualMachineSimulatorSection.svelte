@@ -125,9 +125,8 @@
   <div class="panel-card flex flex-col gap-3">
     <h3 class="panel-section-title">En la computadora</h3>
     <p class="panel-hint">
-      Ejecuta el programa del editor en esta computadora con el intérprete de referencia, sin ningún nodo.
-      Un tick corre desde la dirección 0 hasta HALT o hasta una falla y los registros se conservan de un
-      tick al siguiente, como en el nodo.
+      Intérprete de referencia. Cada tick corre desde la dirección 0 hasta HALT o una falla; los registros
+      pasan de un tick al siguiente.
     </p>
     <div class="flex flex-col gap-1">
       <span class="panel-caption">Registros al reiniciar</span>
@@ -172,9 +171,9 @@
     <PrintOutputTable {prints} fault={lastFault} />
   </div>
 
-  <div class="panel-card flex flex-col gap-3">
-    <h3 class="panel-section-title">Listado</h3>
-    {#if assembly.valid}
+  {#if assembly.valid}
+    <div class="panel-card flex flex-col gap-3">
+      <h3 class="panel-section-title">Listado</h3>
       <div class="max-h-96 overflow-auto">
         <table class="panel-table">
           <thead>
@@ -195,8 +194,6 @@
           </tbody>
         </table>
       </div>
-    {:else}
-      <p class="text-sm text-muted">El programa tiene errores.</p>
-    {/if}
-  </div>
+    </div>
+  {/if}
 </div>

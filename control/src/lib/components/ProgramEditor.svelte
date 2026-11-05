@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PROGRAM_CAPACITY, formatProgramHex } from "$lib/vm/instruction-set.ts";
+  import { PROGRAM_CAPACITY } from "$lib/vm/instruction-set.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
 
   let { draft }: { draft: ProgramDraft } = $props();
@@ -9,7 +9,7 @@
 
 <div class="flex flex-col gap-2">
   <label class="panel-label">
-    Programa en assembly
+    <span class="sr-only">Programa en assembly</span>
     <textarea
       class="panel-input min-h-64 font-mono text-sm leading-5 {assembly.valid ? '' : 'panel-input-invalid'}"
       spellcheck="false"
@@ -26,9 +26,6 @@
       {assembly.code.length} de {PROGRAM_CAPACITY} bytes, {assembly.instructions.length}
       {assembly.instructions.length === 1 ? "instrucción" : "instrucciones"}.
     </p>
-    <code class="block max-h-24 overflow-y-auto rounded-md bg-raised px-2 py-1 font-mono text-xs break-all text-muted">
-      {formatProgramHex(assembly.code)}
-    </code>
   {:else}
     <ul class="flex flex-col gap-1">
       {#each assembly.problems as problem, index (index)}

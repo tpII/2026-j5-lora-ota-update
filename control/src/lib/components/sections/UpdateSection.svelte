@@ -72,17 +72,7 @@
 </script>
 
 <div class="flex flex-col gap-3">
-  <div class="panel-card flex flex-col gap-3">
-    <h3 class="panel-section-title">Actualización</h3>
-    <TargetNodeLine {panel} role="Nodo origen" />
-    <p class="panel-hint">
-      El operador firma el programa de la pestaña Programa como imagen y la carga en el nodo elegido arriba, que pasa
-      a ser el nodo origen: la envía en ráfagas a sus vecinos y cada uno la reenvía a los vecinos que anuncian una
-      versión disponible menor. Los nodos no la ejecutan hasta la orden de activación, que el panel habilita cuando
-      todo el grafo de conexiones anuncia la versión como disponible. Las imágenes viven solo en la RAM: un nodo que
-      se reinicia vuelve a la versión 0 y recibe de sus vecinos la imagen disponible.
-    </p>
-  </div>
+  <TargetNodeLine {panel} role="Nodo origen" />
 
   <OperatorKeyCard {session} {target} />
   <ImageLoadCard {panel} {draft} {session} {target} {checkVersion} {signAndLoad} {openProgram} />

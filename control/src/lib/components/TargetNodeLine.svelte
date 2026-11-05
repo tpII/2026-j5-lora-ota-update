@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { TRANSPORT_LABELS } from "$lib/utils/labels.ts";
   import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   /**
@@ -28,9 +27,6 @@
   <p class="flex flex-wrap items-center gap-2 text-sm">
     <span class="panel-caption">{role}:</span>
     <span class="panel-oled px-1.5 py-0.5 text-sm">{connection.state.identifier}</span>
-    <span class="font-mono text-xs text-muted">
-      {connection.state.model ?? "placa desconocida"} · {TRANSPORT_LABELS[connection.transportKind]}
-    </span>
     {#if pinned}
       <span class="panel-hint">(el de la prueba en curso)</span>
     {/if}

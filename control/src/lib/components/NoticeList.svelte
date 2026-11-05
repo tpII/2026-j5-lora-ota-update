@@ -10,7 +10,7 @@
       <li
         class="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm {notice.level === 'error'
           ? 'border-danger/40 bg-danger/10 text-danger'
-          : 'border-neon/30 bg-neon/5 text-neon'}"
+          : 'border-line-strong bg-surface text-ink'}"
       >
         <span>{notice.text}</span>
         <button

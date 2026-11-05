@@ -58,7 +58,7 @@
       </p>
     {:else}
       <label class="panel-label w-fit">
-        Actualización
+        Versión
         <select
           class="panel-input font-mono"
           value={version}
@@ -73,21 +73,19 @@
       {#if metrics !== null}
         {@const { convergence, efficiency } = metrics}
         <p class="text-sm">
-          Carga a las {formatShortClockTime(metrics.loadHostTime)}
-          {#if metrics.origin !== null}en <span class="font-mono">{metrics.origin}</span>, el nodo origen{/if}
-          {#if metrics.activateHostTime !== null}; orden de activación a las {formatShortClockTime(metrics.activateHostTime)}{/if}.
-          Grafo: {metrics.nodes.join(", ") || "sin nodos"}.
+          Carga a las {formatShortClockTime(metrics.loadHostTime)}{#if metrics.activateHostTime !== null}; orden de
+            activación a las {formatShortClockTime(metrics.activateHostTime)}{/if}.
         </p>
 
-        <dl class="grid gap-3 sm:grid-cols-3">
-          <div class="rounded-md border border-line p-3">
-            <dt class="text-xs text-faint">M1, convergencia</dt>
+        <dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+          <div class="panel-rule pt-2">
+            <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">M1, convergencia</dt>
             <dd class="text-lg font-semibold">{describePhase(convergence.total)}</dd>
             <dd class="text-xs text-muted">distribución: {describePhase(convergence.distribution)}</dd>
             <dd class="text-xs text-muted">activación: {describePhase(convergence.activation)}</dd>
           </div>
-          <div class="rounded-md border border-line p-3">
-            <dt class="text-xs text-faint">M2, eficiencia de la inundación</dt>
+          <div class="panel-rule pt-2">
+            <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">M2, eficiencia de la inundación</dt>
             <dd class="text-lg font-semibold">
               {efficiency.ratio === null ? "—" : `${formatNumber(efficiency.ratio, 2)} veces el mínimo`}
             </dd>
@@ -102,21 +100,6 @@
                 : `, contados solo en ${efficiency.transferFrames.countedNodes.join(", ") || "ningún nodo"}`}
             </dd>
           </div>
-          <div class="rounded-md border border-line p-3">
-            <dt class="text-xs text-faint">M3, pérdida y reparación</dt>
-            {#if metrics.receivers.length === 0}
-              <dd class="text-sm text-muted">sin receptores</dd>
-            {:else}
-              {#each metrics.receivers as receiver (receiver.id)}
-                <dd class="text-sm">
-                  <span class="font-mono">{receiver.id}</span>:
-                  {receiver.missingPercent === null ? "—" : `${formatNumber(receiver.missingPercent, 1)} %`} en el
-                  primer reporte, {receiver.repairRounds === null ? "—" : receiver.repairRounds}
-                  {receiver.repairRounds === 1 ? "ronda" : "rondas"} de reparación
-                </dd>
-              {/each}
-            {/if}
-          </div>
         </dl>
 
         <div class="overflow-x-auto">
@@ -127,8 +110,8 @@
                 <th>Disponible desde la carga</th>
                 <th>Activa desde la carga</th>
                 <th>Paquetes transmitidos</th>
-                <th>Primer reporte</th>
-                <th>Rondas de reparación</th>
+                <th>Primer reporte (M3)</th>
+                <th>Rondas de reparación (M3)</th>
                 <th>Reportes vistos</th>
                 <th>Recepción</th>
               </tr>
@@ -154,6 +137,7 @@
                   <td class="text-xs">
                     {#if receiver?.firstReport != null}
                       faltaban {receiver.firstReport.missing.length} de {receiver.firstReport.fragmentCount}
+                      {#if receiver.missingPercent !== null}({formatNumber(receiver.missingPercent, 1)} %){/if}
                     {:else if receiver !== undefined && receiver.missingPercent === 0}
                       sin pérdidas
                     {:else}

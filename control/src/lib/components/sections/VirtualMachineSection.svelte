@@ -42,11 +42,10 @@
 <div class="flex flex-col gap-3">
   <div class="panel-card flex flex-col gap-3">
     <h3 class="panel-section-title">En el nodo{node === null ? "" : ` ${node.state.identifier}`}</h3>
-    <TargetNodeLine {panel} />
+    {#if node === null}<TargetNodeLine {panel} />{/if}
     <p class="panel-hint">
-      El nodo ejecuta un tick de su programa activo cada {TICK_PERIOD_SECONDS} s y el primero apenas lo activa.
-      Cada PRINT aparece en la pantalla del nodo y en la tabla de salidas. Al reiniciarse, el nodo vuelve al
-      programa de fábrica, la versión 0.
+      Un tick cada {TICK_PERIOD_SECONDS} s, el primero al activar el programa. Al reiniciarse, el nodo vuelve
+      al programa de fábrica (versión 0).
     </p>
     <form
       class="flex flex-col gap-2"
@@ -55,8 +54,7 @@
         loadRegisters();
       }}
     >
-      <span class="panel-caption">Cargar registros</span>
-      <p class="panel-hint">Enteros de 32 bits en decimal o con 0x; el programa los usa desde el próximo tick.</p>
+      <p class="panel-hint">El programa los usa desde el próximo tick.</p>
       <RegisterInputs bind:values={registerTexts} />
       <div>
         <button type="submit" class="panel-button-primary" disabled={node === null}>Cargar registros</button>
@@ -80,10 +78,7 @@
           <dd class="font-mono">{machine.tick}</dd>
         </dl>
         <RegisterTable registers={machine.registers} />
-        <p class="panel-hint">
-          Los valores salen del último evento vm y de cada PRINT; un registro que el programa cambia sin
-          mostrarlo se actualiza al consultar el estado desde el detalle del nodo elegido.
-        </p>
+        <p class="panel-hint">Un registro que el programa cambia sin PRINT se actualiza con «Consultar estado».</p>
       {/if}
     {/if}
   </div>

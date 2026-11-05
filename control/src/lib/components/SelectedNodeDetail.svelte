@@ -11,7 +11,6 @@
   } from "$lib/utils/format.ts";
   import {
     CONNECTION_STATUS_LABELS,
-    TRANSPORT_LABELS,
     countWithNoun,
     describeErrorReason,
     describeLnaMode,
@@ -29,11 +28,7 @@
   const lastError = $derived(node.errors.at(-1) ?? null);
   const uptime = $derived(estimateUptime(node, panel.now));
   const statusBadgeClass = $derived(
-    connection.status === "open"
-      ? "bg-ok/10 text-ok"
-      : connection.status === "closed"
-        ? "bg-line text-muted"
-        : "bg-warn/10 text-warn",
+    connection.status === "closed" ? "bg-line text-muted" : "bg-warn/10 text-warn",
   );
 
   function toggleWifi(): void {
@@ -52,17 +47,16 @@
 </script>
 
 <section class="panel-card-neon flex flex-col gap-4" aria-labelledby="selected-node-title">
-  <header class="-mx-4 -mt-4 flex flex-wrap items-center justify-between gap-3 rounded-t-lg border-b border-neon/25 bg-neon/5 px-4 py-3">
+  <header class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
       <h2 id="selected-node-title" class="panel-oled px-2 py-0.5 text-lg">
         {node.identifier ?? "Identificando…"}
       </h2>
-      {#if node.model !== null}
-        <span class="panel-badge bg-neon/10 text-neon">{node.model}</span>
+      {#if !open}
+        <span class="panel-badge {statusBadgeClass}">{CONNECTION_STATUS_LABELS[connection.status]}</span>
       {/if}
-      <span class="panel-badge {statusBadgeClass}">{CONNECTION_STATUS_LABELS[connection.status]}</span>
       <p class="font-mono text-[0.6875rem] tracking-wider text-faint">
-        {TRANSPORT_LABELS[connection.transportKind]} · {connection.transportDescription}
+        {node.model ?? "placa desconocida"} · {connection.transportDescription}
       </p>
     </div>
     <div class="flex flex-wrap gap-2">
@@ -188,13 +182,6 @@
         {#if node.imageReception !== null}
           <br />recibe <span class="font-mono">{node.imageReception.version}</span>
         {/if}
-      </dd>
-    </div>
-
-    <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Vecinos</dt>
-      <dd class="mt-0.5 font-mono text-ink">
-        {node.neighbors.length === 0 ? "ninguno" : node.neighbors.map((neighbor) => neighbor.id).join(", ")}
       </dd>
     </div>
 

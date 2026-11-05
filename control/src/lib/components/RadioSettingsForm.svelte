@@ -191,12 +191,6 @@
     void applyChanges();
   }}
 >
-  {#if current !== null}
-    <p class="panel-hint">
-      Ajuste del transceptor: {formatPower(current.chip)} para {formatPower(current.power)} en la antena
-    </p>
-  {/if}
-
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
     <label class="panel-label">
       Frecuencia (MHz)
@@ -268,6 +262,9 @@
           <option value={power}>{formatPower(power)}</option>
         {/if}
       </select>
+      {#if current !== null && power === current.power}
+        <span class="font-normal text-faint">transceptor a {formatPower(current.chip)}</span>
+      {/if}
     </label>
     {#if withLowNoiseAmplifier}
       <label class="panel-label">
@@ -313,7 +310,7 @@
     <button
       type="button"
       class="panel-button"
-      disabled={current === null}
+      disabled={current === null || (changeCount === 0 && !outdated)}
       onclick={() => current !== null && loadCurrentSettings(current)}
     >
       Volver a los valores actuales
@@ -321,15 +318,17 @@
     <button type="button" class="panel-button" disabled={!open} onclick={() => panel.sendCommand(connection.key, RADIO_QUERY_COMMAND)}>
       Consultar
     </button>
-    <button type="button" class="panel-button" disabled={!open} onclick={copyChannelToOtherNodes}>
+    <button
+      type="button"
+      class="panel-button"
+      disabled={!open}
+      title="Copia frecuencia, modulación, preámbulo y palabra de sincronismo; no la potencia ni el LNA"
+      onclick={copyChannelToOtherNodes}
+    >
       Copiar el canal a los demás nodos
     </button>
     <button type="button" class="panel-button-danger" disabled={!open} onclick={resetToDefaults}>
       Restablecer valores por defecto
     </button>
   </div>
-  <p class="panel-hint">
-    El canal (frecuencia, modulación, preámbulo y palabra de sincronismo) tiene que coincidir en los nodos
-    que se quieren escuchar; la potencia y el LNA son propios de cada nodo.
-  </p>
 </form>

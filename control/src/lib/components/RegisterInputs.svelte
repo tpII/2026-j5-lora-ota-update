@@ -8,14 +8,15 @@
   const indices = Array.from({ length: REGISTER_COUNT }, (_, index) => index);
 </script>
 
-<div class="flex flex-wrap items-end gap-3">
+<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
   {#each indices as index (index)}
     <label class="panel-label">
       R{index + 1}
       <input
-        class="panel-input w-36 font-mono {parseInteger(values[index] ?? '') === null ? 'panel-input-invalid' : ''}"
+        class="panel-input w-full min-w-0 font-mono {parseInteger(values[index] ?? '') === null ? 'panel-input-invalid' : ''}"
         type="text"
         inputmode="text"
+        title="Entero de 32 bits, en decimal o con 0x"
         spellcheck="false"
         bind:value={values[index]}
       />

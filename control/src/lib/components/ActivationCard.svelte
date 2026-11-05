@@ -1,5 +1,4 @@
 <script lang="ts">
-  import TargetNodeLine from "./TargetNodeLine.svelte";
   import { buildActivateCommand } from "$lib/console/console-command.ts";
   import {
     activationReadiness,
@@ -113,11 +112,9 @@
 
 <div class="panel-card flex flex-col gap-3">
   <h3 class="panel-section-title">Activación</h3>
-  <TargetNodeLine {panel} />
   <p class="panel-hint">
-    La orden va al nodo elegido arriba, que tiene que tener la versión disponible. Al activarla, su HELLO la anuncia
-    como activa y cada vecino que la tiene disponible la activa al escucharlo, un salto por HELLO. La orden queda
-    habilitada cuando todos los nodos del grafo de conexiones anuncian la versión como disponible.
+    Al activarla, su HELLO la anuncia como activa y cada vecino que la tiene disponible la activa al escucharlo, un
+    salto por HELLO.
   </p>
   <div class="flex flex-wrap items-end gap-3">
     <label class="panel-label">
@@ -132,7 +129,9 @@
       />
     </label>
     <button type="button" class="panel-button-primary" disabled={!canActivate} onclick={send}>
-      {validVersion === null ? "Activar" : `Activar la versión ${validVersion}`}
+      {validVersion === null || target === null
+        ? "Activar"
+        : `Activar la versión ${validVersion} en ${target.state.identifier}`}
     </button>
   </div>
   {#if pending === null}
