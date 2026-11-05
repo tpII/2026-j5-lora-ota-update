@@ -309,7 +309,7 @@ Una línea de texto con palabras separadas por espacios, en minúscula. En el mo
 | `run <cantidad> <largo> <intervalo>` | Transmite una corrida de `cantidad` paquetes TEST (1 a 65535) con un cuerpo de `largo` bytes (8 a 239), separados por `intervalo` milisegundos (0 a 60000). Con intervalo 0, los paquetes salen seguidos |
 | `run stop` | Detiene la corrida en curso |
 | `wifi on`, `wifi off` | Enciende o apaga el punto de acceso |
-| `resend` | Retransmite tal cual la última trama propia, para verificar el descarte de repetidos |
+| `resend` | Vuelve a transmitir tal cual la última trama propia, para verificar el descarte de repetidos |
 | `presence off <segundos>` | Suspende los HELLO del nodo durante `segundos` como máximo (1 a 3600). Al vencer el plazo vuelven solos y el nodo emite `presence` |
 | `presence on` | Reanuda los HELLO; el primero sale entre 1 y 3 s después, como al arrancar |
 | `load_registers <r1> <r2> <r3> <r4>` | Asigna los cuatro registros de la VM. Cada valor va en decimal o en hexadecimal con `0x`, de −2147483648 a 4294967295; por encima de 2147483647 se guarda el patrón de bits. Emite `vm` |

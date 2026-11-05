@@ -47,7 +47,7 @@ La potencia se expresa siempre en el conector de antena, sea cual sea el modelo.
 | 15 dBm | 12 dB | 27 dBm |
 | 17 dBm | 11 dB | 28 dBm |
 
-En el aire solo se usan canales de 500 kHz y hasta unos 26 dBm; los canales de 125 y 250 kHz quedan para el banco, con atenuadores o cargas ([ADR 0004](../adrs/0004-only-500-khz-channels-on-air.md)). Por ahora el firmware no lo impone y la responsabilidad es del operador.
+En el aire solo se usan canales de 500 kHz y hasta unos 26 dBm; los canales de 125 y 250 kHz quedan fuera del alcance del proyecto y se conservan solo como parámetro ([ADR 0004](../adrs/0004-only-500-khz-channels-on-air.md)). Por ahora el firmware no lo impone y la responsabilidad es del operador.
 
 ## LNA de la V4.3
 

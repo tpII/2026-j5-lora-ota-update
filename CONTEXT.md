@@ -70,9 +70,21 @@ _Avoid_: beacon, heartbeat
 A per-node counter, kept across reboots, that increases at every boot and whenever the packet sequence wraps around. Together with the source and the sequence it identifies a packet.
 _Avoid_: boot count, generation
 
+**Connection graph** (es: *grafo de conexiones*):
+The nodes of the network and the links between neighbors, with how each end hears the other, as the control panel assembles them from HELLO messages. Only the control panel holds it; each node knows only its own neighbors.
+_Avoid_: topology, network map, routing table
+
+**Relay** (es: *retransmisión*):
+The broadcast, by a node, of a packet that another node originated, so that it reaches nodes beyond the range of its source. It belongs to the mesh.
+_Avoid_: forward, rebroadcast; using it for sending again one's own packets
+
 **Operator** (es: *operador*):
 The person who loads programs from a computer. The only trusted source: only the operator's private key signs valid images.
-_Avoid_: user, administrator
+_Avoid_: user, administrator, developer, programmer
+
+**Origin** (es: *nodo origen*):
+The node into which the operator loads an image and which sends its first burst. Any node can be the origin of an update, and the firmware does not keep track of it.
+_Avoid_: source, which names the node that created a packet (es: *origen* alone); master, root
 
 **Control panel** (es: *panel de control*):
 The web application on the operator's computer that connects to a node over USB serial or WiFi.
@@ -99,6 +111,42 @@ _Avoid_: binary, file
 **Version** (es: *versión*):
 A 32-bit number that identifies an image. Between two versions the higher one wins; two different images with the same version are a conflict.
 _Avoid_: revision, build
+
+**Active version** (es: *versión activa*):
+The version of the image that the VM of a node executes. Version 0 is the factory program.
+_Avoid_: running version, current version
+
+**Available version** (es: *versión disponible*):
+The highest version whose complete and verified image a node holds: the active version itself or a newer one that waits for the activation order.
+_Avoid_: pending version, stored version, downloaded version
+
+**Update** (es: *actualización*):
+The distribution of a new image from its origin to every node, up to its activation.
+_Avoid_: upgrade, deployment
+
+**Transfer** (es: *transferencia*):
+The sending of one image from a node to its neighbors, together with its repair rounds.
+_Avoid_: download, upload
+
+**Fragment** (es: *fragmento*):
+A part of an image that travels in the body of a single packet, identified by its index within the image.
+_Avoid_: chunk, block, segment
+
+**Burst** (es: *ráfaga*):
+The fragments of one image that a node sends back to back: all of them, or those that a report asks for.
+_Avoid_: batch, train
+
+**Report** (es: *reporte*):
+The message in which a receiver tells the node that sends an image which of its fragments are missing.
+_Avoid_: NACK, acknowledgment, status
+
+**Repair** (es: *reparación*):
+The sending again, by the node that sends an image, of the fragments that a receiver reports as missing. A repair round (es: *ronda de reparación*) is one report followed by the fragments it asks for.
+_Avoid_: retransmission, retry
+
+**Rollback** (es: *reversión*):
+The return to an earlier program, started by the operator from the control panel by loading it again as an image with a new version. Nodes never roll back on their own.
+_Avoid_: downgrade, revert
 
 ### Radio
 
