@@ -165,7 +165,7 @@ export function validateRadioSettingChanges(
     preamble !== undefined &&
     !isIntegerBetween(preamble, MINIMUM_PREAMBLE_LENGTH, MAXIMUM_PREAMBLE_LENGTH)
   ) {
-    problems.push({ field: "preamble", message: "El preámbulo va de 6 a 65535 símbolos." });
+    problems.push({ field: "preamble", message: "El preámbulo va de 6 a 65.535 símbolos." });
   }
   if (sync !== undefined && !isIntegerBetween(sync, MINIMUM_SYNC_WORD, MAXIMUM_SYNC_WORD)) {
     problems.push({ field: "sync", message: "La palabra de sincronismo va de 0 a 255." });
@@ -243,13 +243,13 @@ export function buildEchoCommand(destination: string, size?: number): CommandRes
 export function buildRunCommand(count: number, size: number, interval: number): CommandResult {
   const problems: CommandProblem[] = [];
   if (!isIntegerBetween(count, MINIMUM_RUN_COUNT, MAXIMUM_RUN_COUNT)) {
-    problems.push({ field: "count", message: "La cantidad de paquetes va de 1 a 65535." });
+    problems.push({ field: "count", message: "La cantidad de paquetes va de 1 a 65.535." });
   }
   if (!isIntegerBetween(size, MINIMUM_TEST_SIZE, MAXIMUM_PAYLOAD_SIZE)) {
     problems.push({ field: "size", message: "El largo del cuerpo va de 8 a 239 bytes." });
   }
   if (!isIntegerBetween(interval, MINIMUM_RUN_INTERVAL, MAXIMUM_RUN_INTERVAL)) {
-    problems.push({ field: "interval", message: "El intervalo va de 0 a 60000 ms." });
+    problems.push({ field: "interval", message: "El intervalo va de 0 a 60.000 ms." });
   }
   if (problems.length > 0) {
     return reject(problems);
@@ -276,7 +276,7 @@ export function buildLoadRegistersCommand(values: readonly number[]): CommandRes
     if (value === undefined || !isIntegerBetween(value, MINIMUM_INTEGER, MAXIMUM_INTEGER)) {
       problems.push({
         field: `r${index + 1}`,
-        message: `R${index + 1} es un entero de 32 bits: de −2147483648 a 4294967295.`,
+        message: `R${index + 1} es un entero de 32 bits: de −2.147.483.648 a 4.294.967.295.`,
       });
     }
   }
@@ -318,7 +318,7 @@ export function buildLoadImageCommand(image: Uint8Array): CommandResult {
 /** `activate <version>`: activates the available version, which has to be `version`. */
 export function buildActivateCommand(version: number): CommandResult {
   if (!isImageVersion(version)) {
-    return reject([{ field: "version", message: "La versión va de 1 a 4294967295." }]);
+    return reject([{ field: "version", message: "La versión va de 1 a 4.294.967.295." }]);
   }
   return accept(`activate ${version}`);
 }

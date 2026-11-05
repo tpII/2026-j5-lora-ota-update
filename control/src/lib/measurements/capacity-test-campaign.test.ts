@@ -200,7 +200,7 @@ describe("CapacityTestCampaign", () => {
     const snapshot = await runToEnd(campaign, clock);
     expect(snapshot.results[0]).toMatchObject({
       status: "failed",
-      failure: "El receptor recibió 10 paquetes pero no informó el fin de la corrida.",
+      failure: "El receptor recibió 10 paquetes, pero no informó el fin de la corrida.",
     });
   });
 

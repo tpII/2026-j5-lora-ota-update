@@ -51,7 +51,7 @@
         transfer !== null && transfer.receivingVersion === reception.version && transfer.missingBytes !== null
           ? `, faltan ${formatNumber(transfer.missingBytes)} bytes`
           : "";
-      return `${reception.version}: ${reception.heldFragments.length} de ${reception.fragmentCount} fragmentos de ${reception.fragmentSize} bytes (${percent} %)${missing}`;
+      return `${reception.version}: ${reception.heldFragments.length} de ${reception.fragmentCount} ${reception.fragmentCount === 1 ? "fragmento" : "fragmentos"} de ${reception.fragmentSize} bytes (${percent} %)${missing}`;
     }
     if (transfer !== null && transfer.receivingVersion !== null) {
       return `${transfer.receivingVersion}: faltan ${formatNumber(transfer.missingBytes)} bytes`;
@@ -73,14 +73,14 @@
     const rows: ActivityRow[] = [];
     for (const [id, state] of states) {
       for (const [index, burst] of state.bursts.entries()) {
-        const sent = burst.completion === null ? `${burst.transmitted} enviados hasta ahora` : `${burst.completion.sent} enviados`;
+        const sent = burst.completion === null ? `${burst.transmitted} ${burst.transmitted === 1 ? "enviado" : "enviados"} hasta ahora` : `${burst.completion.sent} ${burst.completion.sent === 1 ? "enviado" : "enviados"}`;
         rows.push({
           key: `${id}:burst:${index}`,
           hostTime: burst.startHostTime,
           node: id,
           kind: "Ráfaga",
           detail:
-            `${burst.version}: ${burst.count} fragmentos de ${burst.fragmentSize} bytes, ${sent}; ` +
+            `${burst.version}: ${burst.count} ${burst.count === 1 ? "fragmento" : "fragmentos"} de ${burst.fragmentSize} bytes, ${sent}; ` +
             `${BURST_CAUSE_LABELS[burst.cause]}${burst.trigger === null ? "" : ` (${burst.trigger})`}`,
         });
       }
@@ -90,7 +90,7 @@
           hostTime: report.hostTime,
           node: id,
           kind: "Reporte recibido",
-          detail: `de ${report.peer}, versión ${report.version}: faltan ${report.missing.length} de ${report.fragmentCount} fragmentos (${report.missing.join(", ")})`,
+          detail: `de ${report.peer}, versión ${report.version}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${report.fragmentCount} ${report.fragmentCount === 1 ? "fragmento" : "fragmentos"} (${report.missing.join(", ")})`,
         });
       }
       const reception = state.imageReception;
@@ -101,7 +101,7 @@
           hostTime: report.hostTime,
           node: id,
           kind: "Reporte enviado",
-          detail: `a ${report.peer}, versión ${report.version}, ronda ${report.round ?? "—"}: faltan ${report.missing.length} de ${report.fragmentCount} fragmentos`,
+          detail: `a ${report.peer}, versión ${report.version}, ronda ${report.round ?? "—"}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${report.fragmentCount} ${report.fragmentCount === 1 ? "fragmento" : "fragmentos"}`,
         });
       }
       for (const [index, image] of state.images.entries()) {
@@ -113,7 +113,7 @@
           detail:
             image.via === "console"
               ? `${image.version}, cargada por la consola (${formatNumber(image.imageSize)} bytes)`
-              : `${image.version}, completada por la radio desde ${image.source ?? "—"}: ${image.fragments} fragmentos, ${image.reports} reportes, ${formatNumber(image.durationMilliseconds)} ms`,
+              : `${image.version}, completada por la radio desde ${image.source ?? "—"}: ${image.fragments} ${image.fragments === 1 ? "fragmento" : "fragmentos"}, ${image.reports} ${image.reports === 1 ? "reporte" : "reportes"}, ${formatNumber(image.durationMilliseconds)} ms`,
         });
       }
       for (const [index, rejection] of state.imageRejections.entries()) {

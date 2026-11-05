@@ -43,7 +43,7 @@
       return "Falta elegir arriba un nodo conectado e identificado.";
     }
     if (validVersion === null) {
-      return "La versión es un entero de 1 a 4294967295.";
+      return "La versión es un entero de 1 a 4.294.967.295.";
     }
     const state = target.state;
     if (state.activeVersion === validVersion) {
@@ -84,22 +84,29 @@
     const sentences = [`Activación forzada de la versión ${validVersion}.`];
     if (missing.length > 0) {
       sentences.push(
-        `Estos nodos todavía no la tienen disponible: ${missing.join(", ")}. Cada uno la activa recién ` +
+        (missing.length === 1 ? `Este nodo todavía no la tiene disponible: ${missing[0]}. La activa recién ` : `Estos nodos todavía no la tienen disponible: ${missing.join(", ")}. Cada uno la activa recién `) +
           "cuando complete la imagen y escuche a un vecino que la anuncie como activa; mientras tanto " +
           "ejecuta su programa activo.",
       );
     }
     if (newer.length > 0) {
       sentences.push(
-        `Estos nodos tienen disponible una versión mayor: ${newer.join(", ")}. Nunca van a recibir ni ` +
-          `activar la versión ${validVersion} y siguen con su programa activo; para unificar la red hay ` +
-          "que cargar una imagen con una versión mayor que la de ellos.",
+        (newer.length === 1
+          ? `Este nodo tiene disponible una versión mayor: ${newer[0]}. Nunca va a recibir ni ` +
+            `activar la versión ${validVersion} y sigue con su programa activo; para unificar la red hay ` +
+            "que cargar una imagen con una versión mayor que la suya."
+          : `Estos nodos tienen disponible una versión mayor: ${newer.join(", ")}. Nunca van a recibir ni ` +
+            `activar la versión ${validVersion} y siguen con su programa activo; para unificar la red hay ` +
+            "que cargar una imagen con una versión mayor que la de ellos."),
       );
     }
     if (unknown.length > 0) {
       sentences.push(
-        `De estos nodos no se conoce la versión disponible: ${unknown.join(", ")}. Pueden activarla más ` +
-          "adelante o nunca, si ya tienen una versión mayor.",
+        (unknown.length === 1
+          ? `De este nodo no se conoce la versión disponible: ${unknown[0]}. Puede activarla más ` +
+            "adelante o nunca, si ya tiene una versión mayor."
+          : `De estos nodos no se conoce la versión disponible: ${unknown.join(", ")}. Pueden activarla más ` +
+            "adelante o nunca, si ya tienen una versión mayor."),
       );
     }
     sentences.push("¿Forzar la activación?");
@@ -113,7 +120,7 @@
 <div class="panel-card flex flex-col gap-3">
   <h3 class="panel-section-title">Activación</h3>
   <p class="panel-hint">
-    Al activarla, su HELLO la anuncia como activa y cada vecino que la tiene disponible la activa al escucharlo, un
+    Al activar una versión, el HELLO del nodo la anuncia como activa y cada vecino que la tiene disponible la activa al escucharlo, un
     salto por HELLO.
   </p>
   <div class="flex flex-wrap items-end gap-3">
@@ -145,7 +152,7 @@
     <p class="text-sm">
       {readiness.nodeCount === 0
         ? "El grafo de conexiones todavía no tiene nodos."
-        : `${readiness.activeCount} de ${readiness.nodeCount} nodos ejecutan la versión ${readiness.version}.`}
+        : `${readiness.activeCount} de ${readiness.nodeCount} ${readiness.nodeCount === 1 ? "nodo" : "nodos"} ${readiness.activeCount === 1 ? "ejecuta" : "ejecutan"} la versión ${readiness.version}.`}
     </p>
     {#if readiness.blockers.length > 0}
       <div class="flex flex-col gap-1">

@@ -204,8 +204,8 @@
         Serie de ecos{#if seriesRequester !== null && seriesRequester.key !== requester?.key}
           de <span class="font-mono">{seriesRequester.state.identifier ?? seriesRequester.key}</span>{/if}
         a <span class="font-mono">{series.destination}</span>: {formatNumber(series.requested)} de
-        {formatNumber(series.total)} pedidos, {formatNumber(series.answered)} respondidos y
-        {formatNumber(series.lost)} perdidos{series.status === "running"
+        {formatNumber(series.total)} pedidos, {formatNumber(series.answered)} {series.answered === 1 ? "respondido" : "respondidos"} y
+        {formatNumber(series.lost)} {series.lost === 1 ? "perdido" : "perdidos"}{series.status === "running"
           ? "."
           : series.status === "stopping"
             ? "; se detiene al terminar el eco en curso."

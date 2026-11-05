@@ -162,9 +162,9 @@
           TX {formatNumber(node.counters.transmitted)} · RX {formatNumber(node.counters.received)} · memoria libre
           {formatNumber(node.counters.freeHeap)} B
           {#if node.counters.droppedLines > 0}
-            · <span class="text-warn">{formatNumber(node.counters.droppedLines)} líneas descartadas</span>
+            · <span class="text-warn">{formatNumber(node.counters.droppedLines)} {node.counters.droppedLines === 1 ? "línea descartada" : "líneas descartadas"}</span>
           {/if}
-          <br />status de hace {formatDuration(panel.now - node.counters.hostTime)}
+          <br />estado de hace {formatDuration(panel.now - node.counters.hostTime)}
         {:else}
           —
         {/if}

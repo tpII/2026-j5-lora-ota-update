@@ -160,7 +160,7 @@
     <div>
       <h3 class="panel-section-title">Configuración de la prueba</h3>
       <p class="panel-hint">
-        En cada punto el panel envía el mismo comando radio a los dos nodos, espera que ambos confirmen los
+        En cada punto el panel envía el mismo comando radio a los dos nodos, espera a que ambos confirmen los
         parámetros, hace que el emisor transmita la corrida con los paquetes seguidos (intervalo 0) y espera el
         informe del receptor. Un punto que falla queda marcado y la prueba sigue con el siguiente. La potencia
         de transmisión y el LNA quedan como estén: se ajustan en la radio del nodo elegido, en la pestaña Red.
@@ -351,7 +351,7 @@
         </div>
       {/if}
       <p class="text-sm text-muted">
-        Plan: {plan.length} {plan.length === 1 ? "punto" : "puntos"} de {formatNumber(packetCount)} paquetes, con una
+        Plan: {plan.length} {plan.length === 1 ? "punto" : "puntos"} de {formatNumber(packetCount)} {packetCount === 1 ? "paquete" : "paquetes"}, con una
         duración estimada de {formatDuration(planDuration)}.
       </p>
     {/if}
@@ -399,7 +399,7 @@
           Prueba de <span class="font-mono">{campaign.sender}</span> a
           <span class="font-mono">{campaign.receiver}</span>
         {/snippet}
-        {campaign.finishedCount} de {campaign.results.length} puntos terminados
+        {campaign.finishedCount} de {campaign.results.length} {campaign.results.length === 1 ? "punto terminado" : "puntos terminados"}
         {#if campaign.currentIndex !== null}· en curso el punto {campaign.currentIndex + 1}{/if}
         {#if campaign.startHostTime !== null}
           · transcurrido {formatDuration((campaign.endHostTime ?? panel.now) - campaign.startHostTime)}

@@ -39,7 +39,7 @@
     if (phase.endHostTime !== null) {
       return formatSeconds(phase.milliseconds);
     }
-    return phase.pendingNodes.length === 0 ? "en curso" : `en curso; faltan ${phase.pendingNodes.join(", ")}`;
+    return phase.pendingNodes.length === 0 ? "en curso" : `en curso; ${phase.pendingNodes.length === 1 ? "falta" : "faltan"} ${phase.pendingNodes.join(", ")}`;
   }
 </script>
 
@@ -91,11 +91,11 @@
             </dd>
             <dd class="text-xs text-muted">
               {formatNumber(efficiency.transmitted)} paquetes transmitidos; mínimo {formatNumber(efficiency.minimum)}
-              ({formatNumber(efficiency.fragmentCount)} fragmentos × {Math.max(0, metrics.nodes.length - 1)})
+              ({formatNumber(efficiency.fragmentCount)} {efficiency.fragmentCount === 1 ? "fragmento" : "fragmentos"} × {Math.max(0, metrics.nodes.length - 1)})
             </dd>
             <dd class="text-xs text-muted">
-              transferencia: {formatNumber(efficiency.transferFrames.fragments)} fragmentos y
-              {formatNumber(efficiency.transferFrames.reports)} reportes{efficiency.transferFrames.complete
+              transferencia: {formatNumber(efficiency.transferFrames.fragments)} {efficiency.transferFrames.fragments === 1 ? "fragmento" : "fragmentos"} y
+              {formatNumber(efficiency.transferFrames.reports)} {efficiency.transferFrames.reports === 1 ? "reporte" : "reportes"}{efficiency.transferFrames.complete
                 ? ""
                 : `, contados solo en ${efficiency.transferFrames.countedNodes.join(", ") || "ningún nodo"}`}
             </dd>
@@ -124,7 +124,7 @@
                 <tr>
                   <td class="font-mono font-semibold">
                     {id}
-                    {#if id === metrics.origin}<span class="panel-badge ml-1 bg-neon/10 font-sans text-neon">origen</span>{/if}
+                    {#if id === metrics.origin}<span class="panel-badge ml-1 bg-neon/10 font-sans text-neon">nodo origen</span>{/if}
                   </td>
                   <td>{sinceLoad(times?.availableHostTime ?? null)}</td>
                   <td>{sinceLoad(times?.activeHostTime ?? null)}</td>
@@ -136,7 +136,7 @@
                   </td>
                   <td class="text-xs">
                     {#if receiver?.firstReport != null}
-                      faltaban {receiver.firstReport.missing.length} de {receiver.firstReport.fragmentCount}
+                      {receiver.firstReport.missing.length === 1 ? "faltaba" : "faltaban"} {receiver.firstReport.missing.length} de {receiver.firstReport.fragmentCount}
                       {#if receiver.missingPercent !== null}({formatNumber(receiver.missingPercent, 1)} %){/if}
                     {:else if receiver !== undefined && receiver.missingPercent === 0}
                       sin pérdidas
@@ -149,7 +149,7 @@
                   <td class="text-xs">
                     {receiver?.image == null
                       ? "—"
-                      : `${receiver.image.fragments} fragmentos en ${formatNumber(receiver.image.durationMilliseconds)} ms`}
+                      : `${receiver.image.fragments} ${receiver.image.fragments === 1 ? "fragmento" : "fragmentos"} en ${formatNumber(receiver.image.durationMilliseconds)} ms`}
                   </td>
                 </tr>
               {/each}

@@ -261,13 +261,13 @@
     <h3 id="measurement-record-title" class="panel-section-title">Registro</h3>
 
     <p class="text-sm text-muted">
-      {formatNumber(panel.journalSize)} eventos de los nodos conectados
+      {formatNumber(panel.journalSize)} {panel.journalSize === 1 ? "evento" : "eventos"} de los nodos conectados
       {#if panel.journalStartTime !== null}desde las {formatShortClockTime(panel.journalStartTime)}{/if} y
       {formatNumber(panel.summaryRows.length)}
       {panel.summaryRows.length === 1 ? "corrida resumida" : "corridas resumidas"}.
       {#if panel.journalRejectedCount > 0}
         <span class="text-danger">
-          El registro está lleno: se descartaron {formatNumber(panel.journalRejectedCount)} eventos.
+          El registro está lleno: se {panel.journalRejectedCount === 1 ? "descartó" : "descartaron"} {formatNumber(panel.journalRejectedCount)} {panel.journalRejectedCount === 1 ? "evento" : "eventos"}.
         </span>
       {/if}
     </p>

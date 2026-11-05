@@ -60,7 +60,7 @@ export function checkImageVersion(
   if (!isImageVersion(version)) {
     return {
       acceptable: false,
-      problem: "La versión es un entero de 1 a 4294967295.",
+      problem: "La versión es un entero de 1 a 4.294.967.295.",
       warnings: [],
     };
   }
@@ -80,7 +80,7 @@ export function checkImageVersion(
   }
   if (networkAvailableVersion !== null && version <= networkAvailableVersion) {
     warnings.push(
-      `Algún nodo del grafo ya tiene disponible la versión ${networkAvailableVersion}: esos nodos van a ignorar esta imagen.`,
+      `Algún nodo del grafo ya tiene disponible la versión ${networkAvailableVersion}: los nodos que la tengan van a ignorar esta imagen.`,
     );
   }
   if (version > proposeImageVersion(nowMilliseconds) + FUTURE_VERSION_TOLERANCE_SECONDS) {

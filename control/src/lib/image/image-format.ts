@@ -3,6 +3,7 @@
  * the flags, the version and the program length, then the program and the Ed25519 signature of
  * the operator. Multi-byte fields are little-endian.
  */
+import { VM_FAULT_LABELS } from "$lib/utils/labels.ts";
 import { PROGRAM_CAPACITY } from "$lib/vm/instruction-set.ts";
 import { checkProgram, type VmFault } from "$lib/vm/virtual-machine.ts";
 
@@ -114,7 +115,9 @@ function rejectFormat(message: string): ImageDecoding {
  */
 export function decodeImage(bytes: Uint8Array): ImageDecoding {
   if (bytes.length < IMAGE_HEADER_SIZE) {
-    return rejectFormat(`La imagen ocupa ${bytes.length} bytes y la cabecera sola ocupa 9.`);
+    return rejectFormat(
+      `La imagen ocupa ${bytes.length} ${bytes.length === 1 ? "byte" : "bytes"} y la cabecera sola ocupa 9.`,
+    );
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const flags = bytes[2] ?? 0;
@@ -123,7 +126,7 @@ export function decodeImage(bytes: Uint8Array): ImageDecoding {
   const expectedLength = IMAGE_HEADER_SIZE + programLength + IMAGE_SIGNATURE_SIZE;
   if (bytes.length !== expectedLength) {
     return rejectFormat(
-      `La imagen ocupa ${bytes.length} bytes y, con un programa de ${programLength} bytes, debería ocupar ${expectedLength}.`,
+      `La imagen ocupa ${bytes.length} bytes y, con un programa de ${programLength} ${programLength === 1 ? "byte" : "bytes"}, debería ocupar ${expectedLength}.`,
     );
   }
   if (bytes[0] !== IMAGE_MAGIC[0] || bytes[1] !== IMAGE_MAGIC[1]) {
@@ -146,7 +149,7 @@ export function decodeImage(bytes: Uint8Array): ImageDecoding {
     return {
       valid: false,
       reason: "program",
-      message: `El programa no pasa la validación de la VM: ${check.fault} en la dirección ${check.address}.`,
+      message: `El programa no pasa la validación de la VM: ${VM_FAULT_LABELS[check.fault]} en la dirección ${check.address}.`,
       fault: check.fault,
       address: check.address,
     };

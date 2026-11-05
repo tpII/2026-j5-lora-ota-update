@@ -103,7 +103,7 @@ describe("validateCapacityTestConfiguration", () => {
     ).toEqual([
       "Falta elegir al menos un ancho de banda.",
       "La frecuencia va de 915,0 a 928,0 MHz.",
-      "La cantidad de paquetes va de 1 a 65535.",
+      "La cantidad de paquetes va de 1 a 65.535.",
       "El largo del cuerpo va de 8 a 239 bytes.",
     ]);
   });

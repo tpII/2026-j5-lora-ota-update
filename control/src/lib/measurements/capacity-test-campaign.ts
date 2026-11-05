@@ -494,7 +494,7 @@ export class CapacityTestCampaign {
       return;
     }
     this.#finishPoint(result, {
-      failure: `El receptor recibió ${observation.receivedPackets} paquetes pero no informó el fin de la corrida.`,
+      failure: `El receptor recibió ${observation.receivedPackets} ${observation.receivedPackets === 1 ? "paquete" : "paquetes"}, pero no informó el fin de la corrida.`,
     });
   }
 

@@ -234,7 +234,7 @@
     {/if}
   </div>
   <p class="panel-hint">
-    Se muestran {formatNumber(visibleRecords.length)} de {formatNumber(matchingRecords.length)} líneas que cumplen
+    {visibleRecords.length === 1 ? "Se muestra" : "Se muestran"} {formatNumber(visibleRecords.length)} de {formatNumber(matchingRecords.length)} {matchingRecords.length === 1 ? "línea que cumple" : "líneas que cumplen"}
     los filtros; el panel guarda las últimas {formatNumber(3000)} líneas de todos los nodos.
   </p>
 

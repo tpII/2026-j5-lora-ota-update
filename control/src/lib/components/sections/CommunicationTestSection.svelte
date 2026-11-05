@@ -379,7 +379,7 @@
           Ecos de <span class="font-mono">{test.requester}</span> a <span class="font-mono">{test.responder}</span>
           · {formatModulation(test.settings)}
         {/snippet}
-        {formatNumber(metrics.requested)} de {formatNumber(test.settings.count)} ecos
+        {formatNumber(metrics.requested)} de {formatNumber(test.settings.count)} {test.settings.count === 1 ? "eco" : "ecos"}
         {#if test.startHostTime !== null}
           · transcurrido {formatDuration((test.endHostTime ?? panel.now) - test.startHostTime)}
         {/if}
@@ -390,7 +390,7 @@
           <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Entrega (PDR)</dt>
           <dd class="text-lg font-semibold">{formatDeliveryRatio(metrics.deliveryRatio)}</dd>
           <dd class="text-xs text-muted">
-            {formatNumber(metrics.answered)} respondidos · {formatNumber(metrics.lost)} perdidos
+            {formatNumber(metrics.answered)} {metrics.answered === 1 ? "respondido" : "respondidos"} · {formatNumber(metrics.lost)} {metrics.lost === 1 ? "perdido" : "perdidos"}
           </dd>
         </div>
         <div class="panel-rule pt-2">

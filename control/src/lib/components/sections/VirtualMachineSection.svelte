@@ -73,7 +73,7 @@
       {:else}
         <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt class="text-muted">Largo</dt>
-          <dd>{machine.size} bytes</dd>
+          <dd>{machine.size} {machine.size === 1 ? "byte" : "bytes"}</dd>
           <dt class="text-muted">Tick</dt>
           <dd class="font-mono">{machine.tick}</dd>
         </dl>

@@ -9,7 +9,7 @@
 
 <div class="flex flex-col gap-2">
   <label class="panel-label">
-    <span class="sr-only">Programa en assembly</span>
+    <span class="sr-only">Programa en ensamblador</span>
     <textarea
       class="panel-input min-h-64 font-mono text-sm leading-5 {assembly.valid ? '' : 'panel-input-invalid'}"
       spellcheck="false"
