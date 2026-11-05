@@ -1,7 +1,9 @@
 /**
- * The operator's signing key and the images signed with it, for the update section. The private
- * key lives only in memory: reloading the panel forgets it, and the panel never stores it.
+ * The operator's signing key, the images signed with it and the version the next one takes, for
+ * the update section. The private key lives only in memory: reloading the panel forgets it, and
+ * the panel never stores it.
  */
+import { proposeImageVersion } from "$lib/image/image-format.ts";
 import {
   generateOperatorKeyPair,
   importOperatorPrivateKey,
@@ -12,6 +14,16 @@ import {
 const MAXIMUM_SIGNED_IMAGES = 20;
 
 export type SigningKeyOrigin = "file" | "generated";
+
+/** The last image the panel sent to a node with `load_image`. */
+export interface LoadAttempt {
+  /** Key of the connection it went through. */
+  readonly key: string;
+  readonly node: string;
+  readonly version: number;
+  readonly imageSize: number;
+  readonly hostTime: number;
+}
 
 /** An image the panel signed in this session. */
 export interface SignedImageRecord {
@@ -32,6 +44,12 @@ export class ImageSigningSession {
   generatedPrivateKeyPem = $state<string | null>(null);
   /** Newest last. */
   signedImages = $state.raw<readonly SignedImageRecord[]>([]);
+  /**
+   * Version of the next image, shared by the signing of the editor program and the rollback: a
+   * node accepts each image only with a version greater than the last one.
+   */
+  nextVersion = $state(proposeImageVersion(Date.now()));
+  lastLoad = $state.raw<LoadAttempt | null>(null);
 
   /** Imports a private key from the text of a PEM file; returns the problem in Spanish, or null. */
   async importKey(pemText: string, fileName: string): Promise<string | null> {
@@ -78,5 +96,11 @@ export class ImageSigningSession {
     const kept = [...this.signedImages, record];
     this.signedImages = kept.slice(Math.max(0, kept.length - MAXIMUM_SIGNED_IMAGES));
     return record;
+  }
+
+  /** Records an image sent to a node with `load_image` and moves the next version past it. */
+  recordLoad(attempt: LoadAttempt): void {
+    this.lastLoad = attempt;
+    this.nextVersion = Math.max(proposeImageVersion(Date.now()), attempt.version + 1);
   }
 }

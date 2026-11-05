@@ -1,6 +1,6 @@
 /**
- * Colors the JSON of console lines with Shiki. Only the JSON grammar and one light theme are
- * loaded. The grammar comes precompiled, with its regular expressions already written for
+ * Colors the JSON of console lines with Shiki. Only the JSON grammar and one dark theme, written
+ * here with the colors of the panel, are loaded. The grammar comes precompiled, with its regular expressions already written for
  * JavaScript, so the raw engine runs it without WebAssembly and without the converter of
  * Oniguruma expressions: the highlighter starts synchronously and the bundle stays small.
  */
@@ -10,9 +10,9 @@ import {
   getTokenStyleObject,
   stringifyTokenStyle,
   type HighlighterCore,
+  type ThemeRegistration,
 } from "shiki/core";
 import { createJavaScriptRawEngine } from "shiki/engine/javascript";
-import lightPlus from "shiki/themes/light-plus.mjs";
 
 /** A piece of a line drawn with one style. */
 export interface HighlightedSegment {
@@ -21,7 +21,23 @@ export interface HighlightedSegment {
   readonly style: string;
 }
 
-const THEME = "light-plus";
+const THEME = "j5-neon";
+
+/** Keys in the neon of the panel, strings in green, numbers in amber, literals in magenta. */
+const NEON_THEME: ThemeRegistration = {
+  name: THEME,
+  type: "dark",
+  fg: "#98B0B8",
+  bg: "#020405",
+  settings: [
+    { settings: { foreground: "#98B0B8" } },
+    { scope: ["support.type.property-name.json"], settings: { foreground: "#5CE1F0" } },
+    { scope: ["string.quoted.double.json", "string"], settings: { foreground: "#9EF0B8" } },
+    { scope: ["constant.numeric"], settings: { foreground: "#FFC86B" } },
+    { scope: ["constant.language"], settings: { foreground: "#FF7AC0" } },
+    { scope: ["punctuation"], settings: { foreground: "#6F868E" } },
+  ],
+};
 
 /** Lines kept already colored; the panel keeps 3000 lines and draws at most 500. */
 const MAXIMUM_CACHED_LINES = 2000;
@@ -31,7 +47,7 @@ const cache = new Map<string, readonly HighlightedSegment[]>();
 
 function highlighterInstance(): HighlighterCore {
   highlighter ??= createHighlighterCoreSync({
-    themes: [lightPlus],
+    themes: [NEON_THEME],
     langs: [json],
     engine: createJavaScriptRawEngine(),
   });

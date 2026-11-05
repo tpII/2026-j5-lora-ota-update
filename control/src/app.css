@@ -1,73 +1,237 @@
 @import "tailwindcss";
 
+/*
+ * Fonts, bundled with the panel so that it works without internet, latin subset only: Inter for
+ * text, JetBrains Mono for data, Chakra Petch for headings and Silkscreen for the OLED screens.
+ */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 600;
+  src: url("../node_modules/@fontsource/chakra-petch/files/chakra-petch-latin-600-italic.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url("../node_modules/@fontsource/chakra-petch/files/chakra-petch-latin-700-italic.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "Chakra Petch";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("../node_modules/@fontsource/chakra-petch/files/chakra-petch-latin-600-normal.woff2")
+    format("woff2");
+}
+
+@font-face {
+  font-family: "Silkscreen";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../node_modules/@fontsource/silkscreen/files/silkscreen-latin-400-normal.woff2")
+    format("woff2");
+}
+
+/*
+ * Design tokens. Black with a blue cast and the cyan of the OLED of the Heltec V4.3. Components
+ * use these names, never the Tailwind palette, so the theme changes in one place.
+ */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-display: "Chakra Petch", "Inter Variable", ui-sans-serif, sans-serif;
+  --font-pixel: "Silkscreen", "JetBrains Mono Variable", ui-monospace, monospace;
+
+  /* Surfaces, from the page to the deepest well. */
+  --color-canvas: #04070a;
+  --color-surface: #0a1116;
+  --color-raised: #101a21;
+  --color-sunken: #020405;
+  --color-screen: #010304;
+
+  /* Lines: the neon at low opacity. */
+  --color-line: rgb(92 225 240 / 0.14);
+  --color-line-strong: rgb(92 225 240 / 0.3);
+
+  /* Text. */
+  --color-ink: #e2f5f8;
+  --color-muted: #98b0b8;
+  --color-faint: #6f868e;
+
+  /* Accent and states. */
+  --color-neon: #5ce1f0;
+  --color-neon-bright: #a8f4fc;
+  --color-neon-deep: #0b5560;
+  /* Opaque fills with the neon mixed in, for shapes drawn over lines. */
+  --color-neon-shade: #0a1f24;
+  --color-neon-shade-strong: #0f3a42;
+  --color-ok: #3de39d;
+  --color-warn: #ffb547;
+  --color-danger: #ff4d6d;
+  --color-magenta: #ff3ea5;
+
+  --shadow-neon: 0 0 0 1px rgb(92 225 240 / 0.55), 0 0 18px -2px rgb(92 225 240 / 0.45);
+  --shadow-neon-soft: 0 0 0 1px rgb(92 225 240 / 0.22), 0 0 28px -10px rgb(92 225 240 / 0.45);
+  --shadow-danger: 0 0 0 1px rgb(255 77 109 / 0.55), 0 0 18px -4px rgb(255 77 109 / 0.45);
+  --text-shadow-neon: 0 0 6px rgb(92 225 240 / 0.75);
+  --text-shadow-neon-soft: 0 0 10px rgb(92 225 240 / 0.35);
+}
+
 @layer base {
   :root {
-    color-scheme: light;
+    color-scheme: dark;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+    @apply bg-canvas font-sans text-ink antialiased;
+    /* A faint grid, brighter near the top, like a screen behind glass. */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgb(92 225 240 / 0.1), transparent 70%),
+      linear-gradient(rgb(92 225 240 / 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(92 225 240 / 0.035) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      32px 32px,
+      32px 32px;
+    background-attachment: fixed;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--color-neon);
+  }
+
+  ::selection {
+    background-color: rgb(92 225 240 / 0.3);
+  }
+
+  :focus-visible {
+    outline-color: var(--color-neon-bright);
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    @apply font-mono;
   }
 }
 
 @layer components {
   .panel-card {
-    @apply rounded-lg border border-slate-200 bg-white p-4 shadow-sm;
+    @apply relative rounded-lg border border-line bg-surface/85 p-4 shadow-[inset_0_1px_0_rgb(92_225_240/0.06)] backdrop-blur-sm;
+  }
+
+  /* A card that holds the eye: neon edge and glow, for the graph and the chosen node. */
+  .panel-card-neon {
+    @apply relative rounded-lg border border-neon/35 bg-surface/90 p-4 shadow-neon-soft backdrop-blur-sm;
   }
 
   .panel-section-title {
-    @apply text-base font-semibold text-slate-900;
+    @apply font-display text-lg font-bold tracking-wide text-ink uppercase italic;
   }
 
   .panel-button {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1 rounded-md border border-line-strong bg-raised px-3 py-1.5 font-display text-sm font-semibold tracking-wide text-ink uppercase hover:border-neon/70 hover:text-neon-bright hover:shadow-neon disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-ink disabled:hover:shadow-none;
   }
 
   .panel-button-primary {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-sky-700 bg-sky-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1 rounded-md border border-neon bg-neon px-3 py-1.5 font-display text-sm font-semibold tracking-wide text-canvas uppercase shadow-neon hover:border-neon-bright hover:bg-neon-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none;
   }
 
   .panel-button-danger {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1 rounded-md border border-danger/50 bg-raised px-3 py-1.5 font-display text-sm font-semibold tracking-wide text-danger uppercase hover:border-danger hover:bg-danger/10 hover:shadow-danger disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-raised disabled:hover:shadow-none;
   }
 
+  /*
+   * Field labels keep their case: they hold units (MHz, ms, m) and hexadecimal values that an
+   * uppercase transform would change.
+   */
   .panel-label {
-    @apply flex flex-col gap-1 text-xs font-medium text-slate-600;
+    @apply flex flex-col gap-1 font-mono text-[0.6875rem] font-medium tracking-wide text-muted;
+  }
+
+  /* The text of a label that names a group of controls, without the column layout of a label. */
+  .panel-caption {
+    @apply font-mono text-[0.6875rem] font-medium tracking-wide text-muted;
   }
 
   .panel-input {
-    @apply rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm focus:border-sky-600 focus:ring-1 focus:ring-sky-600 focus:outline-none disabled:bg-slate-100;
+    @apply rounded-md border border-line-strong bg-sunken px-2 py-1.5 font-mono text-sm text-ink normal-case placeholder:text-faint focus:border-neon focus:shadow-neon focus:outline-none disabled:bg-raised disabled:text-faint;
   }
 
   .panel-input-invalid {
-    @apply border-red-500 focus:border-red-600 focus:ring-red-600;
+    @apply border-danger focus:border-danger focus:shadow-danger;
   }
 
   .panel-table {
-    @apply w-full border-collapse text-left text-sm;
+    @apply w-full border-collapse text-left text-sm tabular-nums;
   }
 
   .panel-table th {
-    @apply border-b border-slate-200 px-2 py-1.5 text-xs font-semibold whitespace-nowrap text-slate-600;
+    @apply border-b border-line-strong px-2 py-1.5 font-mono text-[0.6875rem] font-medium tracking-wider whitespace-nowrap text-faint uppercase;
   }
 
   .panel-table td {
-    @apply border-b border-slate-100 px-2 py-1.5 align-top;
+    @apply border-b border-dashed border-line px-2 py-1.5 align-top;
   }
 
   .panel-note {
-    @apply rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900;
+    @apply rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn;
   }
 
   .panel-hint {
-    @apply text-xs text-slate-500;
+    @apply text-xs text-faint;
   }
 
   .panel-error-text {
-    @apply text-xs text-red-700;
+    @apply text-xs text-danger;
   }
 
   .panel-badge {
-    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap;
+    @apply inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-[0.6875rem] font-medium tracking-wider whitespace-nowrap uppercase ring-1 ring-current/30 ring-inset;
+  }
+
+  /* An OLED screen: black glass, a hairline bezel, pixel type that glows and faint scan lines. */
+  .panel-oled {
+    @apply relative overflow-hidden rounded-sm bg-screen font-pixel text-neon ring-1 ring-neon/25 text-shadow-neon;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgb(92 225 240 / 0.05) 0,
+      rgb(92 225 240 / 0.05) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  /* Dotted rule between the rows of a specification list. */
+  .panel-rule {
+    @apply border-t border-dotted border-line-strong;
   }
 }

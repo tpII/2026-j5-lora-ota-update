@@ -1,6 +1,6 @@
 /**
- * The program the operator writes, shared by the VM and simulator sections: a program tried on the
- * reference interpreter is the one loaded on the node.
+ * The program the operator writes, shared by the Programa and Actualización sections: a program
+ * tried on the reference interpreter is the one signed and loaded on the node.
  */
 import { assemble, type AssemblyResult } from "$lib/vm/assembler.ts";
 

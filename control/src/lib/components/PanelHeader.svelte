@@ -3,62 +3,39 @@
 
   let { panel }: { panel: ControlPanel } = $props();
 
-  let connectingSerial = $state(false);
-  let connectingWifi = $state(false);
-
-  async function connectSerial(): Promise<void> {
-    connectingSerial = true;
-    try {
-      await panel.connectSerial();
-    } finally {
-      connectingSerial = false;
-    }
-  }
-
-  async function connectWifi(): Promise<void> {
-    connectingWifi = true;
-    try {
-      await panel.connectWifi();
-    } finally {
-      connectingWifi = false;
-    }
-  }
+  const openConnectionCount = $derived(
+    panel.connections.filter((connection) => connection.status === "open").length,
+  );
+  const graphNodeCount = $derived(panel.connectionGraph.nodes.length);
 </script>
 
-<header class="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
-  <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-    <div>
-      <h1 class="text-lg font-semibold text-slate-900">Panel de control J5</h1>
-      <p class="text-xs text-slate-500">
-        Red LoRa de placas Heltec · consola de los nodos por USB o por WiFi
-      </p>
+<header class="sticky top-0 z-10 border-b border-line bg-canvas/85 backdrop-blur">
+  <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3">
+    <div class="flex items-center gap-3">
+      <span class="panel-oled px-2 py-1 text-sm" aria-hidden="true">J5</span>
+      <div>
+        <h1 class="font-display text-xl font-bold tracking-wide uppercase italic">
+          Panel de control <span class="text-neon text-shadow-neon">J5</span>
+        </h1>
+        <p class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">
+          Red LoRa de placas Heltec · consola de los nodos por USB o por WiFi
+        </p>
+      </div>
     </div>
-    <div class="flex flex-wrap gap-2">
-      <button
-        type="button"
-        class="panel-button-primary"
-        disabled={!panel.webSerialAvailable || connectingSerial}
-        title={panel.webSerialAvailable ? "Elegir el puerto serie de un nodo" : "Este navegador no ofrece Web Serial"}
-        onclick={connectSerial}
-      >
-        {connectingSerial ? "Conectando…" : "Conectar por USB"}
-      </button>
-      <button
-        type="button"
-        class="panel-button-primary"
-        disabled={connectingWifi || panel.hasWebSocketConnection}
-        title={panel.hasWebSocketConnection
-          ? "Ya hay una conexión WiFi: una computadora ve un solo nodo por vez"
-          : "Abrir ws://192.168.4.1/console"}
-        onclick={connectWifi}
-      >
-        {connectingWifi ? "Conectando…" : "Conectar por WiFi"}
-      </button>
-    </div>
+    <dl class="flex gap-5 font-mono text-[0.6875rem] tracking-wider uppercase">
+      <div class="flex items-center gap-2">
+        <dt class="text-faint">Conexiones</dt>
+        <dd class="text-neon tabular-nums text-shadow-neon-soft">{openConnectionCount}</dd>
+      </div>
+      <div class="flex items-center gap-2">
+        <dt class="text-faint">Nodos en el grafo</dt>
+        <dd class="text-neon tabular-nums text-shadow-neon-soft">{graphNodeCount}</dd>
+      </div>
+    </dl>
   </div>
   {#if !panel.webSerialAvailable}
-    <div class="border-t border-amber-200 bg-amber-50">
-      <p class="mx-auto max-w-7xl px-4 py-2 text-sm text-amber-900">
+    <div class="border-t border-warn/40 bg-warn/10">
+      <p class="mx-auto max-w-7xl px-4 py-2 text-sm text-warn">
         Este navegador no ofrece Web Serial, así que la conexión por USB no está disponible. Hace falta
         Chrome o Chromium 154 o posterior y una página servida por HTTPS o desde localhost. La conexión
         por WiFi sigue disponible.

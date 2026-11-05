@@ -1,5 +1,7 @@
 <script lang="ts">
-  import MeasurementExportForm from "$lib/components/MeasurementExportForm.svelte";
+  import MeasurementExportAction from "$lib/components/MeasurementExportAction.svelte";
+  import TargetNodeLine from "$lib/components/TargetNodeLine.svelte";
+  import TestProgress from "$lib/components/TestProgress.svelte";
   import { buildEchoCommand } from "$lib/console/console-command.ts";
   import {
     COMMUNICATION_TEST_PAYLOAD_SIZE,
@@ -50,7 +52,6 @@
   const defaults = DEFAULT_COMMUNICATION_TEST_CONFIGURATION;
 
   let role = $state<Role>("sender");
-  let nodeKey = $state("");
   let destination = $state("");
   let spreadingFactor = $state<number>(defaults.sf);
   let bandwidth = $state<number>(defaults.bw);
@@ -59,21 +60,26 @@
   /** Node whose modulation was last copied into the form. */
   let prefilledKey = "";
 
-  const candidates = $derived(panel.identifiedConnections);
-  const node = $derived(candidates.find((connection) => connection.key === nodeKey));
-  const neighborIdentifiers = $derived(node?.state.neighbors.map((neighbor) => neighbor.id) ?? []);
   const test = $derived(panel.communicationTest);
   const receiver = $derived(panel.receiverMode);
   const testActive = $derived(panel.isCommunicationTestActive);
   const receiverActive = $derived(panel.isReceiverModeActive);
   const busy = $derived(testActive || receiverActive);
+  /** Node of the test or receiver mode in progress, which choosing another node above does not move. */
+  const runningIdentifier = $derived(
+    testActive ? (test?.requester ?? null) : receiverActive ? (receiver?.node ?? null) : null,
+  );
+  /** The connected node: the one chosen above, or the node of the test in progress. */
+  const node = $derived(
+    busy
+      ? panel.connections.find(
+          (connection) => connection.status === "open" && connection.state.identifier === runningIdentifier,
+        )
+      : (panel.selectedIdentifiedConnection ?? undefined),
+  );
+  const nodeKey = $derived(node?.key ?? "");
+  const neighborIdentifiers = $derived(node?.state.neighbors.map((neighbor) => neighbor.id) ?? []);
   const otherTestActive = $derived(panel.isCampaignActive || panel.isEchoSeriesActive);
-
-  $effect(() => {
-    if (node === undefined && !busy) {
-      nodeKey = candidates[0]?.key ?? "";
-    }
-  });
 
   // Start from the modulation the node uses, once per node chosen.
   $effect(() => {
@@ -86,9 +92,24 @@
     }
   });
 
+  /** Node the destination was last checked against; not reactive on purpose. */
+  let checkedNodeKey: string | null = null;
+
+  // A neighbor of the previous node does not carry over to the next one.
   $effect(() => {
-    if (destination === "" && neighborIdentifiers.length > 0) {
-      destination = neighborIdentifiers[0] ?? "";
+    const neighbors = neighborIdentifiers;
+    const key = node?.key ?? null;
+    if (key === null || busy) {
+      return;
+    }
+    if (key !== checkedNodeKey) {
+      checkedNodeKey = key;
+      const current = destination.trim().toUpperCase();
+      if (!neighbors.includes(current) || current === node?.state.identifier) {
+        destination = neighbors[0] ?? "";
+      }
+    } else if (destination === "" && neighbors.length > 0) {
+      destination = neighbors[0] ?? "";
     }
   });
 
@@ -110,7 +131,7 @@
       : null;
   });
   const problems = $derived(
-    role === "sender"
+    role === "sender" && !testActive
       ? [
           ...validateCommunicationTestConfiguration(configuration, preamble),
           ...(destinationProblem === null ? [] : [destinationProblem]),
@@ -169,7 +190,7 @@
         modos el nodo suspende sus HELLO mientras dura la prueba y al final vuelve a la modulación anterior: el emisor
         al terminar, detenerse o fallar, y el receptor al desactivarlo.
       </p>
-      <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+      <div class="rounded-md border border-line bg-raised p-3 text-sm text-muted">
         <p class="font-medium">Qué se mide</p>
         <ul class="mt-1 list-disc pl-5">
           <li>
@@ -185,18 +206,19 @@
           <li>En el receptor: los ecos respondidos y la RSSI y la SNR con que llegó cada pedido.</li>
         </ul>
       </div>
+      <TargetNodeLine {panel} role="Nodo conectado" connection={busy ? (node ?? null) : undefined} />
     </div>
 
     <fieldset class="flex flex-col gap-4" disabled={busy}>
       <div class="flex flex-wrap items-end gap-3">
         <div class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-slate-600">Modo</span>
+          <span class="panel-caption">Modo</span>
           <div class="flex gap-1" role="radiogroup" aria-label="Modo">
             {#each [{ value: "sender", label: "Emisor" }, { value: "receiver", label: "Receptor" }] as option (option.value)}
               <label
                 class="cursor-pointer rounded-md border px-3 py-1.5 text-sm {role === option.value
-                  ? 'border-sky-600 bg-sky-50 text-sky-800'
-                  : 'border-slate-300 text-slate-700'}"
+                  ? 'border-neon bg-neon/5 text-neon'
+                  : 'border-line-strong text-muted'}"
               >
                 <input class="sr-only" type="radio" name="role" value={option.value} bind:group={role} />
                 {option.label}
@@ -204,14 +226,6 @@
             {/each}
           </div>
         </div>
-        <label class="panel-label">
-          Nodo conectado
-          <select class="panel-input" bind:value={nodeKey}>
-            {#each candidates as connection (connection.key)}
-              <option value={connection.key}>{connection.state.identifier} ({connection.state.model})</option>
-            {/each}
-          </select>
-        </label>
         {#if role === "sender"}
           <label class="panel-label">
             Vecino (receptor)
@@ -275,13 +289,9 @@
       </div>
     </fieldset>
 
-    {#if candidates.length === 0}
-      <p class="panel-error-text">Hay que conectar un nodo por USB o por WiFi.</p>
-    {/if}
     {#if bandwidth !== ON_AIR_BANDWIDTH_KILOHERTZ}
       <p class="panel-note">
-        Los canales de 125 y 250 kHz son solo para el banco, con cable coaxial y atenuadores o cargas de 50 Ω
-        (ADR 0004).
+        La modulación usa un canal de {bandwidth} kHz, que según la nota del comienzo queda para el banco.
       </p>
     {/if}
     {#if otherTestActive}
@@ -302,7 +312,7 @@
           {/each}
         </ul>
       {:else}
-        <p class="text-sm text-slate-700">
+        <p class="text-sm text-muted">
           Cada eco viaja en tramas de {frameLength} bytes ({COMMUNICATION_TEST_PAYLOAD_SIZE} de cuerpo), de
           {formatMicrosecondsAsMilliseconds(timeOnAir, 2)} de aire según la fórmula de Semtech. Tasa nominal de la
           modulación: {formatBitRate(nominalBitRateOf(configuration))}. Duración estimada si todos los ecos se
@@ -338,11 +348,11 @@
       <p class="panel-hint">
         Los HELLO del emisor quedan suspendidos como máximo
         {formatDuration(presenceHoldSecondsFor(configuration, preamble) * 1000)}: si el panel pierde la conexión,
-        vuelven solos al vencer ese plazo, pero la modulación de prueba queda hasta cambiarla desde Radio o reiniciar
-        el nodo.
+        vuelven solos al vencer ese plazo, pero la modulación de prueba queda hasta cambiarla en la radio del nodo,
+        en la pestaña Red, o reiniciar el nodo.
       </p>
     {:else}
-      <p class="text-sm text-slate-700">
+      <p class="text-sm text-muted">
         Mientras el modo receptor está activo, el nodo responde los ecos de cualquier vecino con {formatModulation(
           modulation,
         )}. Hay que desactivarlo al terminar la prueba para que vuelva a la modulación anterior y a enviar HELLO.
@@ -370,110 +380,87 @@
       </div>
       <p class="panel-hint">
         La suspensión de los HELLO se renueva cada 30 minutos mientras el panel siga conectado. Si se pierde la
-        conexión, los HELLO vuelven solos dentro de la hora, pero la modulación de prueba queda hasta cambiarla desde
-        Radio o reiniciar el nodo.
+        conexión, los HELLO vuelven solos dentro de la hora, pero la modulación de prueba queda hasta cambiarla en la
+        radio del nodo, en la pestaña Red, o reiniciar el nodo.
       </p>
     {/if}
   </form>
 
   {#if role === "sender" && test !== null && metrics !== null}
     <div class="panel-card flex flex-col gap-3">
-      <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 class="panel-section-title">
-          Ecos de <span class="font-mono">{test.requester}</span> a <span class="font-mono">{test.responder}</span>
-          · {formatModulation(test.settings)}
-        </h3>
-        <span class="text-sm {test.status === 'failed' ? 'text-red-700' : 'text-slate-600'}">
-          {COMMUNICATION_TEST_STATUS_LABELS[test.status]}
-        </span>
-      </div>
-      <div
-        class="h-2 w-full overflow-hidden rounded-full bg-slate-200"
-        role="progressbar"
-        aria-label="Avance de la prueba"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow={Math.round(progress * 100)}
+      <TestProgress
+        status={COMMUNICATION_TEST_STATUS_LABELS[test.status]}
+        failed={test.status === "failed"}
+        {progress}
+        failure={test.failure}
+        restored={test.restored}
+        restorationProblems={test.restorationProblems}
       >
-        <div class="h-full bg-sky-600 transition-all" style="width: {progress * 100}%"></div>
-      </div>
-      <p class="text-sm text-slate-700">
+        {#snippet title()}
+          Ecos de <span class="font-mono">{test.requester}</span> a <span class="font-mono">{test.responder}</span>
+          <span class="normal-case">· {formatModulation(test.settings)}</span>
+        {/snippet}
         {formatNumber(metrics.requested)} de {formatNumber(test.settings.count)} ecos
         {#if test.startHostTime !== null}
           · transcurrido {formatDuration((test.endHostTime ?? panel.now) - test.startHostTime)}
         {/if}
-      </p>
-      {#if test.failure !== null}
-        <p class="panel-error-text">{test.failure}</p>
-      {/if}
-      {#if test.restored === true}
-        <p class="text-sm text-emerald-700">El nodo volvió a su modulación anterior y reanudó los HELLO.</p>
-      {:else if test.restored === false}
-        <div class="panel-error-text">
-          No se pudo dejar el nodo como estaba:
-          <ul class="list-disc pl-5">
-            {#each test.restorationProblems as problem (problem)}
-              <li>{problem}</li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
+      </TestProgress>
 
       <dl class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-4">
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">Entrega (PDR)</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">Entrega (PDR)</dt>
           <dd class="text-lg font-semibold">{formatDeliveryRatio(metrics.deliveryRatio)}</dd>
-          <dd class="text-xs text-slate-600">
+          <dd class="text-xs text-muted">
             {formatNumber(metrics.answered)} respondidos · {formatNumber(metrics.lost)} perdidos
           </dd>
         </div>
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">RSSI de ida (en el receptor)</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">RSSI de ida (en el receptor)</dt>
           <dd class="text-lg font-semibold">{formatRssi(metrics.forward.rssi.average)}</dd>
-          <dd class="text-xs text-slate-600">{formatRange(metrics.forward.rssi, formatRssi)}</dd>
+          <dd class="text-xs text-muted">{formatRange(metrics.forward.rssi, formatRssi)}</dd>
         </div>
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">SNR de ida (en el receptor)</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">SNR de ida (en el receptor)</dt>
           <dd class="text-lg font-semibold">{formatSnr(metrics.forward.snr.average)}</dd>
-          <dd class="text-xs text-slate-600">{formatRange(metrics.forward.snr, formatSnr)}</dd>
+          <dd class="text-xs text-muted">{formatRange(metrics.forward.snr, formatSnr)}</dd>
         </div>
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">RTT medio</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">RTT medio</dt>
           <dd class="text-lg font-semibold">{formatMicrosecondsAsMilliseconds(metrics.roundTrip.average, 2)}</dd>
-          <dd class="text-xs text-slate-600">
+          <dd class="text-xs text-muted">
             {formatRange(metrics.roundTrip, (value) => formatMicrosecondsAsMilliseconds(value, 2))}
           </dd>
         </div>
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">RSSI de vuelta (en el emisor)</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">RSSI de vuelta (en el emisor)</dt>
           <dd class="text-lg font-semibold">{formatRssi(metrics.reverse.rssi.average)}</dd>
-          <dd class="text-xs text-slate-600">{formatRange(metrics.reverse.rssi, formatRssi)}</dd>
+          <dd class="text-xs text-muted">{formatRange(metrics.reverse.rssi, formatRssi)}</dd>
         </div>
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">SNR de vuelta (en el emisor)</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">SNR de vuelta (en el emisor)</dt>
           <dd class="text-lg font-semibold">{formatSnr(metrics.reverse.snr.average)}</dd>
-          <dd class="text-xs text-slate-600">{formatRange(metrics.reverse.snr, formatSnr)}</dd>
+          <dd class="text-xs text-muted">{formatRange(metrics.reverse.snr, formatSnr)}</dd>
         </div>
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">Bits útiles entregados</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">Bits útiles entregados</dt>
           <dd class="text-lg font-semibold">{formatNumber(metrics.usefulBits)} bit</dd>
-          <dd class="text-xs text-slate-600">
+          <dd class="text-xs text-muted">
             {formatNumber(metrics.usefulShare * 100, 1)} % de cada trama de {metrics.frameLength} bytes
           </dd>
         </div>
-        <div class="rounded-md border border-slate-200 p-3">
-          <dt class="text-xs text-slate-500">Tasa de bits útiles</dt>
+        <div class="rounded-md border border-line p-3">
+          <dt class="text-xs text-faint">Tasa de bits útiles</dt>
           <dd class="text-lg font-semibold">{formatBitRate(metrics.usefulBitRate)}</dd>
-          <dd class="text-xs text-slate-600">nominal de la modulación: {formatBitRate(metrics.nominalBitRate)}</dd>
+          <dd class="text-xs text-muted">nominal de la modulación: {formatBitRate(metrics.nominalBitRate)}</dd>
         </div>
       </dl>
 
       {#if !testActive && test.startHostTime !== null}
-        <MeasurementExportForm
+        <MeasurementExportAction
+          {panel}
           test="communication-test"
           files="metadata.json, events.jsonl (los eventos del nodo durante la prueba), summary.csv (las métricas) y echoes.csv (un renglón por eco)"
           fileCount="cuatro"
-          directoryPickerAvailable={panel.directoryPickerAvailable}
           exportFiles={(description) => panel.exportCommunicationTest(description)}
         />
       {/if}
@@ -497,13 +484,13 @@
                   <td class="font-mono text-xs">{formatClockTime(exchange.hostTime)}</td>
                   <td>{exchange.number}</td>
                   {#if exchange.outcome === "answered"}
-                    <td class="text-emerald-700">Respondido</td>
+                    <td class="text-ok">Respondido</td>
                     <td class="whitespace-nowrap">{formatMicrosecondsAsMilliseconds(exchange.roundTripMicroseconds, 2)}</td>
                     <td class="whitespace-nowrap">{formatRssi(exchange.forwardRssi)}, {formatSnr(exchange.forwardSnr)}</td>
                     <td class="whitespace-nowrap">{formatRssi(exchange.reverseRssi)}, {formatSnr(exchange.reverseSnr)}</td>
                   {:else}
-                    <td class="text-red-700">Perdido</td>
-                    <td colspan="3" class="text-slate-500">sin respuesta</td>
+                    <td class="text-danger">Perdido</td>
+                    <td colspan="3" class="text-faint">sin respuesta</td>
                   {/if}
                 </tr>
               {/each}
@@ -516,35 +503,22 @@
 
   {#if role === "receiver" && receiver !== null}
     <div class="panel-card flex flex-col gap-3">
-      <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 class="panel-section-title">
-          Modo receptor en <span class="font-mono">{receiver.node}</span> · {formatModulation(receiver.modulation)}
-        </h3>
-        <span class="text-sm {receiver.status === 'failed' ? 'text-red-700' : 'text-slate-600'}">
-          {RECEIVER_MODE_STATUS_LABELS[receiver.status]}
-        </span>
-      </div>
-      <p class="text-sm text-slate-700">
+      <TestProgress
+        status={RECEIVER_MODE_STATUS_LABELS[receiver.status]}
+        failed={receiver.status === "failed"}
+        failure={receiver.failure}
+        restored={receiver.restored}
+        restorationProblems={receiver.restorationProblems}
+      >
+        {#snippet title()}
+          Modo receptor en <span class="font-mono">{receiver.node}</span>
+          <span class="normal-case">· {formatModulation(receiver.modulation)}</span>
+        {/snippet}
         {formatNumber(receiver.servedEchoes.length)}
         {receiver.servedEchoes.length === 1 ? "eco respondido" : "ecos respondidos"} ·
         {receiver.deactivationHostTime === null ? "activo desde hace" : "estuvo activo"}
         {formatDuration((receiver.deactivationHostTime ?? panel.now) - receiver.activationHostTime)}
-      </p>
-      {#if receiver.failure !== null}
-        <p class="panel-error-text">{receiver.failure}</p>
-      {/if}
-      {#if receiver.restored === true}
-        <p class="text-sm text-emerald-700">El nodo volvió a su modulación anterior y reanudó los HELLO.</p>
-      {:else if receiver.restored === false}
-        <div class="panel-error-text">
-          No se pudo dejar el nodo como estaba:
-          <ul class="list-disc pl-5">
-            {#each receiver.restorationProblems as problem (problem)}
-              <li>{problem}</li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
+      </TestProgress>
 
       {#if servedSummaries.length > 0}
         <div class="overflow-x-auto">
@@ -576,11 +550,11 @@
       {/if}
 
       {#if !receiverActive && receiver.deactivationHostTime !== null}
-        <MeasurementExportForm
+        <MeasurementExportAction
+          {panel}
           test="communication-test"
           files="metadata.json, events.jsonl (los eventos del nodo mientras estuvo activo el modo receptor), summary.csv (una fila por emisor) y echoes.csv (un renglón por eco respondido)"
           fileCount="cuatro"
-          directoryPickerAvailable={panel.directoryPickerAvailable}
           exportFiles={(description) => panel.exportReceiverMode(description)}
         />
       {/if}

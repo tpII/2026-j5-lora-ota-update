@@ -1,7 +1,6 @@
 <script lang="ts">
-  import ImageVersionInput from "./ImageVersionInput.svelte";
+  import TargetNodeLine from "./TargetNodeLine.svelte";
   import { PROGRAM_COMMAND } from "$lib/console/console-command.ts";
-  import { proposeImageVersion } from "$lib/image/image-format.ts";
   import { recoverProgram, type ImageVersionCheck } from "$lib/image/image-preparation.ts";
   import { disassemble } from "$lib/vm/disassembler.ts";
   import { formatProgramHex } from "$lib/vm/instruction-set.ts";
@@ -18,13 +17,17 @@
     target,
     checkVersion,
     signAndLoad,
+    openProgram,
   }: {
     panel: ControlPanel;
     draft: ProgramDraft;
     session: ImageSigningSession;
-    target: ConnectionView | undefined;
+    /** The node chosen above, which becomes the origin of the update; null when there is none. */
+    target: ConnectionView | null;
     checkVersion: (version: number) => ImageVersionCheck;
     signAndLoad: (program: Uint8Array, version: number) => Promise<string | null>;
+    /** Switches the panel to the Programa tab, where the draft is edited. */
+    openProgram: () => void;
   } = $props();
 
   interface ProgramSource {
@@ -35,17 +38,21 @@
     readonly description: string;
   }
 
-  let version = $state(proposeImageVersion(Date.now()));
   let problem = $state<string | null>(null);
   let notice = $state<string | null>(null);
   let loading = $state(false);
 
+  /** The next version is the one of the signing card, so both always propose the same. */
+  const version = $derived(session.nextVersion);
   const check = $derived(checkVersion(version));
-  const connected = $derived(target !== undefined && target.status === "open");
+  const connected = $derived(target !== null);
   const record = $derived(target?.state.program ?? null);
   const recovery = $derived(record === null ? null : recoverProgram(record.code));
   const stale = $derived(
-    record !== null && target?.state.activeVersion !== null && target?.state.activeVersion !== record.version,
+    record !== null &&
+      target !== null &&
+      target.state.activeVersion !== null &&
+      target.state.activeVersion !== record.version,
   );
 
   /** Programs the operator can sign again: the active one of the node and those signed here. */
@@ -74,11 +81,13 @@
     loading = true;
     problem = null;
     notice = null;
+    const signedVersion = version;
     try {
-      problem = await signAndLoad(source.program, version);
+      problem = await signAndLoad(source.program, signedVersion);
       if (problem === null) {
-        notice = `Se cargó el programa de la versión ${source.version} como versión ${version}.`;
-        version = Math.max(proposeImageVersion(Date.now()), version + 1);
+        notice =
+          `Se envió el programa de la versión ${source.version} como versión ${signedVersion}; ` +
+          "la respuesta del nodo aparece en «Última carga» de «Firmar y cargar una imagen».";
       }
     } finally {
       loading = false;
@@ -96,16 +105,18 @@
     }
     draft.source = `;; Program of version ${source.version}\n${result.source}`;
     problem = null;
-    notice = `El programa de la versión ${source.version} quedó en el editor de la sección Firmar y cargar una imagen.`;
+    notice = `El programa de la versión ${source.version} quedó en el editor de la pestaña Programa.`;
+    openProgram();
   }
 </script>
 
 <div class="panel-card flex flex-col gap-3">
   <h3 class="panel-section-title">Reversión</h3>
+  <TargetNodeLine {panel} role="Nodo origen" />
   <p class="panel-hint">
     Los nodos nunca vuelven solos a una versión anterior y el protocolo no tiene una orden de abortar. Para revertir
     o abortar una actualización, el operador carga un programa anterior como imagen con una versión nueva, mayor que
-    todas las de la red. El nodo conectado devuelve su programa activo con el comando program; el panel también
+    todas las de la red. El nodo elegido devuelve su programa activo con el comando program; el panel también
     recuerda las imágenes que firmó desde que se abrió.
   </p>
   <div>
@@ -113,31 +124,43 @@
       type="button"
       class="panel-button"
       disabled={!connected}
-      onclick={() => target !== undefined && panel.sendCommand(target.key, PROGRAM_COMMAND)}
+      onclick={() => target !== null && panel.sendCommand(target.key, PROGRAM_COMMAND)}
     >
       Pedir el programa activo
     </button>
   </div>
   {#if record !== null}
     <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-      <dt class="text-slate-600">Programa activo</dt>
+      <dt class="text-muted">Programa activo</dt>
       <dd>
         versión <span class="font-mono">{formatImageVersion(record.version)}</span>, {record.size} bytes, a las
         {formatShortClockTime(record.hostTime)}
         {#if stale}
-          <span class="text-amber-800">(el nodo activó otra versión después: conviene pedirlo de nuevo)</span>
+          <span class="text-warn">(el nodo activó otra versión después: conviene pedirlo de nuevo)</span>
         {/if}
       </dd>
     </dl>
     {#if recovery !== null && !recovery.valid}
-      <p class="text-sm text-slate-600">{recovery.message}</p>
+      <p class="text-sm text-muted">{recovery.message}</p>
     {/if}
   {/if}
 
-  <ImageVersionInput bind:version {check} />
+  <div class="flex flex-col gap-1">
+    <p class="text-sm">
+      <span class="panel-caption">Próxima versión:</span>
+      <span class="font-mono">{Number.isInteger(version) ? version : "—"}</span>
+      <span class="text-xs text-muted">(la misma de «Firmar y cargar una imagen», donde se cambia)</span>
+    </p>
+    {#if check.problem !== null}
+      <p class="panel-error-text">{check.problem}</p>
+    {/if}
+    {#each check.warnings as warning (warning)}
+      <p class="text-xs text-warn">{warning}</p>
+    {/each}
+  </div>
 
   {#if sources.length === 0}
-    <p class="text-sm text-slate-600">Todavía no hay programas para volver a firmar.</p>
+    <p class="text-sm text-muted">Todavía no hay programas para volver a firmar.</p>
   {:else}
     <div class="overflow-x-auto">
       <table class="panel-table">
@@ -180,7 +203,7 @@
     <p class="panel-hint">Para volver a firmar hace falta la clave del operador.</p>
   {/if}
   {#if notice !== null}
-    <p class="text-sm text-emerald-700">{notice}</p>
+    <p class="text-sm text-ok">{notice}</p>
   {/if}
   {#if problem !== null}
     <p class="panel-error-text">{problem}</p>

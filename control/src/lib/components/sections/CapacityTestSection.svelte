@@ -18,6 +18,8 @@
     type BandwidthKilohertz,
   } from "$lib/radio/radio-settings.ts";
   import type { TestRunSummaryRow } from "$lib/measurements/test-run-ledger.ts";
+  import TargetNodeLine from "$lib/components/TargetNodeLine.svelte";
+  import TestProgress from "$lib/components/TestProgress.svelte";
   import {
     formatBitRate,
     formatDeliveryRatio,
@@ -34,7 +36,6 @@
 
   const defaults = DEFAULT_CAPACITY_TEST_CONFIGURATION;
 
-  let senderKey = $state("");
   let receiverKey = $state("");
   let frequency = $state<number>(defaults.freq);
   let preamble = $state<number>(defaults.preamble);
@@ -54,13 +55,24 @@
   const candidates = $derived(panel.identifiedConnections);
   const campaign = $derived(panel.campaign);
   const campaignActive = $derived(panel.isCampaignActive);
+  /**
+   * The sender is the node chosen above. While a test runs, the form shows its own sender, which
+   * choosing another node does not move, and keeps its receiver.
+   */
+  const sender = $derived(
+    campaignActive && campaign !== null
+      ? (panel.connections.find((connection) => connection.state.identifier === campaign.sender) ?? null)
+      : panel.selectedIdentifiedConnection,
+  );
+  const senderKey = $derived(sender?.key ?? "");
+  const receiverCandidates = $derived(candidates.filter((connection) => connection.key !== senderKey));
 
   $effect(() => {
-    if (!candidates.some((connection) => connection.key === senderKey)) {
-      senderKey = candidates[0]?.key ?? "";
+    if (campaignActive) {
+      return;
     }
-    if (!candidates.some((connection) => connection.key === receiverKey) || receiverKey === senderKey) {
-      receiverKey = candidates.find((connection) => connection.key !== senderKey)?.key ?? "";
+    if (!receiverCandidates.some((connection) => connection.key === receiverKey)) {
+      receiverKey = receiverCandidates[0]?.key ?? "";
     }
   });
 
@@ -151,24 +163,17 @@
         En cada punto el panel envía el mismo comando radio a los dos nodos, espera que ambos confirmen los
         parámetros, hace que el emisor transmita la corrida con los paquetes seguidos (intervalo 0) y espera el
         informe del receptor. Un punto que falla queda marcado y la prueba sigue con el siguiente. La potencia
-        de transmisión y el LNA quedan como estén: se ajustan en la sección Radio.
+        de transmisión y el LNA quedan como estén: se ajustan en la radio del nodo elegido, en la pestaña Red.
       </p>
     </div>
+    <TargetNodeLine {panel} role="Emisor" connection={campaignActive ? sender : undefined} />
 
     <fieldset class="flex flex-col gap-4" disabled={campaignActive}>
       <div class="flex flex-wrap items-end gap-3">
         <label class="panel-label">
-          Emisor
-          <select class="panel-input" bind:value={senderKey}>
-            {#each candidates as connection (connection.key)}
-              <option value={connection.key}>{connection.state.identifier} ({connection.state.model})</option>
-            {/each}
-          </select>
-        </label>
-        <label class="panel-label">
           Receptor
-          <select class="panel-input" bind:value={receiverKey}>
-            {#each candidates.filter((connection) => connection.key !== senderKey) as connection (connection.key)}
+          <select class="panel-input" bind:value={receiverKey} disabled={receiverCandidates.length === 0}>
+            {#each receiverCandidates as connection (connection.key)}
               <option value={connection.key}>{connection.state.identifier} ({connection.state.model})</option>
             {/each}
           </select>
@@ -211,7 +216,7 @@
 
       <div class="flex flex-wrap items-end gap-6">
         <div class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-slate-600">Anchos de banda</span>
+          <span class="panel-caption">Anchos de banda</span>
           <div class="flex gap-3">
             {#each BANDWIDTHS_KILOHERTZ as bandwidth (bandwidth)}
               <label class="flex items-center gap-1 text-sm">
@@ -239,7 +244,7 @@
         </label>
       </div>
 
-      <div class="flex flex-col gap-2 rounded-md border border-slate-200 p-3">
+      <div class="flex flex-col gap-2 rounded-md border border-line p-3">
         <label class="flex items-center gap-2 text-sm font-medium">
           <input type="checkbox" bind:checked={payloadSweepEnabled} />
           Agregar un barrido de largos del cuerpo en dos modulaciones
@@ -276,7 +281,7 @@
         {/if}
       </div>
 
-      <div class="flex flex-col gap-2 rounded-md border border-slate-200 p-3">
+      <div class="flex flex-col gap-2 rounded-md border border-line p-3">
         <label class="flex items-center gap-2 text-sm font-medium">
           <input type="checkbox" bind:checked={codingRateSweepEnabled} />
           Agregar un barrido de tasas de código, de 4/5 a 4/8, en una modulación
@@ -306,8 +311,8 @@
 
     {#if usesBenchBandwidths}
       <p class="panel-note">
-        Los canales de 125 y 250 kHz son solo para el banco, con cable coaxial y atenuadores o cargas de 50 Ω
-        (ADR 0004). Sin atenuadores, la prueba se hace solo con 500 kHz.
+        El plan usa canales de 125 o 250 kHz, que según la nota del comienzo quedan para el banco. Sin
+        atenuadores, la prueba se hace solo con 500 kHz.
       </p>
     {/if}
     {#if problems.length > 0}
@@ -317,7 +322,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="text-sm text-slate-700">
+      <p class="text-sm text-muted">
         Plan: {plan.length} {plan.length === 1 ? "punto" : "puntos"} de {formatNumber(packetCount)} paquetes, con una
         duración estimada de {formatDuration(planDuration)}.
       </p>
@@ -354,8 +359,8 @@
       {/if}
     </div>
     <p class="panel-hint">
-      Para que la exportación contenga solo esta prueba, conviene descartar el registro en la sección Exportar
-      antes de empezar.
+      Para que la exportación contenga solo esta prueba, conviene descartar el registro, al pie de esta
+      pestaña, antes de empezar.
     </p>
   </form>
 
@@ -391,31 +396,18 @@
 
   {#if campaign !== null}
     <div class="panel-card flex flex-col gap-3">
-      <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 class="panel-section-title">
+      <TestProgress status={CAMPAIGN_STATUS_LABELS[campaign.status]} progress={campaign.progress}>
+        {#snippet title()}
           Prueba de <span class="font-mono">{campaign.sender}</span> a
           <span class="font-mono">{campaign.receiver}</span>
-        </h3>
-        <span class="text-sm text-slate-600">{CAMPAIGN_STATUS_LABELS[campaign.status]}</span>
-      </div>
-      <div
-        class="h-2 w-full overflow-hidden rounded-full bg-slate-200"
-        role="progressbar"
-        aria-label="Avance de la prueba"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow={Math.round(campaign.progress * 100)}
-      >
-        <div class="h-full bg-sky-600 transition-all" style="width: {campaign.progress * 100}%"></div>
-      </div>
-      <p class="text-sm text-slate-700">
+        {/snippet}
         {campaign.finishedCount} de {campaign.results.length} puntos terminados
         {#if campaign.currentIndex !== null}· en curso el punto {campaign.currentIndex + 1}{/if}
         {#if campaign.startHostTime !== null}
           · transcurrido {formatDuration((campaign.endHostTime ?? panel.now) - campaign.startHostTime)}
         {/if}
         {#if campaignActive}· tiempo restante estimado {formatDuration(campaign.estimatedRemainingMilliseconds)}{/if}
-      </p>
+      </TestProgress>
       <div class="overflow-x-auto">
         <table class="panel-table">
           <thead>
@@ -436,11 +428,11 @@
           <tbody>
             {#each campaign.results as result (result.point.index)}
               {@const row = summaryRowOf(result.run)}
-              <tr class={result.point.index === campaign.currentIndex ? "bg-sky-50" : ""}>
+              <tr class={result.point.index === campaign.currentIndex ? "bg-neon/5" : ""}>
                 <td>{result.point.index + 1}</td>
                 <td class="whitespace-nowrap">{formatModulation(result.point)}</td>
                 <td>{result.point.size} B</td>
-                <td class="whitespace-nowrap {result.status === 'failed' ? 'text-red-700' : ''}">
+                <td class="whitespace-nowrap {result.status === 'failed' ? 'text-danger' : ''}">
                   {POINT_STATUS_LABELS[result.status]}
                 </td>
                 <td>{result.run ?? "—"}</td>
@@ -451,14 +443,15 @@
                 <td class="whitespace-nowrap">{formatBitRate(row?.goodput)}</td>
                 <td class="whitespace-nowrap">{formatRssi(row?.rssi_avg)}</td>
                 <td class="whitespace-nowrap">{formatSnr(row?.snr_avg)}</td>
-                <td class="text-xs text-slate-600">{result.failure ?? ""}</td>
+                <td class="text-xs text-muted">{result.failure ?? ""}</td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
       <p class="panel-hint">
-        Los resultados quedan también en la sección Corridas y en el resumen que se exporta.
+        Los resultados quedan también en «Corridas registradas», al pie de la pestaña, y en el resumen que se
+        exporta.
       </p>
     </div>
   {/if}

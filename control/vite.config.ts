@@ -14,7 +14,11 @@ const PROGRESSIVE_WEB_APPLICATION_OPTIONS: Partial<VitePWAOptions> = {
   srcDir: "src",
   filename: "service-worker.ts",
   // A classic script, as the registration expects.
-  injectManifest: { rollupFormat: "iife" },
+  // Fonts and board photographs too, so that the panel looks the same without internet.
+  injectManifest: {
+    rollupFormat: "iife",
+    globPatterns: ["**/*.{js,css,html,svg,png,woff2,webmanifest}"],
+  },
   // A script in the page registers the service worker once it loads, only in the production build.
   injectRegister: "inline",
   manifest: {
@@ -27,8 +31,8 @@ const PROGRESSIVE_WEB_APPLICATION_OPTIONS: Partial<VitePWAOptions> = {
     start_url: "./",
     scope: "./",
     display: "standalone",
-    background_color: "#f8fafc",
-    theme_color: "#0369a1",
+    background_color: "#04070a",
+    theme_color: "#04070a",
     icons: [
       { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
       { src: "icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

@@ -36,6 +36,6 @@
     <p class="panel-error-text">{check.problem}</p>
   {/if}
   {#each check.warnings as warning (warning)}
-    <p class="text-xs text-amber-800">{warning}</p>
+    <p class="text-xs text-warn">{warning}</p>
   {/each}
 </div>

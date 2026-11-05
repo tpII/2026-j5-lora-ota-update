@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TargetNodeLine from "./TargetNodeLine.svelte";
   import { buildActivateCommand } from "$lib/console/console-command.ts";
   import {
     activationReadiness,
@@ -15,7 +16,12 @@
     panel,
     graph,
     target,
-  }: { panel: ControlPanel; graph: ConnectionGraph; target: ConnectionView | undefined } = $props();
+  }: {
+    panel: ControlPanel;
+    graph: ConnectionGraph;
+    /** The node chosen above, which receives the order; null when there is none. */
+    target: ConnectionView | null;
+  } = $props();
 
   let version = $state<number | null>(null);
   /** Last version the panel proposed, so a new pending version replaces it but an edit stays. */
@@ -32,11 +38,10 @@
 
   const validVersion = $derived(version !== null && isImageVersion(version) ? version : null);
   const readiness = $derived(validVersion === null ? null : activationReadiness(graph, validVersion));
-  const connected = $derived(target !== undefined && target.status === "open");
   /** Why the node chosen would answer `activate` with an error; null when it would accept it. */
   const targetProblem = $derived.by(() => {
-    if (target === undefined || !connected) {
-      return "Falta un nodo conectado.";
+    if (target === null) {
+      return "Falta elegir arriba un nodo conectado e identificado.";
     }
     if (validVersion === null) {
       return "La versión es un entero de 1 a 4294967295.";
@@ -57,7 +62,7 @@
   const canForce = $derived(targetProblem === null && readiness !== null && !readiness.ready);
 
   function send(): void {
-    if (target === undefined || validVersion === null) {
+    if (target === null || validVersion === null) {
       return;
     }
     const result = buildActivateCommand(validVersion);
@@ -108,9 +113,10 @@
 
 <div class="panel-card flex flex-col gap-3">
   <h3 class="panel-section-title">Activación</h3>
+  <TargetNodeLine {panel} />
   <p class="panel-hint">
-    La orden va al nodo conectado, que tiene que tener la versión disponible. Al activarla, su HELLO la anuncia como
-    activa y cada vecino que la tiene disponible la activa al escucharlo, un salto por HELLO. La orden queda
+    La orden va al nodo elegido arriba, que tiene que tener la versión disponible. Al activarla, su HELLO la anuncia
+    como activa y cada vecino que la tiene disponible la activa al escucharlo, un salto por HELLO. La orden queda
     habilitada cuando todos los nodos del grafo de conexiones anuncian la versión como disponible.
   </p>
   <div class="flex flex-wrap items-end gap-3">
@@ -144,13 +150,13 @@
     </p>
     {#if readiness.blockers.length > 0}
       <div class="flex flex-col gap-1">
-        <span class="text-xs font-medium text-slate-600">Nodos que bloquean la orden</span>
+        <span class="panel-caption">Nodos que bloquean la orden</span>
         <ul class="flex flex-col gap-1 text-sm">
           {#each readiness.blockers as blocker (blocker.id)}
             <li>
               <span class="font-mono font-semibold">{blocker.id}</span>: {ACTIVATION_BLOCK_REASON_LABELS[blocker.reason]}
               {#if blocker.availableVersion !== null}
-                <span class="text-slate-500">(disponible: {formatImageVersion(blocker.availableVersion)})</span>
+                <span class="text-faint">(disponible: {formatImageVersion(blocker.availableVersion)})</span>
               {/if}
             </li>
           {/each}
@@ -159,10 +165,10 @@
     {/if}
   {/if}
 
-  <details class="rounded-md border border-red-200 p-3">
-    <summary class="cursor-pointer text-sm font-medium text-red-800">Activación forzada (RF5)</summary>
+  <details class="rounded-md border border-danger/40 p-3">
+    <summary class="cursor-pointer text-sm font-medium text-danger">Activación forzada (RF5)</summary>
     <div class="mt-2 flex flex-col gap-2">
-      <p class="text-sm text-slate-700">
+      <p class="text-sm text-muted">
         El firmware no impone el bloqueo del panel. La activación forzada envía la orden aunque algún nodo del grafo
         no anuncie la versión como disponible: los nodos que la tienen la activan enseguida y los demás, cuando
         completan la imagen y escuchan a un vecino que la anuncia como activa. Mientras tanto la red ejecuta dos

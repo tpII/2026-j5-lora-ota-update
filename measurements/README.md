@@ -64,7 +64,7 @@ Archivo CSV con separador coma, punto decimal y una fila de encabezado con estas
 
 ## Prueba de comunicación
 
-La pestaña Prueba de comunicación exporta, en cada uno de los dos nodos, una carpeta propia `<AAAA-MM-DD>-communication-test-<NN>/` con cuatro archivos:
+La prueba de comunicación, en la pestaña Mediciones, exporta, en cada uno de los dos nodos, una carpeta propia `<AAAA-MM-DD>-communication-test-<NN>/` con cuatro archivos:
 
 - `metadata.json`: los campos de arriba, más:
   - `role`: `"sender"` en el emisor y `"receiver"` en el receptor;

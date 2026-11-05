@@ -142,7 +142,7 @@
 </script>
 
 <div class="panel-card flex flex-col gap-3">
-  <h3 class="panel-section-title">Grafo de conexiones</h3>
+  <h3 class="panel-section-title">Estado de la actualización</h3>
   <p class="panel-hint">
     Los nodos conectados informan sus versiones por la consola; de los demás, el panel sabe lo que anuncian sus
     HELLO a los nodos conectados. Un nodo que solo aparece en la lista de vecinos de otro no tiene versiones
@@ -151,7 +151,7 @@
   </p>
 
   {#if graph.nodes.length === 0}
-    <p class="text-sm text-slate-600">El grafo todavía no tiene nodos.</p>
+    <p class="text-sm text-muted">El grafo todavía no tiene nodos.</p>
   {:else}
     <div class="overflow-x-auto">
       <table class="panel-table">
@@ -174,20 +174,20 @@
             <tr>
               <td class="font-mono font-semibold">
                 {node.id}
-                {#if node.connected}<span class="panel-badge ml-1 bg-sky-100 font-sans text-sky-800">conectado</span>{/if}
+                {#if node.connected}<span class="panel-badge ml-1 bg-neon/10 font-sans text-neon">conectado</span>{/if}
               </td>
               <td>{node.model ?? "—"}</td>
-              <td class="text-xs text-slate-600">{GRAPH_NODE_SOURCE_LABELS[node.source]}</td>
+              <td class="text-xs text-muted">{GRAPH_NODE_SOURCE_LABELS[node.source]}</td>
               <td class="font-mono">{formatImageVersion(node.activeVersion)}</td>
               <td class="font-mono">
                 {formatImageVersion(node.availableVersion)}
-                {#if pending}<span class="panel-badge ml-1 bg-amber-100 font-sans text-amber-800">sin activar</span>{/if}
+                {#if pending}<span class="panel-badge ml-1 bg-warn/10 font-sans text-warn">sin activar</span>{/if}
               </td>
               <td class="text-xs">{node.connected ? describeReception(state) : "—"}</td>
-              <td class="text-xs {node.vmFault !== null || node.vmFailing === true ? 'text-red-700' : ''}">
+              <td class="text-xs {node.vmFault !== null || node.vmFailing === true ? 'text-danger' : ''}">
                 {node.source === "neighbor_list" ? "—" : describeMachine(node)}
               </td>
-              <td class="text-xs whitespace-nowrap text-slate-600">
+              <td class="text-xs whitespace-nowrap text-muted">
                 {node.connected
                   ? "consola abierta"
                   : node.lastHeardHostTime === null
@@ -227,7 +227,7 @@
   <div class="flex flex-col gap-2">
     <h4 class="text-sm font-semibold">Actividad de la transferencia en los nodos conectados</h4>
     {#if activity.length === 0}
-      <p class="text-sm text-slate-600">Todavía no hay ráfagas, reportes ni imágenes.</p>
+      <p class="text-sm text-muted">Todavía no hay ráfagas, reportes ni imágenes.</p>
     {:else}
       <div class="overflow-x-auto">
         <table class="panel-table">

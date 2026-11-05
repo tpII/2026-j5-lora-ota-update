@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { STATUS_COMMAND } from "$lib/console/console-command.ts";
   import { isNeighborExpired, neighborAge } from "$lib/nodes/node-state.ts";
   import {
     formatDuration,
@@ -11,44 +10,54 @@
   import { VM_FAULT_LABELS } from "$lib/utils/labels.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
-  let { panel }: { panel: ControlPanel } = $props();
+  /**
+   * `onEchoRequest` receives a neighbor of the chosen node whose row the operator picked for an
+   * echo; without it the rows carry no echo button.
+   */
+  let {
+    panel,
+    onEchoRequest,
+  }: { panel: ControlPanel; onEchoRequest?: (identifier: string) => void } = $props();
 
+  const chosenKey = $derived(panel.selectedIdentifiedConnection?.key ?? null);
+
+  /** Every identified node, the chosen one first. */
   const identifiedConnections = $derived(
-    panel.connections.filter((connection) => connection.state.identifier !== null),
+    panel.connections
+      .filter((connection) => connection.state.identifier !== null)
+      .toSorted(
+        (first, second) => Number(second.key === chosenKey) - Number(first.key === chosenKey),
+      ),
   );
 </script>
 
 <div class="flex flex-col gap-3">
   <p class="panel-hint">
     Cada nodo emite un HELLO cada 10 s aproximadamente, con la calidad con que escucha a cada uno de sus
-    vecinos. Un vecino sale de la tabla del nodo después de 60 s sin paquetes suyos. El comando status
-    lista los vecinos que el nodo conoce en ese momento.
+    vecinos. Un vecino sale de la tabla del nodo después de 60 s sin paquetes suyos. «Consultar estado»,
+    en el detalle del nodo elegido, envía el comando status, que lista los vecinos que el nodo conoce en
+    ese momento.
   </p>
 
   {#if identifiedConnections.length === 0}
-    <div class="panel-card text-sm text-slate-600">No hay nodos identificados.</div>
+    <div class="panel-card text-sm text-muted">No hay nodos identificados.</div>
   {/if}
 
   {#each identifiedConnections as connection (connection.key)}
     {@const node = connection.state}
-    <div class="panel-card flex flex-col gap-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
+    {@const chosen = connection.key === chosenKey}
+    {@const withEchoButton = chosen && onEchoRequest !== undefined}
+    <div class="{chosen ? 'panel-card-neon' : 'panel-card'} flex flex-col gap-3">
+      <div class="flex flex-wrap items-center gap-2">
         <h3 class="panel-section-title">
           Vecinos de <span class="font-mono">{node.identifier}</span>
-          <span class="text-sm font-normal text-slate-500">({node.model ?? "modelo desconocido"})</span>
+          <span class="text-sm font-normal text-faint">({node.model ?? "modelo desconocido"})</span>
         </h3>
-        <button
-          type="button"
-          class="panel-button"
-          disabled={connection.status !== "open"}
-          onclick={() => panel.sendCommand(connection.key, STATUS_COMMAND)}
-        >
-          Consultar estado
-        </button>
+        {#if chosen}<span class="panel-badge bg-neon/10 text-neon">nodo elegido</span>{/if}
       </div>
 
       {#if node.neighbors.length === 0}
-        <p class="text-sm text-slate-600">Sin vecinos registrados todavía.</p>
+        <p class="text-sm text-muted">Sin vecinos registrados todavía.</p>
       {:else}
         <div class="overflow-x-auto">
           <table class="panel-table">
@@ -65,12 +74,13 @@
                 <th>Versión activa</th>
                 <th>Versión disponible</th>
                 <th>VM</th>
+                {#if withEchoButton}<th><span class="sr-only">Eco</span></th>{/if}
               </tr>
             </thead>
             <tbody>
               {#each node.neighbors as neighbor (neighbor.id)}
                 {@const expired = isNeighborExpired(neighbor, panel.now)}
-                <tr class={expired ? "text-slate-400" : ""}>
+                <tr class={expired ? "text-faint" : ""}>
                   <td class="font-mono font-semibold">{neighbor.id}</td>
                   <td>{neighbor.model}</td>
                   <td class="whitespace-nowrap">{formatRssi(neighbor.rssi)}</td>
@@ -80,20 +90,33 @@
                   </td>
                   <td class="whitespace-nowrap">
                     hace {formatDuration(neighborAge(neighbor, panel.now))}
-                    {#if expired}<span class="panel-badge bg-slate-100 text-slate-600">vencido</span>{/if}
+                    {#if expired}<span class="panel-badge bg-raised text-muted">vencido</span>{/if}
                   </td>
                   <td>{formatNumber(neighbor.helloCount)}</td>
                   <td>{formatNumber(neighbor.transmitted)}</td>
                   <td class="font-mono">{formatImageVersion(neighbor.version)}</td>
                   <td class="font-mono">{formatImageVersion(neighbor.availableVersion)}</td>
-                  <td class="text-xs {neighbor.vmFault !== null || neighbor.vmFailing ? 'text-red-700' : ''}">
+                  <td class="min-w-36 text-xs {neighbor.vmFault !== null || neighbor.vmFailing ? 'text-danger' : ''}">
                     {neighbor.vmFault === null ? "sin fallas" : VM_FAULT_LABELS[neighbor.vmFault]}
                     {#if neighbor.vmFailing}· el último tick falló{/if}
                   </td>
+                  {#if withEchoButton}
+                    <td>
+                      <button
+                        type="button"
+                        class="panel-button px-2 py-0.5"
+                        aria-label="Preparar un eco a {neighbor.id}"
+                        title="Preparar un eco a {neighbor.id}"
+                        onclick={() => onEchoRequest?.(neighbor.id)}
+                      >
+                        Eco
+                      </button>
+                    </td>
+                  {/if}
                 </tr>
-                <tr class={expired ? "text-slate-400" : ""}>
+                <tr class={expired ? "text-faint" : ""}>
                   <td></td>
-                  <td colspan="10" class="text-xs text-slate-600">
+                  <td colspan={withEchoButton ? 11 : 10} class="text-xs text-muted">
                     {#if neighbor.reportedNeighbors === null}
                       Sin HELLO recibido: no se sabe cómo escucha {neighbor.id} a sus vecinos.
                     {:else if neighbor.reportedNeighbors.length === 0}

@@ -22,11 +22,11 @@
     decimal o con 0x y comentarios después de «;;».
   </p>
   {#if assembly.valid}
-    <p class="text-xs text-slate-600">
+    <p class="text-xs text-muted">
       {assembly.code.length} de {PROGRAM_CAPACITY} bytes, {assembly.instructions.length}
       {assembly.instructions.length === 1 ? "instrucción" : "instrucciones"}.
     </p>
-    <code class="block max-h-24 overflow-y-auto rounded-md bg-slate-100 px-2 py-1 font-mono text-xs break-all text-slate-700">
+    <code class="block max-h-24 overflow-y-auto rounded-md bg-raised px-2 py-1 font-mono text-xs break-all text-muted">
       {formatProgramHex(assembly.code)}
     </code>
   {:else}

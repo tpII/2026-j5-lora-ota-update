@@ -182,24 +182,20 @@
   }
 </script>
 
+<!-- The radio settings of one node, bare: the section that mounts it supplies the card and its title. -->
 <form
-  class="panel-card flex flex-col gap-3"
+  class="flex flex-col gap-3"
+  aria-label="Parámetros de radio de {node.identifier}"
   onsubmit={(event) => {
     event.preventDefault();
     void applyChanges();
   }}
 >
-  <div class="flex flex-wrap items-baseline justify-between gap-2">
-    <h3 class="panel-section-title">
-      Radio de <span class="font-mono">{node.identifier}</span>
-      <span class="text-sm font-normal text-slate-500">({model ?? "modelo desconocido"})</span>
-    </h3>
-    {#if current !== null}
-      <span class="panel-hint">
-        Ajuste del transceptor: {formatPower(current.chip)} para {formatPower(current.power)} en la antena
-      </span>
-    {/if}
-  </div>
+  {#if current !== null}
+    <p class="panel-hint">
+      Ajuste del transceptor: {formatPower(current.chip)} para {formatPower(current.power)} en la antena
+    </p>
+  {/if}
 
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
     <label class="panel-label">
@@ -258,7 +254,7 @@
         step="1"
         bind:value={syncWord}
       />
-      <span class="font-normal text-slate-500">
+      <span class="font-normal text-faint">
         {Number.isInteger(syncWord) && syncWord >= 0 && syncWord <= 255 ? formatSyncWord(syncWord) : "0 a 255"}
       </span>
     </label>
@@ -281,7 +277,7 @@
           <option value="bypass">Puenteado</option>
           <option value="on">Activo</option>
         </select>
-        <span class="font-normal text-slate-500">Solo se cambia desde la consola</span>
+        <span class="font-normal text-faint">Solo se cambia desde la consola</span>
       </label>
     {/if}
   </div>

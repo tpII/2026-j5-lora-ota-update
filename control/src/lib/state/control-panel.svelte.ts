@@ -5,6 +5,7 @@
  * The domain modules stay free of Svelte; this class only connects them and throttles updates.
  */
 import { BoundedLog } from "$lib/utils/bounded-log.ts";
+import { MeasurementSheet } from "$lib/state/measurement-sheet.svelte.ts";
 import {
   CapacityTestCampaign,
   type CampaignNode,
@@ -137,6 +138,15 @@ export class ControlPanel {
   updateCommands = $state.raw<readonly UpdateCommandRecord[]>([]);
   /** Host time, updated every second, for ages and remaining times. */
   now = $state(Date.now());
+  /**
+   * Connection that the operator chose in the node strip: the center of the connection graph and
+   * the node whose detail the panel shows. When it is null or gone, the first connection takes its
+   * place.
+   */
+  selectedKey = $state<string | null>(null);
+
+  /** What the operator fills in once per field trip, for every export of the panel. */
+  readonly measurementSheet = new MeasurementSheet();
 
   readonly webSerialAvailable = isWebSerialAvailable();
   readonly directoryPickerAvailable = isDirectoryPickerAvailable();
@@ -178,6 +188,28 @@ export class ControlPanel {
     );
   }
 
+  /** The connection chosen in the node strip, or the first one; null without connections. */
+  get selectedConnection(): ConnectionView | null {
+    return (
+      this.connections.find((connection) => connection.key === this.selectedKey) ??
+      this.connections[0] ??
+      null
+    );
+  }
+
+  /**
+   * The chosen connection when its node can take commands: open and identified. Every section acts
+   * on it; null tells the section to ask the operator to choose such a node above.
+   */
+  get selectedIdentifiedConnection(): ConnectionView | null {
+    const connection = this.selectedConnection;
+    return connection !== null &&
+      connection.status === "open" &&
+      connection.state.identifier !== null
+      ? connection
+      : null;
+  }
+
   /** Open connections whose node is already identified. */
   get identifiedConnections(): readonly ConnectionView[] {
     return this.connections.filter(
@@ -196,12 +228,12 @@ export class ControlPanel {
       }
       return;
     }
-    await this.#openConnection(`usb-${++this.#connectionCounter}`, transport);
+    await this.#openAndSelect(`usb-${++this.#connectionCounter}`, transport);
   }
 
   async connectWifi(address = DEFAULT_CONSOLE_ADDRESS): Promise<void> {
     const transport = new WebSocketConsoleTransport(address);
-    await this.#openConnection(`wifi-${++this.#connectionCounter}`, transport);
+    await this.#openAndSelect(`wifi-${++this.#connectionCounter}`, transport);
   }
 
   async disconnect(key: string): Promise<void> {
@@ -594,7 +626,7 @@ export class ControlPanel {
       this.notify(
         "error",
         `No se pudo dejar el nodo como estaba: ${problems.join(" ")} ` +
-          "Conviene revisar la radio desde la sección Radio o reiniciar el nodo.",
+          "Conviene revisar la radio del nodo en la pestaña Red o reiniciar el nodo.",
       );
     }
   }
@@ -732,7 +764,20 @@ export class ControlPanel {
     this.notices = this.notices.filter((notice) => notice.identifier !== identifier);
   }
 
-  async #openConnection(key: string, transport: ConsoleTransport): Promise<void> {
+  /**
+   * Opens a connection and chooses its node at once. If the connection does not open, the node
+   * chosen before comes back, unless the operator chose another one meanwhile.
+   */
+  async #openAndSelect(key: string, transport: ConsoleTransport): Promise<void> {
+    const previousKey = this.selectedKey;
+    this.selectedKey = key;
+    if (!(await this.#openConnection(key, transport)) && this.selectedKey === key) {
+      this.selectedKey = previousKey;
+    }
+  }
+
+  /** Returns false when the connection did not open. */
+  async #openConnection(key: string, transport: ConsoleTransport): Promise<boolean> {
     const connection = new NodeConnection({ key, transport });
     connection.subscribe((record) => this.#acceptRecord(connection, record));
     connection.subscribeToStatus(() => this.#acceptStatusChange(connection));
@@ -740,6 +785,7 @@ export class ControlPanel {
     this.#scheduleRefresh();
     try {
       await connection.open();
+      return true;
     } catch (error) {
       this.#connections.delete(key);
       this.#viewCache.delete(key);
@@ -747,6 +793,7 @@ export class ControlPanel {
         "error",
         `No se pudo conectar por ${transport.kind === "serial" ? "USB" : "WiFi"}: ${describeTransportError(error)}`,
       );
+      return false;
     } finally {
       this.#scheduleRefresh();
     }

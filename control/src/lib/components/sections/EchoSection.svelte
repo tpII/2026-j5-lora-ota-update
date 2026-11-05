@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     DEFAULT_ECHO_SIZE,
     MAXIMUM_PAYLOAD_SIZE,
@@ -17,22 +18,32 @@
     formatSnr,
   } from "$lib/utils/format.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import TargetNodeLine from "$lib/components/TargetNodeLine.svelte";
 
-  let { panel }: { panel: ControlPanel } = $props();
+  /**
+   * The chosen node requests the echoes. `destination` is bindable so that the neighbor table can
+   * fill it in.
+   */
+  let { panel, destination = $bindable("") }: { panel: ControlPanel; destination?: string } =
+    $props();
 
   /** Echo results drawn per node, newest first. */
   const MAXIMUM_VISIBLE_RESULTS = 50;
 
-  let requesterKey = $state("");
-  let destination = $state("");
   let size = $state<number>(DEFAULT_ECHO_SIZE);
   let count = $state<number>(1);
   let problems = $state<readonly CommandProblem[]>([]);
 
-  const candidates = $derived(panel.identifiedConnections);
-  const requester = $derived(candidates.find((connection) => connection.key === requesterKey));
+  let card = $state<HTMLFormElement>();
+  let destinationInput = $state<HTMLInputElement>();
+
+  const requester = $derived(panel.selectedIdentifiedConnection);
   const neighborIdentifiers = $derived(requester?.state.neighbors.map((neighbor) => neighbor.id) ?? []);
   const seriesActive = $derived(panel.isEchoSeriesActive);
+  /** The node that runs the echo series, which need not be the chosen one. */
+  const seriesRequester = $derived(
+    panel.connections.find((connection) => connection.key === panel.echoSeriesKey) ?? null,
+  );
   const expectedRoundTrip = $derived.by(() => {
     const radio = requester?.state.radio ?? null;
     if (radio === null || !Number.isInteger(size) || size < MINIMUM_ECHO_SIZE || size > MAXIMUM_PAYLOAD_SIZE) {
@@ -41,17 +52,32 @@
     return 2 * timeOnAirFor(computeFrameLength(size), radio);
   });
 
-  $effect(() => {
-    if (requester === undefined && candidates.length > 0) {
-      requesterKey = candidates[0]?.key ?? "";
-    }
-  });
+  /** Requester the destination was last checked against; not reactive on purpose. */
+  let checkedRequesterKey: string | null = null;
 
   $effect(() => {
-    if (destination === "" && neighborIdentifiers.length > 0) {
-      destination = neighborIdentifiers[0] ?? "";
-    }
+    const key = requester?.key ?? null;
+    const neighbors = neighborIdentifiers;
+    untrack(() => {
+      if (key !== checkedRequesterKey) {
+        // Another node now requests: a destination that is not its neighbor does not carry over.
+        checkedRequesterKey = key;
+        if (!neighbors.includes(destination.trim().toUpperCase())) {
+          destination = neighbors[0] ?? "";
+          problems = [];
+        }
+      } else if (destination === "" && neighbors.length > 0) {
+        destination = neighbors[0] ?? "";
+      }
+    });
   });
+
+  /** Brings the card into view and puts the cursor on the destination. */
+  export function focusDestination(): void {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    card?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    destinationInput?.focus({ preventScroll: true });
+  }
 
   const nodesWithEchoes = $derived(
     panel.connections.filter(
@@ -60,6 +86,9 @@
   );
 
   function requestEchoes(): void {
+    if (requester === null) {
+      return;
+    }
     const result = buildEchoCommand(destination, size);
     if (!result.valid) {
       problems = result.problems;
@@ -71,9 +100,9 @@
     }
     problems = [];
     if (count === 1) {
-      void panel.sendCommand(requesterKey, result.command);
+      void panel.sendCommand(requester.key, result.command);
     } else {
-      panel.startEchoSeries(requesterKey, destination, size, count);
+      panel.startEchoSeries(requester.key, destination, size, count);
     }
   }
 
@@ -84,27 +113,22 @@
 
 <div class="flex flex-col gap-3">
   <form
-    class="panel-card flex flex-col gap-3"
+    bind:this={card}
+    class="panel-card flex scroll-mt-4 flex-col gap-3"
+    aria-labelledby="echo-card-title"
     onsubmit={(event) => {
       event.preventDefault();
       requestEchoes();
     }}
   >
-    <h3 class="panel-section-title">Pedir un eco</h3>
+    <h3 id="echo-card-title" class="panel-section-title">Eco con un vecino</h3>
+    <TargetNodeLine {panel} role="Nodo que pide" />
     <p class="panel-hint">
-      El nodo elegido envía un pedido de eco con un cuerpo del largo indicado y el destino responde con
-      otro del mismo largo. El tiempo de ida y vuelta (RTT) va desde que empieza a transmitirse el pedido
+      El nodo elegido envía un pedido de eco con un cuerpo del largo indicado y el destino, por lo común
+      uno de sus vecinos, responde con otro del mismo largo. El tiempo de ida y vuelta (RTT) va desde que empieza a transmitirse el pedido
       hasta que llega la respuesta. Cada nodo atiende un eco por vez.
     </p>
     <div class="flex flex-wrap items-end gap-3">
-      <label class="panel-label">
-        Nodo que pide
-        <select class="panel-input" bind:value={requesterKey} disabled={candidates.length === 0}>
-          {#each candidates as connection (connection.key)}
-            <option value={connection.key}>{connection.state.identifier}</option>
-          {/each}
-        </select>
-      </label>
       <label class="panel-label">
         Destino
         <input
@@ -114,6 +138,7 @@
           list="echo-destinations"
           autocomplete="off"
           spellcheck="false"
+          bind:this={destinationInput}
           bind:value={destination}
         />
         <datalist id="echo-destinations">
@@ -147,7 +172,7 @@
       <button
         type="submit"
         class="panel-button-primary"
-        disabled={requester === undefined || requester.status !== "open" || seriesActive}
+        disabled={requester === null || seriesActive}
       >
         {count > 1 ? "Pedir la serie de ecos" : "Pedir eco"}
       </button>
@@ -173,7 +198,9 @@
     {#if panel.echoSeries !== null}
       {@const series = panel.echoSeries}
       <p class="text-sm">
-        Serie de ecos a <span class="font-mono">{series.destination}</span>: {formatNumber(series.requested)} de
+        Serie de ecos{#if seriesRequester !== null && seriesRequester.key !== requester?.key}
+          de <span class="font-mono">{seriesRequester.state.identifier ?? seriesRequester.key}</span>{/if}
+        a <span class="font-mono">{series.destination}</span>: {formatNumber(series.requested)} de
         {formatNumber(series.total)} pedidos, {formatNumber(series.answered)} respondidos y
         {formatNumber(series.lost)} perdidos{series.status === "running"
           ? "."
@@ -246,13 +273,13 @@
                   <td>{result.number}</td>
                   <td>{result.size} B</td>
                   {#if result.outcome === "answered"}
-                    <td class="text-emerald-700">Respondido</td>
+                    <td class="text-ok">Respondido</td>
                     <td class="whitespace-nowrap">{formatMicrosecondsAsMilliseconds(result.roundTripMicroseconds, 2)}</td>
                     <td class="whitespace-nowrap">{formatRssi(result.remoteRssi)}, {formatSnr(result.remoteSnr)}</td>
                     <td class="whitespace-nowrap">{formatRssi(result.rssi)}, {formatSnr(result.snr)}</td>
                   {:else}
-                    <td class="text-red-700">Perdido</td>
-                    <td colspan="3" class="text-slate-500">sin respuesta en {formatNumber(result.timeoutMilliseconds)} ms</td>
+                    <td class="text-danger">Perdido</td>
+                    <td colspan="3" class="text-faint">sin respuesta en {formatNumber(result.timeoutMilliseconds)} ms</td>
                   {/if}
                 </tr>
               {/each}
@@ -263,7 +290,7 @@
 
       {#if node.servedEchoes.length > 0}
         {@const last = node.servedEchoes.at(-1)}
-        <p class="text-sm text-slate-700">
+        <p class="text-sm text-muted">
           Respondió {formatNumber(node.servedEchoes.length)}
           {node.servedEchoes.length === 1 ? "eco" : "ecos"} de otros nodos.
           {#if last !== undefined}

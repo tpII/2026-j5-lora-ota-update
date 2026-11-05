@@ -1,11 +1,5 @@
 <script lang="ts">
-  import {
-    MAXIMUM_COMMAND_LENGTH,
-    HELP_COMMAND,
-    RADIO_QUERY_COMMAND,
-    RESEND_COMMAND,
-    STATUS_COMMAND,
-  } from "$lib/console/console-command.ts";
+  import { MAXIMUM_COMMAND_LENGTH, HELP_COMMAND, RESEND_COMMAND } from "$lib/console/console-command.ts";
   import { CONSOLE_EVENT_NAMES } from "$lib/console/console-event.ts";
   import { highlightJsonLine } from "$lib/console/console-line-highlighter.ts";
   import type { ConsoleRecord } from "$lib/nodes/node-connection.ts";
@@ -18,26 +12,69 @@
   /** Lines drawn at most; the stream keeps more for the filters. */
   const MAXIMUM_VISIBLE_RECORDS = 500;
 
+  /** Node filter value that follows the node chosen above, whichever it is at each moment. */
+  const SELECTED_NODE_FILTER = "selected";
+
   type KindFilter = "all" | "events" | "debug" | "command" | "notice" | "unrecognized" | (typeof CONSOLE_EVENT_NAMES)[number];
 
   let nodeFilter = $state("all");
   let kindFilter = $state<KindFilter>("all");
   let showDebugText = $state(true);
   let autoscrollPaused = $state(false);
-  let commandTarget = $state("");
+  /** Console the operator chose by hand in «Enviar a»; null while the field follows the chosen node. */
+  let manualCommandTarget = $state<string | null>(null);
   let commandText = $state("");
   let listElement = $state<HTMLElement | null>(null);
 
   const openConnections = $derived(panel.connections.filter((connection) => connection.status === "open"));
 
+  /**
+   * The console «Enviar a» follows: the chosen node while its console is open, identified or not (a
+   * node not yet identified still answers commands), else the first open console.
+   */
+  const followedCommandTarget = $derived.by(() => {
+    const selected = panel.selectedConnection;
+    return selected !== null && selected.status === "open" ? selected.key : (openConnections[0]?.key ?? "");
+  });
+  const commandTarget = $derived(
+    manualCommandTarget !== null && openConnections.some((connection) => connection.key === manualCommandTarget)
+      ? manualCommandTarget
+      : followedCommandTarget,
+  );
+
   $effect(() => {
-    if (!openConnections.some((connection) => connection.key === commandTarget)) {
-      commandTarget = openConnections[0]?.key ?? "";
+    // A manual choice lasts while its console stays open; then the field follows the chosen node again.
+    if (
+      manualCommandTarget !== null &&
+      !openConnections.some((connection) => connection.key === manualCommandTarget)
+    ) {
+      manualCommandTarget = null;
     }
   });
 
+  /** Chosen node when the manual choice was made; not reactive on purpose. */
+  let selectedKeyAtChoice: string | null = null;
+
+  $effect(() => {
+    // Choosing another node above makes «Enviar a» follow it again.
+    const selectedKey = panel.selectedConnection?.key ?? null;
+    if (manualCommandTarget !== null && selectedKey !== selectedKeyAtChoice) {
+      manualCommandTarget = null;
+    }
+  });
+
+  function chooseCommandTarget(key: string): void {
+    selectedKeyAtChoice = panel.selectedConnection?.key ?? null;
+    // Choosing the followed console again goes back to following the chosen node.
+    manualCommandTarget = key === followedCommandTarget ? null : key;
+  }
+
   function matchesFilters(record: ConsoleRecord): boolean {
-    if (nodeFilter !== "all" && record.connectionKey !== nodeFilter) {
+    if (nodeFilter === SELECTED_NODE_FILTER) {
+      if (record.connectionKey !== panel.selectedConnection?.key) {
+        return false;
+      }
+    } else if (nodeFilter !== "all" && record.connectionKey !== nodeFilter) {
       return false;
     }
     if (record.kind === "debug" && !showDebugText) {
@@ -91,15 +128,15 @@
   function rowClass(record: ConsoleRecord): string {
     switch (record.kind) {
       case "debug":
-        return "text-slate-400";
+        return "text-faint";
       case "command":
-        return "text-sky-800 bg-sky-50";
+        return "text-neon bg-neon/5";
       case "notice":
-        return "text-amber-800 bg-amber-50";
+        return "text-warn bg-warn/10";
       case "unrecognized":
-        return "text-red-800 bg-red-50";
+        return "text-danger bg-danger/10";
       case "event":
-        return record.event.ev === "error" ? "text-red-700" : "text-slate-800";
+        return record.event.ev === "error" ? "text-danger" : "text-ink";
     }
   }
 
@@ -128,6 +165,11 @@
       Nodo
       <select class="panel-input" bind:value={nodeFilter}>
         <option value="all">Todos</option>
+        <option value={SELECTED_NODE_FILTER}>
+          El nodo elegido{panel.selectedConnection === null
+            ? ""
+            : ` (${panel.selectedConnection.state.identifier ?? panel.selectedConnection.key})`}
+        </option>
         {#each panel.connections as connection (connection.key)}
           <option value={connection.key}>
             {connection.state.identifier ?? connection.key} ({TRANSPORT_LABELS[connection.transportKind]})
@@ -135,9 +177,9 @@
         {/each}
       </select>
     </label>
-    <label class="panel-label">
+    <label class="panel-label max-w-full">
       Tipo
-      <select class="panel-input" bind:value={kindFilter}>
+      <select class="panel-input max-w-full" bind:value={kindFilter}>
         <option value="all">Todas las líneas</option>
         <option value="events">Todos los eventos</option>
         {#each CONSOLE_EVENT_NAMES as name (name)}
@@ -162,22 +204,22 @@
 
   <div
     bind:this={listElement}
-    class="h-[28rem] overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-sm"
+    class="h-[28rem] overflow-y-auto rounded-lg border border-line bg-surface shadow-sm"
     role="log"
     aria-label="Flujo de eventos"
   >
     {#if visibleRecords.length === 0}
-      <p class="p-4 text-sm text-slate-500">
+      <p class="p-4 text-sm text-faint">
         {panel.streamRecords.length === 0
           ? "Todavía no llegó ninguna línea. Las líneas de todos los nodos conectados aparecen en esta lista."
           : "Ninguna línea cumple los filtros elegidos."}
       </p>
     {:else}
-      <ol class="divide-y divide-slate-100">
+      <ol class="divide-y divide-line">
         {#each visibleRecords as record (record.sequence)}
           <!-- Narrow screens: time, node and kind on one row and the line below, across the full width. -->
           <li class="grid grid-cols-[auto_auto_1fr] gap-x-2 gap-y-0.5 px-2 py-1 font-mono text-xs md:grid-cols-[6.5rem_3.5rem_6.5rem_1fr] md:py-0.5 {rowClass(record)}">
-            <span class="text-slate-400">{formatClockTime(record.hostTime)}</span>
+            <span class="text-faint">{formatClockTime(record.hostTime)}</span>
             <span class="font-semibold">{nodeLabel(record.connectionKey)}</span>
             <span class="truncate">{kindLabel(record)}</span>
             <span class="col-span-full break-all whitespace-pre-wrap md:col-span-1">
@@ -208,15 +250,24 @@
       void sendCommand(commandText);
     }}
   >
-    <label class="panel-label">
+    <label class="panel-label max-w-full">
       Enviar a
-      <select class="panel-input" bind:value={commandTarget} disabled={openConnections.length === 0}>
+      <select
+        class="panel-input max-w-full"
+        value={commandTarget}
+        disabled={openConnections.length === 0}
+        onchange={(event) => chooseCommandTarget(event.currentTarget.value)}
+      >
         {#each openConnections as connection (connection.key)}
-          <option value={connection.key}>{connection.state.identifier ?? connection.key}</option>
+          <option value={connection.key}>
+            {connection.state.identifier ?? connection.key}{connection.key === panel.selectedConnection?.key
+              ? " (el nodo elegido)"
+              : ""}
+          </option>
         {/each}
       </select>
     </label>
-    <label class="panel-label min-w-64 flex-1">
+    <label class="panel-label min-w-0 flex-1 basis-64">
       Comando
       <input
         class="panel-input font-mono {commandProblem !== null ? 'panel-input-invalid' : ''}"
@@ -231,10 +282,10 @@
       Enviar
     </button>
     <div class="flex flex-wrap gap-2">
-      {#each [HELP_COMMAND, STATUS_COMMAND, RADIO_QUERY_COMMAND, RESEND_COMMAND] as quickCommand (quickCommand)}
+      {#each [HELP_COMMAND, RESEND_COMMAND] as quickCommand (quickCommand)}
         <button
           type="button"
-          class="panel-button font-mono"
+          class="panel-button font-mono normal-case"
           disabled={commandTarget === ""}
           onclick={() => sendCommand(quickCommand)}
         >
