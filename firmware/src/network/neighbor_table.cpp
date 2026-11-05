@@ -24,15 +24,26 @@ void NeighborTable::recordFrame(uint16_t id, float rssi, float snr, uint32_t now
   neighbor->lastHeardMillis = nowMillis;
 }
 
-void NeighborTable::recordHello(uint16_t id, uint8_t model, uint32_t version,
-                                uint32_t transmitted) {
+void NeighborTable::recordHello(uint16_t id, uint8_t model, uint32_t version, uint32_t available,
+                                uint8_t vmStatus, uint32_t transmitted) {
   Neighbor *neighbor = find(id);
   if (neighbor == nullptr) {
     return;
   }
   neighbor->model = model;
   neighbor->version = version;
+  neighbor->available = available;
+  neighbor->vmStatus = vmStatus;
   neighbor->transmitted = transmitted;
+}
+
+bool NeighborTable::contains(uint16_t id) const {
+  for (size_t index = 0; index < count_; ++index) {
+    if (entries_[index].id == id) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void NeighborTable::expire(uint32_t nowMillis) {

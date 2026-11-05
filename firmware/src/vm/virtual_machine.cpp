@@ -112,6 +112,17 @@ static VmFault checkInstruction(const uint8_t *code, size_t length, size_t addre
   return VmFault::None;
 }
 
+bool validateProgram(const uint8_t *code, size_t length, size_t &errorOffset) {
+  errorOffset = 0;
+  for (size_t address = 0; address < length; address += instructionLength(code[address])) {
+    if (checkInstruction(code, length, address) != VmFault::None) {
+      errorOffset = address;
+      return false;
+    }
+  }
+  return true;
+}
+
 // Arithmetic wraps around in two's complement, as on the control panel's reference interpreter.
 // The caller has already rejected a zero divisor.
 static int32_t applyOperation(uint8_t operation, int32_t left, int32_t right) {
@@ -153,6 +164,8 @@ void VirtualMachine::begin(uint32_t instructionLimit) {
   tickNumber_ = 0;
   running_ = false;
   fault_ = VmFault::None;
+  lastFault_ = VmFault::None;
+  lastTickFaulted_ = false;
 }
 
 ProgramLoad VirtualMachine::loadProgram(uint32_t version, const uint8_t *code, size_t length,
@@ -164,11 +177,8 @@ ProgramLoad VirtualMachine::loadProgram(uint32_t version, const uint8_t *code, s
   if (length == 0 || length > PROGRAM_CAPACITY) {
     return ProgramLoad::InvalidLength;
   }
-  for (size_t address = 0; address < length; address += instructionLength(code[address])) {
-    if (checkInstruction(code, length, address) != VmFault::None) {
-      errorOffset = address;
-      return ProgramLoad::Malformed;
-    }
+  if (!validateProgram(code, length, errorOffset)) {
+    return ProgramLoad::Malformed;
   }
   memcpy(program_, code, length);
   programLength_ = length;
@@ -177,6 +187,8 @@ ProgramLoad VirtualMachine::loadProgram(uint32_t version, const uint8_t *code, s
   tickNumber_ = 0;
   running_ = false;
   fault_ = VmFault::None;
+  lastFault_ = VmFault::None;
+  lastTickFaulted_ = false;
   return ProgramLoad::Accepted;
 }
 
@@ -199,6 +211,8 @@ VmStep VirtualMachine::stop(VmFault fault) {
   running_ = false;
   fault_ = fault;
   faultAddress_ = programCounter_;
+  lastFault_ = fault;
+  lastTickFaulted_ = true;
   return VmStep::Faulted;
 }
 
@@ -224,6 +238,7 @@ VmStep VirtualMachine::execute(uint32_t budget) {
 
     if (opcode == static_cast<uint8_t>(Opcode::Halt)) {
       running_ = false;
+      lastTickFaulted_ = false;
       return VmStep::Halted;
     }
     int32_t &target = registers_[operands[0] - 1];

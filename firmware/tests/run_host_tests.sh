@@ -16,16 +16,27 @@ if [[ -z "${ARDUINOJSON_DIRECTORY}" ]]; then
   exit 1
 fi
 
+# The firmware takes libsodium from the ESP32 core; on the host computer, from the system.
+if [[ ! -f /usr/include/sodium.h ]] && ! pkg-config --exists libsodium 2>/dev/null; then
+  echo "libsodium not found: install it, for example with pacman -S libsodium" >&2
+  echo "  or apt install libsodium-dev" >&2
+  exit 1
+fi
+
 c++ -std=c++17 -Wall -Wextra -DARDUINO_HELTEC_WIFI_LORA_32_V2 \
   -I"${TESTS_DIRECTORY}/stubs" -I"${SOURCE_DIRECTORY}" -I"${ARDUINOJSON_DIRECTORY}" \
   "${TESTS_DIRECTORY}/host_tests.cpp" \
   "${SOURCE_DIRECTORY}/console/event_fields.cpp" \
+  "${SOURCE_DIRECTORY}/image/image_verifier.cpp" \
   "${SOURCE_DIRECTORY}/network/duplicate_filter.cpp" \
   "${SOURCE_DIRECTORY}/services/echo_service.cpp" \
   "${SOURCE_DIRECTORY}/services/presence_service.cpp" \
   "${SOURCE_DIRECTORY}/services/test_run_service.cpp" \
   "${SOURCE_DIRECTORY}/radio/time_on_air.cpp" \
+  "${SOURCE_DIRECTORY}/transfer/burst_scheduler.cpp" \
+  "${SOURCE_DIRECTORY}/transfer/image_reception.cpp" \
+  "${SOURCE_DIRECTORY}/transfer/transfer_messages.cpp" \
   "${SOURCE_DIRECTORY}/vm/virtual_machine.cpp" \
-  -o "${OUTPUT_DIRECTORY}/host_tests"
+  -lsodium -o "${OUTPUT_DIRECTORY}/host_tests"
 
 "${OUTPUT_DIRECTORY}/host_tests"

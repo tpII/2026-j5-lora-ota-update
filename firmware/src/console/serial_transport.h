@@ -22,7 +22,7 @@ public:
   bool writeLine(const char *line, size_t length);
 
 private:
-  char pending_[PROGRAM_LINE_CAPACITY + 1] = {};
+  char pending_[IMAGE_LINE_CAPACITY + 1] = {};
   size_t pendingLength_ = 0;
   bool pendingOverflowed_ = false;
 };

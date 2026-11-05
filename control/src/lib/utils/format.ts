@@ -124,3 +124,26 @@ export function formatPower(dbm: number | null | undefined): string {
   }
   return `${dbm > 0 ? "+" : ""}${formatNumber(dbm, 0)} dBm`;
 }
+
+/** An image version as the nodes compare it: the integer itself, without thousands separators. */
+export function formatImageVersion(version: number | null | undefined): string {
+  if (version === null || version === undefined) {
+    return "—";
+  }
+  return version === 0 ? "0 (fábrica)" : String(version);
+}
+
+/**
+ * Date and time on the computer that a version proposed by the panel stands for, since the panel
+ * proposes the Unix time in seconds; null for version 0.
+ */
+export function formatVersionDate(version: number): string | null {
+  if (version <= 0) {
+    return null;
+  }
+  const date = new Date(version * 1000);
+  return (
+    `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
+}

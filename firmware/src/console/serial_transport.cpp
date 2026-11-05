@@ -9,8 +9,8 @@ namespace firmware {
 
 void SerialTransport::begin(uint32_t baudRate) {
   Serial.setTxBufferSize(SERIAL_TRANSMIT_BUFFER_SIZE);
-  // A whole load_program line has to fit while the main loop is busy, for example redrawing the
-  // display: at 921600 baud it arrives in about 22 ms.
+  // A whole load_image line has to fit while the main loop is busy, for example redrawing the
+  // display: at 921600 baud it arrives in about 24 ms.
   Serial.setRxBufferSize(SERIAL_RECEIVE_BUFFER_SIZE);
   Serial.begin(baudRate);
 #if ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT

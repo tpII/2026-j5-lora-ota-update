@@ -1,4 +1,4 @@
-{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.1.0","protocol":1,"key":"default"}
+{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}
 {"t":641,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":4,"lna":null}
 {"t":642,"ev":"wifi","state":"off","ssid":"J5-5C21","channel":1,"clients":0}
 boot 5C21 V2 e7

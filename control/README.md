@@ -1,6 +1,6 @@
 # Panel de control
 
-Aplicación web con la que el operador maneja los nodos de la red J5. Se conecta a la consola de cada nodo por USB, con Web Serial, o por WiFi, con un WebSocket contra el punto de acceso del nodo. Muestra el flujo de eventos, los vecinos y los parámetros de radio, pide ecos, transmite corridas, ejecuta la prueba de capacidad y la prueba de comunicación y exporta las mediciones con el formato de [`measurements/README.md`](../measurements/README.md). Es una aplicación de una sola página, estática e instalable como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). El contrato con el firmware está en [`docs/protocol/console.md`](../docs/protocol/console.md).
+Aplicación web con la que el operador maneja los nodos de la red J5. Se conecta a la consola de cada nodo por USB, con Web Serial, o por WiFi, con un WebSocket contra el punto de acceso del nodo. Muestra el flujo de eventos, los vecinos y los parámetros de radio, pide ecos, transmite corridas, ejecuta la prueba de capacidad y la prueba de comunicación, firma y carga imágenes, ordena su activación y exporta las mediciones con el formato de [`measurements/README.md`](../measurements/README.md). Es una aplicación de una sola página, estática e instalable como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). El contrato con el firmware está en [`docs/protocol/console.md`](../docs/protocol/console.md).
 
 ## Requisitos
 
@@ -64,6 +64,15 @@ El panel tiene que abrir aunque la computadora esté asociada al punto de acceso
 
   Los dos modos exportan sus métricas a `measurements/` en una carpeta propia.
 
+- **Actualización**: todo el ciclo de una imagen ([imagen](../docs/protocol/image.md), [ADR 0011](../docs/adrs/0011-implicit-activation-without-rollback.md)), contra el nodo conectado que se elige arriba:
+  - **Clave del operador**: carga la clave privada Ed25519 desde un archivo PEM con formato PKCS#8 o genera un par nuevo. La clave queda solo en la memoria de la pestaña y el panel indica si es la del par por defecto. De un par generado muestra la clave pública, la línea de `firmware/build_opt.h` que la compila y un botón para descargar la clave privada, que no se guarda en ningún otro lado. Si el nodo informa en `boot` una clave del operador distinta de la cargada, el panel avisa que va a rechazar la firma, pero no impide la carga, para poder probar el rechazo.
+  - **Firmar y cargar una imagen**: ensambla el programa del editor, que es el mismo de la pestaña Simulador, lo firma con la versión indicada y envía `load_image`. Propone como versión la hora Unix UTC en segundos y no deja firmar una versión que no sea mayor que la disponible del nodo; avisa si algún nodo del grafo ya tiene una mayor o si la versión supera la hora de la computadora. También fija y consulta el tamaño de fragmento con `fragment_size`. Debajo del selector del nodo, el panel muestra si el nodo aceptó la última imagen o el error con que la rechazó.
+  - **Activación**: envía `activate <versión>` al nodo conectado. Propone la versión disponible más alta que algún nodo todavía no activó y habilita la orden solo cuando todos los nodos del grafo de conexiones la anuncian como disponible; si no, lista los que la bloquean y por qué. La activación forzada del RF5 envía la orden igual, desde un recuadro aparte y después de una confirmación que nombra los nodos que todavía no la tienen.
+  - **Grafo de conexiones**: cada nodo con su fuente (consola, HELLO de un vecino o solo la lista de vecinos de otro nodo), la versión activa, la versión disponible, la recepción en curso de los nodos conectados y el estado de la VM; cada enlace con la RSSI y la SNR en los dos sentidos; y la actividad reciente de la transferencia en los nodos conectados: ráfagas, reportes, imágenes, rechazos y activaciones.
+  - **Reversión**: pide el programa activo con `program` y lo vuelve a firmar con una versión nueva, igual que cualquier imagen que el panel firmó desde que se abrió. Cualquiera de esos programas también se puede llevar al editor, desensamblado.
+  - **Métricas de la actualización**: M1, con su distribución y su activación, M2 y M3 de cada imagen cargada desde que se descartó el registro, recalculadas cada segundo mientras la pestaña está a la vista, y su exportación a `measurements/<AAAA-MM-DD>-update-<NN>/`.
+- **VM**: el estado de la VM del nodo conectado, la carga de registros con `load_registers` y las salidas de cada PRINT. Los programas no se cargan en esta sección: llegan como imágenes firmadas, desde Actualización.
+- **Simulador**: el intérprete de referencia, que ejecuta el programa del editor en la computadora.
 - **Exportar**: la ficha de la medición y la exportación. Con la API File System Access, el panel pide la carpeta `measurements/` y crea dentro la subcarpeta con el número siguiente; sin ella, descarga los tres archivos.
 
 ## Estructura
@@ -79,9 +88,11 @@ src/
     ├── state/                       estado reactivo de la aplicación (.svelte.ts)
     ├── console/                     eventos, comandos y lectura de líneas de la consola
     ├── transports/                  Web Serial y WebSocket detrás de una misma interfaz
-    ├── nodes/                       conexión y estado derivado de cada nodo
+    ├── nodes/                       conexión, estado derivado de cada nodo y grafo de conexiones
+    ├── image/                       formato, firma, verificación y controles previos a la carga de las imágenes
     ├── radio/                       parámetros de radio y tiempo de aire
-    ├── measurements/                corridas, pruebas de capacidad y de comunicación, eco y exportación
+    ├── vm/                          ensamblador, desensamblador e intérprete de referencia de la VM
+    ├── measurements/                corridas, pruebas de capacidad y de comunicación, eco, métricas de actualización y exportación
     ├── utils/                       formato de valores, textos de la interfaz y utilidades
     └── testing/                     sesiones grabadas y nodo simulado para las pruebas
 public/                              íconos
@@ -109,8 +120,12 @@ La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al l
 - La prueba de capacidad envía a los dos nodos la frecuencia, la modulación, el preámbulo y la palabra de sincronismo de cada punto; la potencia y el LNA quedan como estén.
 - La prueba de comunicación cambia solo el SF, el ancho de banda y la tasa de código. La frecuencia, el preámbulo y la palabra de sincronismo tienen que coincidir en los dos nodos, como en la red. Al terminar, cada modo devuelve a su nodo la modulación que informaba al empezar.
 - En el emisor, la suspensión de los HELLO dura lo que tardaría la serie si se perdieran todos los ecos, más un minuto. En el receptor dura una hora y el panel la renueva cada 30 minutos mientras el modo siga activo. Si el panel pierde la conexión, los HELLO vuelven solos al vencer el plazo, pero la modulación de prueba queda hasta que se cambie desde Radio o se reinicie el nodo.
+- El panel cuenta como actualización cada versión que un nodo acepta con `load_image`, es decir, cuando la consola de ese nodo responde con su evento `image` de la versión con `via` en `"console"`. M1 empieza en el primer `load_image` aceptado; un `load_image` rechazado no crea una actualización, aunque queda en `commands` de `metadata.json`. Descartar el registro de mediciones también olvida esos comandos.
+- Una actualización termina con el primer `load_image` aceptado de otra versión. Sus nodos son los que nombran los eventos hasta que converge, sin los que nadie escuchó en los 60 s anteriores, como en el grafo de conexiones; un nodo que aparece después no la reabre. M2 descarta los contadores `tx` de los eventos `neighbor`, que repiten el de un HELLO anterior, y reconoce un reinicio por el cambio de época.
+- La orden de activación se habilita con el grafo de conexiones del momento: un nodo vecino que nadie escuchó en los últimos 60 s sale del grafo y deja de bloquearla. Un nodo que solo aparece en la lista de vecinos de otro no tiene versiones conocidas y la bloquea.
+- La versión 0 no tiene imagen, así que la reversión al programa de fábrica no es posible; el panel lo indica y sugiere cargar un programa con solo HALT.
 - El panel no puede saber si el vecino está en modo receptor: si no lo está, o usa otra modulación, todos los ecos se pierden.
 
 ## Pruebas
 
-Las pruebas no necesitan placas. Usan sesiones de consola grabadas en el formato del contrato y un par de nodos simulados que responden los comandos con las mismas líneas que el firmware. Cubren el análisis de líneas, el estado derivado de cada nodo, los resúmenes de corridas, la prueba de capacidad completa, la exportación y los dos transportes.
+Las pruebas no necesitan placas. Usan sesiones de consola grabadas en el formato del contrato y un par de nodos simulados que responden los comandos con las mismas líneas que el firmware. Cubren el análisis de líneas, el estado derivado de cada nodo, los resúmenes de corridas, la prueba de capacidad completa, la firma de imágenes contra el vector de prueba de OpenSSL, una actualización grabada con su reparación y su activación, el grafo de conexiones, las métricas M1 a M3 y su exportación, el desensamblador, la exportación y los dos transportes.

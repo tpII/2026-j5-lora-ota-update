@@ -1,4 +1,4 @@
-{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.1.0","protocol":1,"key":"default"}
+{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}
 {"t":813,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}
 {"t":815,"ev":"wifi","state":"off","ssid":"J5-3A7F","channel":1,"clients":0}
 boot 3A7F V4.3 e12

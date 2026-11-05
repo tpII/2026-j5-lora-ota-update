@@ -1,31 +1,24 @@
 <script lang="ts">
-  import ProgramEditor from "../ProgramEditor.svelte";
   import RegisterInputs from "../RegisterInputs.svelte";
   import RegisterTable from "../RegisterTable.svelte";
   import {
-    MAXIMUM_PROGRAM_VERSION,
-    MINIMUM_PROGRAM_VERSION,
     STATUS_COMMAND,
-    buildLoadProgramCommand,
     buildLoadRegistersCommand,
     type CommandProblem,
   } from "$lib/console/console-command.ts";
   import { parseInteger } from "$lib/vm/assembler.ts";
   import { TICK_PERIOD_SECONDS, formatPrintLine } from "$lib/vm/instruction-set.ts";
-  import { formatShortClockTime } from "$lib/utils/format.ts";
+  import { formatImageVersion, formatShortClockTime } from "$lib/utils/format.ts";
   import { VM_FAULT_LABELS } from "$lib/utils/labels.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
-  import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
 
-  let { panel, draft }: { panel: ControlPanel; draft: ProgramDraft } = $props();
+  let { panel }: { panel: ControlPanel } = $props();
 
   const MAXIMUM_VISIBLE_PRINTS = 30;
 
   let nodeKey = $state("");
   let registerTexts = $state(["0", "0", "0", "0"]);
-  let version = $state<number>(1);
   let registerProblems = $state<readonly CommandProblem[]>([]);
-  let programProblems = $state<readonly CommandProblem[]>([]);
 
   const candidates = $derived(panel.identifiedConnections);
   const node = $derived(candidates.find((connection) => connection.key === nodeKey));
@@ -42,14 +35,6 @@
     }
   });
 
-  // Proposes the next version each time the node reports a new one.
-  $effect(() => {
-    const active = machine?.version;
-    if (active !== undefined && active < MAXIMUM_PROGRAM_VERSION) {
-      version = active + 1;
-    }
-  });
-
   function loadRegisters(): void {
     // A text that is not an integer becomes NaN, which the builder reports for that register.
     const result = buildLoadRegistersCommand(
@@ -62,29 +47,15 @@
     registerProblems = [];
     void panel.sendCommand(nodeKey, result.command);
   }
-
-  function loadProgram(): void {
-    const assembly = draft.assembly;
-    if (!assembly.valid) {
-      programProblems = [{ field: "program", message: "El programa tiene errores: corregirlos antes de cargarlo." }];
-      return;
-    }
-    const result = buildLoadProgramCommand(version, assembly.code);
-    if (!result.valid) {
-      programProblems = result.problems;
-      return;
-    }
-    programProblems = [];
-    void panel.sendCommand(nodeKey, result.command);
-  }
 </script>
 
 <div class="flex flex-col gap-3">
   <div class="panel-card flex flex-col gap-3">
     <h3 class="panel-section-title">Máquina virtual del nodo</h3>
     <p class="panel-hint">
-      El nodo ejecuta un tick de su programa cada {TICK_PERIOD_SECONDS} s y el primero apenas lo recibe.
-      Cada PRINT aparece en la pantalla del nodo y en la tabla de salidas. Al reiniciarse, el nodo vuelve al
+      El nodo ejecuta un tick de su programa activo cada {TICK_PERIOD_SECONDS} s y el primero apenas lo activa.
+      Cada PRINT aparece en la pantalla del nodo y en la tabla de salidas. Los programas llegan como imágenes
+      firmadas, que se cargan y se activan desde la sección Actualización. Al reiniciarse, el nodo vuelve al
       programa de fábrica, la versión 0.
     </p>
     <div class="flex flex-wrap items-end gap-3">
@@ -111,8 +82,10 @@
       <p class="text-sm text-slate-600">El nodo todavía no informó el estado de su VM.</p>
     {:else}
       <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt class="text-slate-600">Versión</dt>
+        <dt class="text-slate-600">Versión activa</dt>
         <dd class="font-mono">{machine.version === 0 ? "0 (programa de fábrica)" : machine.version}</dd>
+        <dt class="text-slate-600">Versión disponible</dt>
+        <dd class="font-mono">{formatImageVersion(node?.state.availableVersion)}</dd>
         <dt class="text-slate-600">Largo</dt>
         <dd>{machine.size} bytes</dd>
         <dt class="text-slate-600">Tick</dt>
@@ -148,44 +121,6 @@
     {#if registerProblems.length > 0}
       <ul class="flex flex-col gap-1">
         {#each registerProblems as problem (problem.field)}
-          <li class="panel-error-text">{problem.message}</li>
-        {/each}
-      </ul>
-    {/if}
-  </form>
-
-  <form
-    class="panel-card flex flex-col gap-3"
-    onsubmit={(event) => {
-      event.preventDefault();
-      loadProgram();
-    }}
-  >
-    <h3 class="panel-section-title">Cargar un programa</h3>
-    <p class="panel-hint">
-      El nodo solo acepta una versión mayor que la activa. El programa se puede probar antes en la pestaña
-      Simulador.
-    </p>
-    <ProgramEditor {draft} />
-    <div class="flex flex-wrap items-end gap-3">
-      <label class="panel-label">
-        Versión
-        <input
-          class="panel-input w-36"
-          type="number"
-          min={MINIMUM_PROGRAM_VERSION}
-          max={MAXIMUM_PROGRAM_VERSION}
-          step="1"
-          bind:value={version}
-        />
-      </label>
-      <button type="submit" class="panel-button-primary" disabled={!connected || !draft.assembly.valid}>
-        Cargar en el nodo
-      </button>
-    </div>
-    {#if programProblems.length > 0}
-      <ul class="flex flex-col gap-1">
-        {#each programProblems as problem (problem.field)}
           <li class="panel-error-text">{problem.message}</li>
         {/each}
       </ul>

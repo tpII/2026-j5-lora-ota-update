@@ -7,7 +7,7 @@
 namespace firmware {
 
 // Program memory of the virtual machine, in bytes. Raise it to 2048 if the firmware has room for
-// it; the console line that carries a program grows with it.
+// it; the image, the console line that carries one and the program event grow with it.
 constexpr size_t PROGRAM_CAPACITY = 1024;
 
 constexpr uint8_t REGISTER_COUNT = 4;
@@ -62,6 +62,10 @@ size_t instructionLength(uint8_t opcode);
 // Name of a fault as the console writes it, for example "division_by_zero".
 const char *vmFaultName(VmFault fault);
 
+// Checks a whole program without running it: known opcodes, registers 1 to 4 and no instruction cut
+// by the end. On failure, errorOffset is the address of the bad instruction.
+bool validateProgram(const uint8_t *code, size_t length, size_t &errorOffset);
+
 // Decodes an even number of hexadecimal digits. Returns false on any other character, an odd
 // count or more bytes than the capacity.
 bool decodeHexBytes(const char *text, uint8_t *output, size_t capacity, size_t &length);
@@ -74,9 +78,9 @@ class VirtualMachine {
 public:
   void begin(uint32_t instructionLimit);
 
-  // Checks the whole program before replacing the active one: known opcodes, registers 1 to 4 and
-  // no instruction cut by the end. On Malformed, errorOffset is the address of the bad
-  // instruction. A load stops the tick in progress and restarts the tick count.
+  // Checks the whole program with validateProgram() before replacing the active one. On Malformed,
+  // errorOffset is the address of the bad instruction. A load stops the tick in progress, restarts
+  // the tick count and clears the faults since the last load; the registers keep their values.
   ProgramLoad loadProgram(uint32_t version, const uint8_t *code, size_t length,
                           size_t &errorOffset);
   void setRegisters(const int32_t values[REGISTER_COUNT]);
@@ -89,6 +93,7 @@ public:
   bool isRunning() const { return running_; }
   uint32_t version() const { return version_; }
   size_t programLength() const { return programLength_; }
+  const uint8_t *program() const { return program_; }
   uint32_t tickNumber() const { return tickNumber_; }
   uint16_t programCounter() const { return programCounter_; }
   // index goes from 0 (R1) to 3 (R4).
@@ -97,6 +102,10 @@ public:
   uint8_t printedRegister() const { return printedRegister_; }
   VmFault fault() const { return fault_; }
   uint16_t faultAddress() const { return faultAddress_; }
+  // Last fault since the program was loaded, or None, and whether the last tick ended in a fault:
+  // the state that the HELLO announces (docs/adrs/0011-implicit-activation-without-rollback.md).
+  VmFault lastFault() const { return lastFault_; }
+  bool lastTickFaulted() const { return lastTickFaulted_; }
 
 private:
   VmStep stop(VmFault fault);
@@ -113,6 +122,8 @@ private:
   uint8_t printedRegister_ = 0;
   VmFault fault_ = VmFault::None;
   uint16_t faultAddress_ = 0;
+  VmFault lastFault_ = VmFault::None;
+  bool lastTickFaulted_ = false;
 };
 
 } // namespace firmware

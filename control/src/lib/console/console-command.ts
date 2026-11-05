@@ -25,15 +25,28 @@ import {
   isTransmitPowerReachable,
   transmitPowerRangeOf,
 } from "$lib/radio/radio-settings.ts";
+import {
+  MAXIMUM_IMAGE_SIZE,
+  MINIMUM_IMAGE_SIZE,
+  decodeImage,
+  formatHex,
+  isImageVersion,
+} from "$lib/image/image-format.ts";
 import { MAXIMUM_INTEGER, MINIMUM_INTEGER } from "$lib/vm/assembler.ts";
-import { PROGRAM_CAPACITY, REGISTER_COUNT, formatProgramHex } from "$lib/vm/instruction-set.ts";
+import { REGISTER_COUNT } from "$lib/vm/instruction-set.ts";
 
 /** The firmware rejects longer lines with `line_too_long`. */
 export const MAXIMUM_COMMAND_LENGTH = 200;
-/** Only `load_program` may be longer: PROGRAM_LINE_CAPACITY in firmware/src/configuration.h. */
-export const MAXIMUM_PROGRAM_COMMAND_LENGTH = 2 * PROGRAM_CAPACITY + 32;
-export const MINIMUM_PROGRAM_VERSION = 1;
-export const MAXIMUM_PROGRAM_VERSION = 2 ** 32 - 1;
+/**
+ * Only `load_image` may be longer: a whole image in hexadecimal plus room for the command word,
+ * as the firmware sizes its line buffer.
+ */
+export const MAXIMUM_IMAGE_COMMAND_LENGTH = 2 * MAXIMUM_IMAGE_SIZE + 32;
+
+/** Fragment size of the complete bursts of a node (ADR 0009); it boots with the maximum. */
+export const MINIMUM_FRAGMENT_SIZE = 32;
+export const MAXIMUM_FRAGMENT_SIZE = 231;
+export const DEFAULT_FRAGMENT_SIZE = MAXIMUM_FRAGMENT_SIZE;
 
 export const MINIMUM_ECHO_SIZE = 4;
 export const DEFAULT_ECHO_SIZE = 16;
@@ -53,6 +66,10 @@ export const RADIO_RESET_COMMAND = "radio reset";
 export const RUN_STOP_COMMAND = "run stop";
 export const RESEND_COMMAND = "resend";
 export const PRESENCE_ON_COMMAND = "presence on";
+/** Asks for the `transfer` event without changing the fragment size. */
+export const FRAGMENT_SIZE_QUERY_COMMAND = "fragment_size";
+/** Asks for the `program` event with the active program. */
+export const PROGRAM_COMMAND = "program";
 
 /** Keys of the `radio` command, in the order of docs/protocol/radio.md. */
 export const RADIO_SETTING_KEYS = [
@@ -269,22 +286,60 @@ export function buildLoadRegistersCommand(values: readonly number[]): CommandRes
   return accept(`load_registers ${values.slice(0, REGISTER_COUNT).join(" ")}`);
 }
 
-/** `load_program <version> <length> <hex>`: the only command longer than 200 characters. */
-export function buildLoadProgramCommand(version: number, code: Uint8Array): CommandResult {
-  const problems: CommandProblem[] = [];
-  if (!isIntegerBetween(version, MINIMUM_PROGRAM_VERSION, MAXIMUM_PROGRAM_VERSION)) {
-    problems.push({ field: "version", message: "La versión va de 1 a 4294967295." });
+/**
+ * `load_image <image>`: a signed image (docs/protocol/image.md) in hexadecimal, the only command
+ * longer than 200 characters. The structure is checked here; the signature only by the node.
+ */
+export function buildLoadImageCommand(image: Uint8Array): CommandResult {
+  if (image.length < MINIMUM_IMAGE_SIZE || image.length > MAXIMUM_IMAGE_SIZE) {
+    return reject([
+      {
+        field: "image",
+        message: `La imagen ocupa de ${MINIMUM_IMAGE_SIZE} a ${MAXIMUM_IMAGE_SIZE} bytes.`,
+      },
+    ]);
   }
-  if (code.length === 0 || code.length > PROGRAM_CAPACITY) {
-    problems.push({
-      field: "program",
-      message: `El programa ocupa de 1 a ${PROGRAM_CAPACITY} bytes.`,
-    });
+  const decoding = decodeImage(image);
+  if (!decoding.valid) {
+    return reject([{ field: "image", message: decoding.message }]);
   }
-  if (problems.length > 0) {
-    return reject(problems);
+  const command = `load_image ${formatHex(image)}`;
+  if (command.length > MAXIMUM_IMAGE_COMMAND_LENGTH) {
+    return reject([
+      {
+        field: "command",
+        message: `El comando supera los ${MAXIMUM_IMAGE_COMMAND_LENGTH} caracteres que admite el nodo.`,
+      },
+    ]);
   }
-  return { valid: true, command: `load_program ${version} ${code.length} ${formatProgramHex(code)}` };
+  return { valid: true, command };
+}
+
+/** `activate <version>`: activates the available version, which has to be `version`. */
+export function buildActivateCommand(version: number): CommandResult {
+  if (!isImageVersion(version)) {
+    return reject([{ field: "version", message: "La versión va de 1 a 4294967295." }]);
+  }
+  return accept(`activate ${version}`);
+}
+
+/**
+ * `fragment_size [<bytes>]`: without `bytes`, asks for `transfer`; with it, sets the fragment size
+ * of the next complete bursts.
+ */
+export function buildFragmentSizeCommand(bytes?: number): CommandResult {
+  if (bytes === undefined) {
+    return accept(FRAGMENT_SIZE_QUERY_COMMAND);
+  }
+  if (!isIntegerBetween(bytes, MINIMUM_FRAGMENT_SIZE, MAXIMUM_FRAGMENT_SIZE)) {
+    return reject([
+      {
+        field: "bytes",
+        message: `El tamaño del fragmento va de ${MINIMUM_FRAGMENT_SIZE} a ${MAXIMUM_FRAGMENT_SIZE} bytes.`,
+      },
+    ]);
+  }
+  return accept(`fragment_size ${bytes}`);
 }
 
 /** `wifi on` or `wifi off`. */

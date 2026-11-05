@@ -1,0 +1,38 @@
+{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}
+{"t":641,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":4,"lna":null}
+{"t":642,"ev":"wifi","state":"off","ssid":"J5-5C21","channel":1,"clients":0}
+boot 5C21 V2 e7
+{"t":44000,"ev":"tx","type":"hello","dst":"FFFF","seq":8,"size":35,"toa":19310,"toa_calc":19264}
+{"t":46000,"ev":"hello","src":"3A7F","epoch":12,"seq":9,"model":"V4.3","version":0,"available":0,"vm_fault":null,"vm_failing":false,"tx":9,"rssi":-41.5,"snr":9.5,"ferr":1180,"neighbors":[{"id":"5C21","rssi":-47.0,"snr":9.75}]}
+hello 3A7F -42 dBm
+{"t":48000,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":32}
+{"t":50010,"ev":"image","version":1762300800,"size":29,"image_size":102,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+image 1762300800 console
+{"t":50030,"ev":"tx","type":"hello","dst":"FFFF","seq":9,"size":35,"toa":19310,"toa_calc":19264}
+{"t":50031,"ev":"burst_start","version":1762300800,"size":32,"count":4,"cause":"load","trigger":null}
+{"t":50058,"ev":"tx","type":"fragment","dst":"FFFF","seq":10,"size":56,"toa":26990,"toa_calc":26944,"version":1762300800,"index":0}
+{"t":50085,"ev":"tx","type":"fragment","dst":"FFFF","seq":11,"size":56,"toa":26990,"toa_calc":26944,"version":1762300800,"index":1}
+{"t":50112,"ev":"tx","type":"fragment","dst":"FFFF","seq":12,"size":56,"toa":26990,"toa_calc":26944,"version":1762300800,"index":2}
+{"t":50130,"ev":"tx","type":"fragment","dst":"FFFF","seq":13,"size":30,"toa":18030,"toa_calc":17984,"version":1762300800,"index":3}
+{"t":50130,"ev":"burst_done","version":1762300800,"size":32,"sent":4,"duration":99000}
+burst 1762300800 4/4
+{"t":50164,"ev":"report_received","src":"3A7F","version":1762300800,"size":32,"count":4,"missing":[1]}
+{"t":50164,"ev":"burst_start","version":1762300800,"size":32,"count":1,"cause":"report","trigger":"3A7F"}
+{"t":50191,"ev":"tx","type":"fragment","dst":"FFFF","seq":14,"size":56,"toa":26990,"toa_calc":26944,"version":1762300800,"index":1}
+{"t":50191,"ev":"burst_done","version":1762300800,"size":32,"sent":1,"duration":26990}
+{"t":50216,"ev":"hello","src":"3A7F","epoch":12,"seq":11,"model":"V4.3","version":0,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":11,"rssi":-41.0,"snr":9.75,"ferr":1175,"neighbors":[{"id":"5C21","rssi":-47.5,"snr":9.5}]}
+{"t":50244,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":0,"count":4,"size":32,"remaining":3,"accepted":false,"new":false,"rssi":-41.5,"snr":9.5}
+{"t":50271,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":1,"count":4,"size":32,"remaining":2,"accepted":false,"new":false,"rssi":-41.5,"snr":9.5}
+{"t":50298,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":2,"count":4,"size":32,"remaining":1,"accepted":false,"new":false,"rssi":-42.0,"snr":9.25}
+{"t":50316,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":3,"count":4,"size":32,"remaining":0,"accepted":false,"new":false,"rssi":-41.5,"snr":9.5}
+{"t":58000,"ev":"tx","type":"hello","dst":"FFFF","seq":15,"size":35,"toa":19310,"toa_calc":19264}
+{"t":59000,"ev":"hello","src":"3A7F","epoch":12,"seq":16,"model":"V4.3","version":0,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":16,"rssi":-41.5,"snr":9.5,"ferr":1182,"neighbors":[{"id":"5C21","rssi":-47.0,"snr":9.75}]}
+{"t":70005,"ev":"activation","version":1762300800,"previous":0,"cause":"console","src":null}
+{"t":70005,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+activate 1762300800
+{"t":70006,"ev":"vm_print","tick":1,"reg":1,"value":8}
+VM: R1 - 0x00000008
+{"t":70006,"ev":"vm_print","tick":1,"reg":1,"value":-6}
+VM: R1 - 0xFFFFFFFA
+{"t":70020,"ev":"tx","type":"hello","dst":"FFFF","seq":16,"size":35,"toa":19310,"toa_calc":19264}
+{"t":70041,"ev":"hello","src":"3A7F","epoch":12,"seq":17,"model":"V4.3","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":17,"rssi":-41.5,"snr":9.5,"ferr":1179,"neighbors":[{"id":"5C21","rssi":-47.0,"snr":9.75}]}

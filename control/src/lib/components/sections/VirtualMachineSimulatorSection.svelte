@@ -53,7 +53,7 @@
     };
   }
 
-  /** Loads the program and the initial registers, as a node does with load_program. */
+  /** Loads the program and the initial registers, as a node does when it activates an image. */
   function reset(): void {
     if (!assembly.valid || !registersValid) {
       return;

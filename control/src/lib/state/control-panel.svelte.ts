@@ -1,6 +1,7 @@
 /**
  * Reactive state of the control panel. It owns the connections, the test-run ledger, the event
- * journal, the capacity-test campaign and both sides of the communication test, and publishes immutable snapshots of them for the views.
+ * journal, the capacity-test campaign, both sides of the communication test and the update
+ * commands, and publishes immutable snapshots of them for the views.
  * The domain modules stay free of Svelte; this class only connects them and throttles updates.
  */
 import { BoundedLog } from "$lib/utils/bounded-log.ts";
@@ -33,11 +34,28 @@ import type { Modulation } from "$lib/measurements/command-confirmation.ts";
 import { EchoSeries, type EchoSeriesSnapshot } from "$lib/measurements/echo-series.ts";
 import { EventJournal } from "$lib/measurements/event-journal.ts";
 import {
+  computeUpdateMetrics,
+  acceptLoadImage,
+  parseUpdateCommand,
+  updateCommandTimesOf,
+  type UpdateCommandRecord,
+  type UpdateMetrics,
+} from "$lib/measurements/update-metrics.ts";
+import {
+  UPDATE_TEST,
+  boardModelsOf,
+  buildUpdateFiles,
+  loadedUpdateVersions,
+  type UpdateDescription,
+} from "$lib/measurements/update-export.ts";
+import { buildConnectionGraph, type ConnectionGraph } from "$lib/nodes/connection-graph.ts";
+import {
   buildMeasurementFiles,
   buildMetadata,
   formatLocalDate,
   type MeasurementDescription,
   type ExportedEvent,
+  type ExportedTest,
   type MeasurementFile,
   type ParticipatingNode,
 } from "$lib/measurements/measurement-export.ts";
@@ -115,6 +133,8 @@ export class ControlPanel {
   communicationTest = $state.raw<CommunicationTestSnapshot | null>(null);
   receiverMode = $state.raw<ReceiverModeSnapshot | null>(null);
   notices = $state.raw<readonly PanelNotice[]>([]);
+  /** `load_image` and `activate` commands sent since the journal was last cleared, oldest first. */
+  updateCommands = $state.raw<readonly UpdateCommandRecord[]>([]);
   /** Host time, updated every second, for ages and remaining times. */
   now = $state(Date.now());
 
@@ -215,6 +235,66 @@ export class ControlPanel {
     } finally {
       this.#scheduleRefresh();
     }
+  }
+
+  /** The connection graph of the open connections, at the host time of the last refresh. */
+  get connectionGraph(): ConnectionGraph {
+    return buildConnectionGraph(
+      this.connections
+        .filter((connection) => connection.status === "open")
+        .map((connection) => connection.state),
+      this.now,
+    );
+  }
+
+  /**
+   * M1, M2 and M3 of the update of `version`, from the journal and the commands the panel sent.
+   * Null when no node accepted a `load_image` with that version since the journal was cleared.
+   * With `nodes`, the graph is those nodes; by default, every node the events name.
+   */
+  measureUpdate(version: number, nodes?: readonly NodeIdentifier[]): UpdateMetrics | null {
+    const times = updateCommandTimesOf(this.updateCommands, version);
+    if (times === null) {
+      return null;
+    }
+    return computeUpdateMetrics({
+      version,
+      ...times,
+      events: this.#journal.consoleEvents(),
+      ...(nodes === undefined ? {} : { nodes }),
+    });
+  }
+
+  /** Versions a node accepted with `load_image` since the journal was cleared, oldest first. */
+  get updateVersions(): readonly number[] {
+    return loadedUpdateVersions(this.updateCommands);
+  }
+
+  /**
+   * Exports every update loaded since the journal was cleared: M1, M2 and M3 per receiver, the
+   * commands of the panel and every event of the journal. Null when there is no update or the
+   * operator cancelled the folder chooser.
+   */
+  async exportUpdates(description: UpdateDescription): Promise<ExportOutcome | null> {
+    const metrics = this.updateVersions.flatMap((version) => {
+      const measured = this.measureUpdate(version);
+      return measured === null ? [] : [measured];
+    });
+    if (metrics.length === 0) {
+      return null;
+    }
+    const exportDate = new Date();
+    const files = buildUpdateFiles({
+      metrics,
+      commands: this.updateCommands,
+      description,
+      nodes: this.#journal.participatingNodes(),
+      events: this.#journal.events(),
+      models: boardModelsOf(this.#journal.consoleEvents()),
+      exportDate,
+      panelVersion: __PANEL_VERSION__,
+    });
+    return this.#writeExportFiles(files, exportDate, UPDATE_TEST);
   }
 
   connection(key: string): ConnectionView | undefined {
@@ -455,7 +535,7 @@ export class ControlPanel {
       exportDate,
       __PANEL_VERSION__,
     );
-    return this.#writeCommunicationTestFiles(files, exportDate);
+    return this.#writeExportFiles(files, exportDate, COMMUNICATION_TEST);
   }
 
   /** Exports what the node answered in receiver mode; null when the chooser was cancelled. */
@@ -475,7 +555,7 @@ export class ControlPanel {
       exportDate,
       __PANEL_VERSION__,
     );
-    return this.#writeCommunicationTestFiles(files, exportDate);
+    return this.#writeExportFiles(files, exportDate, COMMUNICATION_TEST);
   }
 
   #participatingNodesAmong(identifiers: readonly NodeIdentifier[]): ParticipatingNode[] {
@@ -490,16 +570,17 @@ export class ControlPanel {
     );
   }
 
-  async #writeCommunicationTestFiles(
+  async #writeExportFiles(
     files: readonly MeasurementFile[],
     exportDate: Date,
+    test: ExportedTest,
   ): Promise<ExportOutcome | null> {
     const localDate = formatLocalDate(exportDate);
     try {
       if (this.directoryPickerAvailable) {
-        return await writeMeasurementToDirectory(files, localDate, COMMUNICATION_TEST);
+        return await writeMeasurementToDirectory(files, localDate, test);
       }
-      return downloadMeasurementFiles(files, localDate, COMMUNICATION_TEST);
+      return downloadMeasurementFiles(files, localDate, test);
     } catch (error) {
       if (isPickerCancellation(error)) {
         return null;
@@ -630,6 +711,7 @@ export class ControlPanel {
   clearMeasurementRecord(): void {
     this.#journal.clear();
     this.#ledger.clear();
+    this.updateCommands = [];
     this.#scheduleRefresh();
   }
 
@@ -677,6 +759,29 @@ export class ControlPanel {
         connection.key,
         record.text,
         record.kind === "event" ? record.event : record.object,
+        record.hostTime,
+        record.kind === "event" ? record.event : null,
+      );
+    }
+    if (record.kind === "command") {
+      const command = parseUpdateCommand(record.text);
+      if (command !== null) {
+        this.updateCommands = [
+          ...this.updateCommands,
+          {
+            connectionKey: connection.key,
+            node: connection.state.identifier,
+            hostTime: record.hostTime,
+            command,
+          },
+        ];
+      }
+    }
+    if (record.kind === "event" && record.event.ev === "image" && record.event.via === "console") {
+      this.updateCommands = acceptLoadImage(
+        this.updateCommands,
+        connection.key,
+        record.event.version,
         record.hostTime,
       );
     }

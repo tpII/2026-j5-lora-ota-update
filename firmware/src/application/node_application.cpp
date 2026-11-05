@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "../configuration.h"
 #include "../console/event_fields.h"
@@ -103,8 +104,16 @@ static bool parseRegisterValue(const char *text, int32_t &value) {
   return true;
 }
 
-// The program of a load_program command, decoded before the virtual machine checks it.
-static uint8_t decodedProgram[PROGRAM_CAPACITY];
+// The VM state that a HELLO announces, with the fault names of the vm_fault event.
+static void setVmStatusFields(JsonObject event, uint8_t status) {
+  const uint8_t fault = vmStatusFault(status);
+  if (fault == 0 || fault > static_cast<uint8_t>(VmFault::TruncatedInstruction)) {
+    event["vm_fault"] = nullptr;
+  } else {
+    event["vm_fault"] = vmFaultName(static_cast<VmFault>(fault));
+  }
+  event["vm_failing"] = isVmStatusFailing(status);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Start and main loop
@@ -117,6 +126,7 @@ void NodeApplication::begin() {
   display_.begin();
   identity_.begin();
   vm_.begin(VM_MAXIMUM_INSTRUCTIONS_PER_TICK);
+  const bool operatorKeyValid = transfer_.begin(console_, display_, neighbors_, radio_.settings());
   snprintf(accessPointName_, sizeof(accessPointName_), "J5-%04X", identity_.nodeId());
 
   const int16_t radioState = radio_.begin(board_, defaultRadioSettings());
@@ -133,6 +143,9 @@ void NodeApplication::begin() {
   debug("boot %04X %s e%u", identity_.nodeId(), board_.modelName(), identity_.epoch());
   if (!board_.isFrontEndVerified()) {
     debug("front end not KCT8103L");
+  }
+  if (!operatorKeyValid) {
+    debug("operator key not valid");
   }
   if (!radioReady_) {
     emitError("radio", "radio_failure", "begin", radioState);
@@ -151,8 +164,9 @@ void NodeApplication::poll() {
   serviceTimers(now);
   serviceVirtualMachine(now);
   // Sending a frame to the display blocks for about 30 ms. Never while the radio is transmitting,
-  // has frames waiting or expects an echo reply, so it returns to reception in time.
-  if (!radio_.isTransmitting() && queueCount_ == 0 && !echo_.isPending()) {
+  // has frames waiting, expects an echo reply or is in a burst, so it returns to reception in time.
+  if (!radio_.isTransmitting() && queueCount_ == 0 && !echo_.isPending() &&
+      !transfer_.isBurstInProgress(now)) {
     display_.poll(now);
   }
 }
@@ -185,11 +199,16 @@ void NodeApplication::serviceTransmitter(uint32_t nowMillis) {
     applyRadioSettings(pendingSettings_);
   }
   if (queueCount_ == 0) {
+    // A burst postpones the periodic HELLO but not the one for a change of version. Fragments and
+    // reports wait while HELLO messages are suspended.
     if (runs_.isFrameDue(nowMillis)) {
       enqueueTestFrame();
-    } else if (presence_.isDue(nowMillis)) {
+    } else if (presence_.isImmediateDue() ||
+               (presence_.isDue(nowMillis) && !transfer_.isBurstInProgress(nowMillis))) {
       enqueueHello();
       presence_.scheduleNext(nowMillis);
+    } else if (!presence_.isInhibited()) {
+      enqueueTransferFrame(nowMillis);
     }
   }
   if (queueCount_ == 0) {
@@ -213,6 +232,8 @@ void NodeApplication::serviceTransmitter(uint32_t nowMillis) {
       runs_.onFrameFailed();
     } else if (header.type == static_cast<uint8_t>(MessageType::EchoRequest)) {
       echo_.clear();
+    } else if (header.type == static_cast<uint8_t>(MessageType::Fragment)) {
+      transfer_.onFragmentFailed(readUint32(inFlight_.data + FRAME_HEADER_SIZE));
     }
     return;
   }
@@ -244,7 +265,11 @@ void NodeApplication::onTransmitStarted(uint32_t nowMillis) {
       console_.writeEvent();
     }
     break;
+  case MessageType::Fragment:
+    transfer_.onFragmentStarted(radio_.transmitStartMicros());
+    break;
   case MessageType::Hello:
+  case MessageType::Report:
     break;
   }
 }
@@ -262,6 +287,8 @@ void NodeApplication::onTransmitDone(uint32_t nowMillis) {
   readFrameHeader(inFlight_.data, inFlight_.length, header);
   const uint32_t measured = radio_.measuredTimeOnAirMicros();
   const bool isTest = header.type == static_cast<uint8_t>(MessageType::Test);
+  const bool isFragment = header.type == static_cast<uint8_t>(MessageType::Fragment);
+  const uint8_t *payload = inFlight_.data + FRAME_HEADER_SIZE;
 
   JsonObject event = console_.beginEvent("tx");
   event["type"] = messageTypeName(header.type);
@@ -272,12 +299,20 @@ void NodeApplication::onTransmitDone(uint32_t nowMillis) {
   event["toa_calc"] = computeTimeOnAirMicros(inFlight_.length, radio_.settings());
   if (isTest) {
     TestFields fields{};
-    TestRunService::decodePayload(inFlight_.data + FRAME_HEADER_SIZE,
-                                  inFlight_.length - FRAME_OVERHEAD, fields);
+    TestRunService::decodePayload(payload, inFlight_.length - FRAME_OVERHEAD, fields);
     event["run"] = fields.run;
     event["index"] = fields.index;
+  } else if (isFragment) {
+    event["version"] = readUint32(payload);
+    event["index"] = payload[4];
+  } else if (header.type == static_cast<uint8_t>(MessageType::Report)) {
+    event["version"] = readUint32(payload);
   }
   console_.writeEvent();
+
+  if (isFragment) {
+    transfer_.onFragmentSent(readUint32(payload), radio_.transmitStartMicros() + measured);
+  }
 
   if (isTest && runs_.isSending() && runs_.sender().frameInFlight) {
     const int64_t endMicros = radio_.transmitStartMicros() + measured;
@@ -352,7 +387,18 @@ void NodeApplication::onFrameReceived(const ReceivedFrame &frame, uint32_t nowMi
   case MessageType::Test:
     handleTestFrame(header, payload, payloadLength, frame, nowMillis);
     break;
+  case MessageType::Fragment:
+    transfer_.handleFragment(header.source, payload, payloadLength, frame.rssi, frame.snr,
+                             nowMillis);
+    break;
+  case MessageType::Report:
+    // A report goes to the node that sent the last fragment, never to everyone.
+    if (header.destination == identity_.nodeId()) {
+      transfer_.handleReport(header.source, payload, payloadLength);
+    }
+    break;
   }
+  serviceTransferRequests();
 }
 
 bool NodeApplication::isPayloadValid(uint8_t type, const uint8_t *payload, size_t length) const {
@@ -368,6 +414,14 @@ bool NodeApplication::isPayloadValid(uint8_t type, const uint8_t *payload, size_
     TestFields fields;
     return TestRunService::decodePayload(payload, length, fields);
   }
+  case MessageType::Fragment: {
+    FragmentFields fields;
+    return decodeFragment(payload, length, fields);
+  }
+  case MessageType::Report: {
+    ReportFields report;
+    return decodeReport(payload, length, report);
+  }
   }
   return false;
 }
@@ -376,7 +430,8 @@ void NodeApplication::handleHello(const FrameHeader &header, const uint8_t *payl
                                   const ReceivedFrame &frame) {
   HelloContent content{};
   PresenceService::decodePayload(payload, length, content);
-  neighbors_.recordHello(header.source, content.model, content.version, content.transmitted);
+  neighbors_.recordHello(header.source, content.model, content.version, content.available,
+                         content.vmStatus, content.transmitted);
 
   JsonObject event = console_.beginEvent("hello");
   setNodeId(event, "src", header.source);
@@ -384,6 +439,8 @@ void NodeApplication::handleHello(const FrameHeader &header, const uint8_t *payl
   event["seq"] = header.sequence;
   event["model"] = boardModelName(content.model);
   event["version"] = content.version;
+  event["available"] = content.available;
+  setVmStatusFields(event, content.vmStatus);
   event["tx"] = content.transmitted;
   event["rssi"] = roundToDecimals(frame.rssi, 1);
   event["snr"] = roundToDecimals(frame.snr, 2);
@@ -398,6 +455,8 @@ void NodeApplication::handleHello(const FrameHeader &header, const uint8_t *payl
   }
   console_.writeEvent();
   debug("hello %04X %.0f dBm", header.source, frame.rssi);
+  // After the hello event, so that a burst or an activation it causes follows it on the console.
+  transfer_.handleHello(header.source, content.version, content.available, vm_.version());
 }
 
 void NodeApplication::handleEchoRequest(const FrameHeader &header, const uint8_t *payload,
@@ -485,6 +544,47 @@ void NodeApplication::handleTestFrame(const FrameHeader &header, const uint8_t *
 }
 
 // ---------------------------------------------------------------------------------------------
+// Image transfer
+
+void NodeApplication::serviceTransferRequests() {
+  ActivationRequest request{};
+  if (transfer_.takeActivationRequest(request)) {
+    activateAvailableImage(request.cause, request.source);
+  }
+  if (transfer_.takeVersionChange()) {
+    presence_.requestImmediate();
+  }
+}
+
+void NodeApplication::activateAvailableImage(ActivationCause cause, uint16_t source) {
+  const uint32_t previous = vm_.version();
+  const uint32_t version = transfer_.availableVersion();
+  size_t errorOffset = 0;
+  // The available image passed the verification, the VM validation included, and its version is
+  // newer than the active one, so the load only fails if a caller skipped those checks.
+  if (vm_.loadProgram(version, transfer_.availableProgram(), transfer_.availableProgramLength(),
+                      errorOffset) != ProgramLoad::Accepted) {
+    return;
+  }
+  JsonObject event = console_.beginEvent("activation");
+  event["version"] = version;
+  event["previous"] = previous;
+  event["cause"] = activationCauseName(cause);
+  if (cause == ActivationCause::Console) {
+    event["src"] = nullptr;
+  } else {
+    setNodeId(event, "src", source);
+  }
+  console_.writeEvent();
+  emitVirtualMachine();
+  debug("VM: program v%lu", static_cast<unsigned long>(version));
+  presence_.requestImmediate();
+  // The new program runs its first tick at once; the next ones follow the usual period.
+  lastTickMillis_ = millis();
+  vm_.startTick();
+}
+
+// ---------------------------------------------------------------------------------------------
 // Transmission queue
 
 NodeApplication::OutgoingFrame *NodeApplication::reserveQueueSlot(bool priority) {
@@ -531,6 +631,8 @@ void NodeApplication::enqueueHello() {
   HelloContent content{};
   content.model = static_cast<uint8_t>(board_.model());
   content.version = vm_.version();
+  content.available = transfer_.availableVersion();
+  content.vmStatus = encodeVmStatus(vm_.lastFault(), vm_.lastTickFaulted());
   content.transmitted = transmittedCount_;
   const size_t count = neighbors_.count();
   content.neighborCount =
@@ -551,6 +653,21 @@ void NodeApplication::enqueueTestFrame() {
   const size_t length = runs_.buildNextPayload(payload);
   if (!enqueueFrame(MessageType::Test, BROADCAST_NODE_ID, payload, length, false)) {
     runs_.onFrameFailed();
+  }
+}
+
+void NodeApplication::enqueueTransferFrame(uint32_t nowMillis) {
+  // One fragment or report at a time, built only when the queue is empty: every fragment goes in a
+  // new frame with a new sequence.
+  uint8_t payload[MAXIMUM_PAYLOAD_SIZE];
+  MessageType type = MessageType::Fragment;
+  uint16_t destination = BROADCAST_NODE_ID;
+  const size_t length = transfer_.buildNextFrame(nowMillis, type, destination, payload);
+  if (length == 0) {
+    return;
+  }
+  if (!enqueueFrame(type, destination, payload, length, false) && type == MessageType::Fragment) {
+    transfer_.onFragmentFailed(readUint32(payload));
   }
 }
 
@@ -587,8 +704,15 @@ void NodeApplication::registerCommands() {
   // Boundless, because SimpleCLI would take a negative value such as -5 for an argument name.
   loadRegistersCommand_ = commandInterpreter_.addBoundlessCommand("load_registers");
   loadRegistersCommand_.setDescription("load_registers <r1> <r2> <r3> <r4>");
-  loadProgramCommand_ = commandInterpreter_.addBoundlessCommand("load_program");
-  loadProgramCommand_.setDescription("load_program <version> <length> <hex>");
+  loadImageCommand_ = commandInterpreter_.addBoundlessCommand("load_image");
+  loadImageCommand_.setDescription("load_image <hex>");
+  activateCommand_ = commandInterpreter_.addBoundlessCommand("activate");
+  activateCommand_.setDescription("activate <version>");
+  fragmentSizeCommand_ = commandInterpreter_.addCommand("fragment_size");
+  fragmentSizeCommand_.addPositionalArgument("bytes", "");
+  fragmentSizeCommand_.setDescription("fragment_size [bytes]");
+  programCommand_ = commandInterpreter_.addCommand("program");
+  programCommand_.setDescription("program");
 }
 
 void NodeApplication::serviceConsole() {
@@ -632,8 +756,14 @@ void NodeApplication::executeCommand(const char *line) {
       commandPresence(command);
     } else if (command == loadRegistersCommand_) {
       commandLoadRegisters(command);
-    } else if (command == loadProgramCommand_) {
-      commandLoadProgram(command);
+    } else if (command == loadImageCommand_) {
+      commandLoadImage(command);
+    } else if (command == activateCommand_) {
+      commandActivate(command);
+    } else if (command == fragmentSizeCommand_) {
+      commandFragmentSize(command);
+    } else if (command == programCommand_) {
+      commandProgram();
     }
   }
 }
@@ -655,10 +785,11 @@ void NodeApplication::reportCommandError(const CommandError &error, const char *
 }
 
 void NodeApplication::commandHelp() {
-  const Command *const commands[] = {&helpCommand_,       &statusCommand_,   &radioCommand_,
-                                     &echoCommand_,       &runCommand_,      &wifiCommand_,
-                                     &resendCommand_,     &presenceCommand_, &loadRegistersCommand_,
-                                     &loadProgramCommand_};
+  const Command *const commands[] = {&helpCommand_,      &statusCommand_,   &radioCommand_,
+                                     &echoCommand_,      &runCommand_,      &wifiCommand_,
+                                     &resendCommand_,    &presenceCommand_, &loadRegistersCommand_,
+                                     &loadImageCommand_, &activateCommand_, &fragmentSizeCommand_,
+                                     &programCommand_};
   console_.writeDebug("commands:");
   for (const Command *command : commands) {
     String usage = "  ";
@@ -682,6 +813,7 @@ void NodeApplication::commandStatus() {
   emitWifi();
   emitPresence(now);
   emitVirtualMachine();
+  transfer_.emitTransfer(vm_.version());
 
   for (size_t index = 0; index < neighbors_.count(); ++index) {
     const Neighbor &neighbor = neighbors_.at(index);
@@ -689,6 +821,8 @@ void NodeApplication::commandStatus() {
     setNodeId(event, "id", neighbor.id);
     event["model"] = boardModelName(neighbor.model);
     event["version"] = neighbor.version;
+    event["available"] = neighbor.available;
+    setVmStatusFields(event, neighbor.vmStatus);
     event["tx"] = neighbor.transmitted;
     event["rssi"] = roundToDecimals(neighbor.rssi, 1);
     event["snr"] = roundToDecimals(neighbor.snr, 2);
@@ -916,66 +1050,78 @@ void NodeApplication::commandLoadRegisters(const Command &command) {
   debug("VM: registers loaded");
 }
 
-void NodeApplication::commandLoadProgram(const Command &command) {
-  if (command.countArgs() != 3) {
-    emitError("load_program", "usage", command.getDescription().c_str());
+void NodeApplication::commandLoadImage(const Command &command) {
+  if (command.countArgs() != 1) {
+    emitError("load_image", "usage", command.getDescription().c_str());
+    return;
+  }
+  const String image = command.getArgument(0).getValue();
+  char detail[ERROR_DETAIL_CAPACITY];
+  switch (transfer_.loadImage(image.c_str(), detail, sizeof(detail))) {
+  case ImageLoad::Accepted:
+    break;
+  case ImageLoad::Invalid:
+    emitError("load_image", "invalid_image", detail);
+    return;
+  case ImageLoad::VersionNotNewer:
+    emitError("load_image", "version_not_newer", detail);
+    return;
+  }
+  // The image is not activated: only the immediate HELLO and the full burst follow.
+  serviceTransferRequests();
+}
+
+void NodeApplication::commandActivate(const Command &command) {
+  if (command.countArgs() != 1) {
+    emitError("activate", "usage", command.getDescription().c_str());
     return;
   }
   const String versionText = command.getArgument(0).getValue();
-  const String lengthText = command.getArgument(1).getValue();
   unsigned long version = 0;
-  unsigned long length = 0;
-  const NumberParse versionParse = parseUnsigned(versionText.c_str(), 1, 0xFFFFFFFFUL, version);
-  const NumberParse lengthParse = parseUnsigned(lengthText.c_str(), 1, PROGRAM_CAPACITY, length);
-  if (versionParse == NumberParse::Invalid || lengthParse == NumberParse::Invalid) {
-    emitError("load_program", "usage", command.getDescription().c_str());
+  if (parseUnsigned(versionText.c_str(), 0, 0xFFFFFFFFUL, version) != NumberParse::Valid) {
+    emitError("activate", "usage", command.getDescription().c_str());
     return;
   }
   char detail[ERROR_DETAIL_CAPACITY];
-  if (versionParse == NumberParse::OutOfRange) {
-    emitError("load_program", "out_of_range", "version 1..4294967295");
+  if (version != transfer_.availableVersion()) {
+    snprintf(detail, sizeof(detail), "available version %lu",
+             static_cast<unsigned long>(transfer_.availableVersion()));
+    emitError("activate", "not_available", detail);
     return;
   }
-  if (lengthParse == NumberParse::OutOfRange) {
-    snprintf(detail, sizeof(detail), "length 1..%u", static_cast<unsigned>(PROGRAM_CAPACITY));
-    emitError("load_program", "out_of_range", detail);
-    return;
-  }
-
-  const String code = command.getArgument(2).getValue();
-  size_t decodedLength = 0;
-  if (code.length() != 2 * length) {
-    emitError("load_program", "invalid_program", "length does not match the code");
-    return;
-  }
-  if (!decodeHexBytes(code.c_str(), decodedProgram, sizeof(decodedProgram), decodedLength)) {
-    emitError("load_program", "invalid_program", "code is not hexadecimal");
-    return;
-  }
-
-  size_t errorOffset = 0;
-  switch (
-      vm_.loadProgram(static_cast<uint32_t>(version), decodedProgram, decodedLength, errorOffset)) {
-  case ProgramLoad::Accepted:
-    break;
-  case ProgramLoad::VersionNotNewer:
-    snprintf(detail, sizeof(detail), "current version %lu",
+  if (version <= vm_.version()) {
+    snprintf(detail, sizeof(detail), "active version %lu",
              static_cast<unsigned long>(vm_.version()));
-    emitError("load_program", "version_not_newer", detail);
-    return;
-  case ProgramLoad::InvalidLength:
-    emitError("load_program", "out_of_range", "length");
-    return;
-  case ProgramLoad::Malformed:
-    snprintf(detail, sizeof(detail), "bad instruction at %u", static_cast<unsigned>(errorOffset));
-    emitError("load_program", "invalid_program", detail);
+    emitError("activate", "version_not_newer", detail);
     return;
   }
-  emitVirtualMachine();
-  debug("VM: program v%lu", static_cast<unsigned long>(vm_.version()));
-  // The new program runs its first tick at once; the next ones follow the usual period.
-  lastTickMillis_ = millis();
-  vm_.startTick();
+  activateAvailableImage(ActivationCause::Console, 0);
+}
+
+void NodeApplication::commandFragmentSize(const Command &command) {
+  const String sizeText = command.getArgument("bytes").getValue();
+  if (sizeText.length() > 0) {
+    unsigned long size = 0;
+    const NumberParse parse =
+        parseUnsigned(sizeText.c_str(), MINIMUM_FRAGMENT_SIZE, MAXIMUM_FRAGMENT_SIZE, size);
+    if (parse == NumberParse::Invalid) {
+      emitError("fragment_size", "usage", command.getDescription().c_str());
+      return;
+    }
+    if (parse == NumberParse::OutOfRange) {
+      emitError("fragment_size", "out_of_range", "bytes 32..231");
+      return;
+    }
+    transfer_.setFragmentSize(static_cast<uint8_t>(size));
+  }
+  transfer_.emitTransfer(vm_.version());
+}
+
+void NodeApplication::commandProgram() {
+  JsonObject event = console_.beginEvent("program");
+  event["version"] = vm_.version();
+  event["size"] = vm_.programLength();
+  console_.writeEvent("code", vm_.program(), vm_.programLength());
 }
 
 bool NodeApplication::isRunActive() const { return runs_.isSending() || runs_.isReceiving(); }
@@ -1148,6 +1294,8 @@ void NodeApplication::emitBoot() {
   event["firmware"] = FIRMWARE_VERSION;
   event["protocol"] = PROTOCOL_VERSION;
   event["key"] = strcmp(J5_NETWORK_KEY, DEFAULT_NETWORK_KEY) == 0 ? "default" : "custom";
+  event["operator_key"] =
+      strcasecmp(J5_OPERATOR_PUBLIC_KEY, DEFAULT_OPERATOR_PUBLIC_KEY) == 0 ? "default" : "custom";
   console_.writeEvent();
 }
 

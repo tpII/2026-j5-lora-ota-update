@@ -4,6 +4,7 @@
   import {
     formatDuration,
     formatFrequency,
+    formatImageVersion,
     formatModulation,
     formatNumber,
     formatPower,
@@ -84,6 +85,7 @@
       {#if node.firmwareVersion !== null}
         {node.firmwareVersion} · protocolo {node.protocolVersion}
         {#if node.networkKey === "custom"}· clave de red propia{/if}
+        {#if node.operatorKey === "custom"}· clave del operador propia{/if}
       {:else}
         <span class="text-slate-500">se conoce con el próximo arranque</span>
       {/if}
@@ -140,6 +142,15 @@
       {/if}
       {#if uptime !== null}
         <br /><span class="text-slate-500">Encendido hace {formatDuration(uptime)}</span>
+      {/if}
+    </dd>
+
+    <dt class="text-slate-500">Versiones</dt>
+    <dd>
+      activa <span class="font-mono">{formatImageVersion(node.activeVersion)}</span> · disponible
+      <span class="font-mono">{formatImageVersion(node.availableVersion)}</span>
+      {#if node.imageReception !== null}
+        · recibe <span class="font-mono">{node.imageReception.version}</span>
       {/if}
     </dd>
 

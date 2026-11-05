@@ -1,5 +1,5 @@
 /**
- * Console events emitted by a node, as defined in docs/protocol/console.md (contract version 1).
+ * Console events emitted by a node, as defined in docs/protocol/console.md (contract version 2).
  *
  * Each event is described once, as a Zod schema, and its type is inferred from the schema. Every
  * event carries `t` (milliseconds since the node booted) and `ev` (the event name); the other
@@ -59,10 +59,23 @@ export const lnaModeSchema = oneOf(LNA_MODES);
 const wifiStateSchema = oneOf(["on", "off"]);
 const presenceStateSchema = oneOf(["on", "off"]);
 const keyKindSchema = oneOf(["default", "custom"]);
-const transmissionTypeSchema = oneOf(["hello", "echo_request", "echo_reply", "test"]);
+const transmissionTypeSchema = oneOf([
+  "hello",
+  "echo_request",
+  "echo_reply",
+  "test",
+  "fragment",
+  "report",
+]);
 const dropReasonSchema = oneOf(["crc", "short", "tag", "type", "body"]);
 const runEndReasonSchema = oneOf(["complete", "timeout"]);
 const vmFaultSchema = oneOf(VM_FAULTS);
+/** Fault reason of a HELLO or a `neighbor` event: null when there was none since the activation. */
+const vmFaultOrNullSchema = oneOf([...VM_FAULTS, null]);
+const imageArrivalSchema = oneOf(["console", "radio"]);
+const imageRejectionReasonSchema = oneOf(["format", "signature", "program"]);
+const burstCauseSchema = oneOf(["load", "complete", "hello", "report"]);
+const activationCauseSchema = oneOf(["console", "hello", "neighbor"]);
 
 export type BoardModel = z.infer<typeof boardModelSchema>;
 export type LnaMode = z.infer<typeof lnaModeSchema>;
@@ -70,6 +83,11 @@ export type WifiState = z.infer<typeof wifiStateSchema>;
 export type PresenceState = z.infer<typeof presenceStateSchema>;
 export type KeyKind = z.infer<typeof keyKindSchema>;
 export type RunEndReason = z.infer<typeof runEndReasonSchema>;
+export type TransmissionType = z.infer<typeof transmissionTypeSchema>;
+export type ImageArrival = z.infer<typeof imageArrivalSchema>;
+export type ImageRejectionReason = z.infer<typeof imageRejectionReasonSchema>;
+export type BurstCause = z.infer<typeof burstCauseSchema>;
+export type ActivationCause = z.infer<typeof activationCauseSchema>;
 
 /**
  * Reasons of the `error` event the contract lists. The event accepts any other reason, since a
@@ -82,11 +100,12 @@ export const KNOWN_ERROR_REASONS = [
   "unreachable_power",
   "not_supported",
   "busy",
+  "not_available",
   "radio_failure",
   "wifi_failure",
   "line_too_long",
   "version_not_newer",
-  "invalid_program",
+  "invalid_image",
 ] as const;
 export type KnownErrorReason = (typeof KNOWN_ERROR_REASONS)[number];
 
@@ -119,6 +138,20 @@ const helloNeighborReportSchema = z.object(
 );
 export type HelloNeighborReport = z.infer<typeof helloNeighborReportSchema>;
 
+const nodeIdentifierOrNullSchema = z.nullable(
+  z
+    .string({ error: `${NODE_IDENTIFIER_EXPECTATION} o null` })
+    .check(z.regex(/^[0-9A-F]{4}$/, { error: `${NODE_IDENTIFIER_EXPECTATION} o null` })),
+);
+
+const fragmentIndexListSchema = z.array(numberSchema, { error: "una lista de índices" });
+
+const PROGRAM_CODE_EXPECTATION = "dos dígitos hexadecimales en minúscula por byte";
+
+const programCodeSchema = z
+  .string({ error: PROGRAM_CODE_EXPECTATION })
+  .check(z.regex(/^(?:[0-9a-f]{2})*$/, { error: PROGRAM_CODE_EXPECTATION }));
+
 const eventHeaderSchema = z.object({
   /** Milliseconds since the node booted. */
   t: numberSchema,
@@ -131,7 +164,10 @@ const bootEventSchema = z.extend(eventHeaderSchema, {
   epoch: numberSchema,
   firmware: textSchema,
   protocol: numberSchema,
+  /** Network key. */
   key: keyKindSchema,
+  /** Public key of the operator that verifies the images. */
+  operator_key: keyKindSchema,
 });
 
 const radioEventSchema = z.extend(eventHeaderSchema, {
@@ -170,7 +206,14 @@ const neighborEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("neighbor"),
   id: nodeIdentifierSchema,
   model: boardModelSchema,
+  /** Active version of the neighbor. */
   version: numberSchema,
+  /** Available version of the neighbor. */
+  available: numberSchema,
+  /** Last VM fault of the neighbor since its activation; null when there was none. */
+  vm_fault: vmFaultOrNullSchema,
+  /** True when the last tick of the neighbor ended in a fault. */
+  vm_failing: booleanSchema,
   tx: numberSchema,
   rssi: numberSchema,
   snr: numberSchema,
@@ -192,14 +235,24 @@ const transmissionEventSchema = z
     toa_calc: numberSchema,
     /** Only in "test" transmissions. */
     run: optional(numberSchema),
-    /** Only in "test" transmissions. */
+    /** Only in "test" (position in the run) and "fragment" (index of the fragment). */
     index: optional(numberSchema),
+    /** Only in "fragment" and "report": version of the image. */
+    version: optional(numberSchema),
   })
   .check(
     z.refine(
       (event) => event.type !== "test" || (event.run !== undefined && event.index !== undefined),
       { error: "una transmisión de tipo test debe incluir run e index" },
     ),
+    z.refine(
+      (event) =>
+        event.type !== "fragment" || (event.version !== undefined && event.index !== undefined),
+      { error: "una transmisión de tipo fragment debe incluir version e index" },
+    ),
+    z.refine((event) => event.type !== "report" || event.version !== undefined, {
+      error: "una transmisión de tipo report debe incluir version",
+    }),
   );
 
 const helloEventSchema = z.extend(eventHeaderSchema, {
@@ -208,7 +261,13 @@ const helloEventSchema = z.extend(eventHeaderSchema, {
   epoch: numberSchema,
   seq: numberSchema,
   model: boardModelSchema,
+  /** Active version of the sender. */
   version: numberSchema,
+  /** Available version of the sender. */
+  available: numberSchema,
+  vm_fault: vmFaultOrNullSchema,
+  vm_failing: booleanSchema,
+  /** Packets transmitted by the sender since it booted. */
   tx: numberSchema,
   rssi: numberSchema,
   snr: numberSchema,
@@ -353,6 +412,123 @@ const virtualMachineFaultEventSchema = z.extend(eventHeaderSchema, {
   reason: vmFaultSchema,
 });
 
+const transferEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("transfer"),
+  active: numberSchema,
+  available: numberSchema,
+  /** Version of the reception in progress, or null. */
+  receiving: numberOrNullSchema,
+  /** Bytes the reception in progress still lacks, or null. */
+  missing: numberOrNullSchema,
+  /** Fragment size of the node's complete bursts, in bytes. */
+  fragment_size: numberSchema,
+});
+
+const imageEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("image"),
+  version: numberSchema,
+  /** Program length in bytes. */
+  size: numberSchema,
+  /** Length of the whole image in bytes. */
+  image_size: numberSchema,
+  via: imageArrivalSchema,
+  /** Node that sent the last fragment; null with "console". */
+  src: nodeIdentifierOrNullSchema,
+  /** Fragments of that version accepted during the reception, repeated ones included. */
+  fragments: numberSchema,
+  /** Reports sent during the reception. */
+  reports: numberSchema,
+  /** Milliseconds from the first fragment of the reception to its completion. */
+  duration: numberSchema,
+});
+
+const imageRejectedEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("image_rejected"),
+  version: numberSchema,
+  reason: imageRejectionReasonSchema,
+  src: nodeIdentifierSchema,
+});
+
+const fragmentReceptionEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("fragment_rx"),
+  src: nodeIdentifierSchema,
+  version: numberSchema,
+  index: numberSchema,
+  count: numberSchema,
+  /** Fragment size of the burst, in bytes. */
+  size: numberSchema,
+  /** Fragments left in the burst after this one. */
+  remaining: numberSchema,
+  /** True when the fragment belongs to the reception in progress. */
+  accepted: booleanSchema,
+  /** True when the fragment brought some byte that was missing. */
+  new: booleanSchema,
+  rssi: numberSchema,
+  snr: numberSchema,
+});
+
+const burstStartEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("burst_start"),
+  version: numberSchema,
+  /** Fragment size, in bytes. */
+  size: numberSchema,
+  /** Fragments of the burst when it starts; a report may add more. */
+  count: numberSchema,
+  cause: burstCauseSchema,
+  /** With "hello" and "report": the node that triggered the burst; otherwise null. */
+  trigger: nodeIdentifierOrNullSchema,
+});
+
+const burstDoneEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("burst_done"),
+  version: numberSchema,
+  size: numberSchema,
+  /** Fragments transmitted. */
+  sent: numberSchema,
+  /** Microseconds from the start of the first fragment to the end of the last one. */
+  duration: numberSchema,
+});
+
+const reportSentEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("report_sent"),
+  dst: nodeIdentifierSchema,
+  version: numberSchema,
+  size: numberSchema,
+  count: numberSchema,
+  /** Indices of the missing fragments. */
+  missing: fragmentIndexListSchema,
+  /** Number of the report within the reception, from 1. */
+  round: numberSchema,
+});
+
+const reportReceivedEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("report_received"),
+  src: nodeIdentifierSchema,
+  version: numberSchema,
+  size: numberSchema,
+  count: numberSchema,
+  missing: fragmentIndexListSchema,
+});
+
+const activationEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("activation"),
+  version: numberSchema,
+  previous: numberSchema,
+  cause: activationCauseSchema,
+  /** With "hello" and "neighbor": the neighbor that announced the version; otherwise null. */
+  src: nodeIdentifierOrNullSchema,
+});
+
+const programEventSchema = z.extend(eventHeaderSchema, {
+  ev: z.literal("program"),
+  /** Active version. */
+  version: numberSchema,
+  /** Program length in bytes. */
+  size: numberSchema,
+  /** The program, two lowercase hexadecimal digits per byte; empty with version 0. */
+  code: programCodeSchema,
+});
+
 const errorEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("error"),
   /** First word of the command, or "radio" for a radio failure. */
@@ -387,6 +563,16 @@ export const consoleEventSchema = z.discriminatedUnion("ev", [
   virtualMachineEventSchema,
   virtualMachinePrintEventSchema,
   virtualMachineFaultEventSchema,
+  transferEventSchema,
+  imageEventSchema,
+  imageRejectedEventSchema,
+  fragmentReceptionEventSchema,
+  burstStartEventSchema,
+  burstDoneEventSchema,
+  reportSentEventSchema,
+  reportReceivedEventSchema,
+  activationEventSchema,
+  programEventSchema,
   errorEventSchema,
 ]);
 
@@ -402,6 +588,19 @@ export type EchoLostEvent = ConsoleEventOf<"echo_lost">;
 export type RunEndEvent = ConsoleEventOf<"run_end">;
 export type ErrorEvent = ConsoleEventOf<"error">;
 export type VirtualMachineEvent = ConsoleEventOf<"vm">;
+export type HelloEvent = ConsoleEventOf<"hello">;
+export type NeighborEvent = ConsoleEventOf<"neighbor">;
+export type TransmissionEvent = ConsoleEventOf<"tx">;
+export type TransferEvent = ConsoleEventOf<"transfer">;
+export type ImageEvent = ConsoleEventOf<"image">;
+export type ImageRejectedEvent = ConsoleEventOf<"image_rejected">;
+export type FragmentReceptionEvent = ConsoleEventOf<"fragment_rx">;
+export type BurstStartEvent = ConsoleEventOf<"burst_start">;
+export type BurstDoneEvent = ConsoleEventOf<"burst_done">;
+export type ReportSentEvent = ConsoleEventOf<"report_sent">;
+export type ReportReceivedEvent = ConsoleEventOf<"report_received">;
+export type ActivationEvent = ConsoleEventOf<"activation">;
+export type ProgramEvent = ConsoleEventOf<"program">;
 
 /** Event names in the order of docs/protocol/console.md. */
 export const CONSOLE_EVENT_NAMES: readonly ConsoleEventName[] = consoleEventSchema.def.options.map(

@@ -70,7 +70,7 @@ La carga rechaza de antemano los programas con `invalid_opcode`, `invalid_regist
 
 ## Lenguaje ensamblador
 
-El panel ensambla el programa antes de cargarlo. Va una instrucción por línea, con los operandos separados por comas o espacios. Los registros se escriben de `R1` a `R4` y los enteros en decimal o en hexadecimal con `0x`, de −2147483648 a 4294967295; por encima de 2147483647 se guarda el patrón de bits. Los comentarios empiezan con `;;`. Los mnemónicos no distinguen mayúsculas.
+El panel ensambla el programa antes de firmarlo como imagen. Va una instrucción por línea, con los operandos separados por comas o espacios. Los registros se escriben de `R1` a `R4` y los enteros en decimal o en hexadecimal con `0x`, de −2147483648 a 4294967295; por encima de 2147483647 se guarda el patrón de bits. Los comentarios empiezan con `;;`. Los mnemónicos no distinguen mayúsculas.
 
 ```
 ;; R1 = 5 + 3, then (R1 - 10) x R2
@@ -84,4 +84,4 @@ El panel ensambla el programa antes de cargarlo. Va una instrucción por línea,
     HALT
 ```
 
-Se ensambla en `020105000000 020203000000 110102 0101 12010a000000 150102 0101 00`, 29 bytes, y se carga con `load_program 1 29 020105000000020203000000110102010112010a000000150102010100`.
+Se ensambla en `020105000000 020203000000 110102 0101 12010a000000 150102 0101 00`, 29 bytes. Para ejecutarlo en un nodo, el panel lo empaqueta con su cabecera y lo firma como imagen ([imagen](image.md)), lo carga con `load_image` y lo activa con `activate` ([consola](console.md)).

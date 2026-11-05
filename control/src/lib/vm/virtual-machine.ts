@@ -66,7 +66,7 @@ function checkInstruction(code: Uint8Array, address: number): VmFault | null {
 
 /** Checks a whole program as the node does before accepting it. */
 export function checkProgram(code: Uint8Array): ProgramCheck {
-  for (let address = 0; address < code.length; ) {
+  for (let address = 0; address < code.length;) {
     const fault = checkInstruction(code, address);
     if (fault !== null) {
       return { valid: false, address, fault };
@@ -88,7 +88,7 @@ function applyOperation(operation: number, left: number, right: number): number 
     case 0x16:
       return Math.trunc(left / right) | 0;
     case 0x18:
-      return left % right | 0;
+      return (left % right) | 0;
     case 0x20:
       return left & right;
     case 0x22:

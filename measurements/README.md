@@ -6,7 +6,7 @@ Cada exportación del panel de control queda en una carpeta propia:
 measurements/<AAAA-MM-DD>-<prueba>-<NN>/
 ```
 
-- `<prueba>` es `power-sweep` (barrido de potencia), `capacity-test` (prueba de capacidad) o `communication-test` (prueba de comunicación).
+- `<prueba>` es `power-sweep` (barrido de potencia), `capacity-test` (prueba de capacidad), `communication-test` (prueba de comunicación) o `update` (actualizaciones).
 - `<NN>` es un número de dos dígitos que distingue las exportaciones de un mismo día, desde `01`.
 
 ## Archivos
@@ -21,7 +21,7 @@ measurements/<AAAA-MM-DD>-<prueba>-<NN>/
 
 | Campo | Descripción |
 |---|---|
-| `test` | `"power-sweep"`, `"capacity-test"` o `"communication-test"` |
+| `test` | `"power-sweep"`, `"capacity-test"`, `"communication-test"` o `"update"` |
 | `date` | Fecha y hora de la exportación, en ISO 8601 |
 | `place` | Lugar de la medición |
 | `distance_m` | Distancia entre los nodos en metros, o `null` |
@@ -139,3 +139,42 @@ Una fila por cada emisor cuyos ecos respondió el nodo.
 | `src` | Identificador del emisor |
 | `size` | Largo del cuerpo, en bytes |
 | `rssi`, `snr` | Calidad con que llegó el pedido |
+
+## Actualizaciones
+
+La pestaña Actualización exporta una carpeta `<AAAA-MM-DD>-update-<NN>/` con las métricas M1, M2 y M3 ([consola](../docs/protocol/console.md)) de cada imagen que algún nodo aceptó con `load_image`, es decir, que respondió con un `image` con `via` en `"console"`, desde que se descartó el registro de mediciones. Tiene tres archivos:
+
+- `metadata.json`: los campos de arriba, más:
+  - `updates`: una lista de objetos, uno por actualización, con `version`, `origin` (el nodo origen, o `null` si el panel no vio su evento `image`), `load_host_time`, `activate_host_time` (`null` sin orden de activación) y `nodes`, los nodos del grafo de conexiones que usaron las métricas;
+  - `commands`: cada `load_image` y cada `activate` que envió el panel, como objetos `{ "node", "host_time", "command", "version" }`. Con estas horas y `events.jsonl` se pueden volver a calcular las métricas.
+- `events.jsonl`: todos los eventos del registro, con el formato de arriba. Incluye los anteriores a la carga, porque M2 parte del último contador `tx` informado antes de ella.
+- `summary.csv`: una fila por receptor de cada actualización, es decir, por cada nodo del grafo salvo el nodo origen. Los valores de toda la red se repiten en cada fila de la misma actualización.
+
+Los tiempos se miden con la hora de la computadora al recibir cada evento. Un nodo anuncia una versión cuando la informa por su consola o cuando la informa un HELLO o un `neighbor` que escucha un nodo conectado.
+
+### `summary.csv` de las actualizaciones
+
+| Columna | Descripción |
+|---|---|
+| `version` | Versión de la imagen |
+| `origin` | Nodo origen, vacío si no se conoce |
+| `node`, `node_model` | Identificador y modelo de placa del receptor |
+| `connected` | `true` si el panel tenía abierta la consola del receptor |
+| `load_host_time`, `activate_host_time` | Hora de la computadora al enviar `load_image` y `activate`, en milisegundos desde 1970; la segunda, vacía sin orden de activación |
+| `convergence_ms` | M1: desde `load_image` hasta que todos los nodos del grafo anuncian la versión como activa; vacío si no terminó |
+| `distribution_ms` | Parte de M1: desde `load_image` hasta que todos la anuncian como disponible |
+| `activation_ms` | Parte de M1: desde `activate` hasta que todos la anuncian como activa |
+| `node_available_ms`, `node_active_ms` | Desde `load_image` hasta que el receptor anuncia la versión como disponible y como activa |
+| `transmitted` | M2: paquetes transmitidos por todos los nodos durante la actualización, HELLO incluidos, según la diferencia de los contadores `tx`; vacío si falta el contador de algún nodo |
+| `fragment_count` | Fragmentos de la imagen: `count` de la ráfaga que disparó la carga o, si el panel no la vio, de la primera ráfaga de una imagen completada por la radio |
+| `minimum` | `fragment_count` por la cantidad de nodos del grafo menos uno |
+| `efficiency` | M2: `transmitted / minimum`, con cuatro decimales |
+| `node_transmitted` | Paquetes que transmitió el receptor durante la actualización |
+| `node_starts_after_load` | `true` si el primer contador del receptor llegó después de la carga, así que `node_transmitted` no cuenta algunos paquetes |
+| `transfer_fragments`, `transfer_reports` | Tramas FRAGMENT y REPORT de la versión en los eventos `tx` de los nodos conectados |
+| `transfer_complete` | `true` si todos los nodos del grafo estaban conectados, de modo que las dos columnas anteriores cuentan toda la red |
+| `first_report_count`, `first_report_missing` | Fragmentos de la imagen y fragmentos faltantes del primer reporte del receptor; vacíos si no envió ninguno o no se vio |
+| `missing_percent` | M3: porcentaje de fragmentos faltantes en el primer reporte; 0 si el receptor completó la imagen sin reportes |
+| `repair_rounds` | M3: rondas de reparación, `reports` del evento `image` del receptor; vacío si el receptor no estaba conectado |
+| `observed_reports` | Reportes del receptor que vio el panel: los que envió, si estaba conectado, o los que recibieron los nodos conectados |
+| `image_fragments`, `image_duration_ms` | `fragments` y `duration` del evento `image` del receptor |

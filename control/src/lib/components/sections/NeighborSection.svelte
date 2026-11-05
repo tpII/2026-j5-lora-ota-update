@@ -1,7 +1,14 @@
 <script lang="ts">
   import { STATUS_COMMAND } from "$lib/console/console-command.ts";
   import { isNeighborExpired, neighborAge } from "$lib/nodes/node-state.ts";
-  import { formatDuration, formatNumber, formatRssi, formatSnr } from "$lib/utils/format.ts";
+  import {
+    formatDuration,
+    formatImageVersion,
+    formatNumber,
+    formatRssi,
+    formatSnr,
+  } from "$lib/utils/format.ts";
+  import { VM_FAULT_LABELS } from "$lib/utils/labels.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   let { panel }: { panel: ControlPanel } = $props();
@@ -55,7 +62,9 @@
                 <th>Último paquete</th>
                 <th>HELLO recibidos</th>
                 <th>Paquetes que transmitió</th>
-                <th>Programa</th>
+                <th>Versión activa</th>
+                <th>Versión disponible</th>
+                <th>VM</th>
               </tr>
             </thead>
             <tbody>
@@ -75,11 +84,16 @@
                   </td>
                   <td>{formatNumber(neighbor.helloCount)}</td>
                   <td>{formatNumber(neighbor.transmitted)}</td>
-                  <td>{neighbor.version === 0 ? "ninguno" : formatNumber(neighbor.version)}</td>
+                  <td class="font-mono">{formatImageVersion(neighbor.version)}</td>
+                  <td class="font-mono">{formatImageVersion(neighbor.availableVersion)}</td>
+                  <td class="text-xs {neighbor.vmFault !== null || neighbor.vmFailing ? 'text-red-700' : ''}">
+                    {neighbor.vmFault === null ? "sin fallas" : VM_FAULT_LABELS[neighbor.vmFault]}
+                    {#if neighbor.vmFailing}· el último tick falló{/if}
+                  </td>
                 </tr>
                 <tr class={expired ? "text-slate-400" : ""}>
                   <td></td>
-                  <td colspan="8" class="text-xs text-slate-600">
+                  <td colspan="10" class="text-xs text-slate-600">
                     {#if neighbor.reportedNeighbors === null}
                       Sin HELLO recibido: no se sabe cómo escucha {neighbor.id} a sus vecinos.
                     {:else if neighbor.reportedNeighbors.length === 0}

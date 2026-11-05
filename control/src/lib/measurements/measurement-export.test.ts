@@ -153,7 +153,7 @@ describe("events.jsonl", () => {
     const lines = [...journal.events(new Set(["5C21"]))].map(buildEventLine);
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(
-      `{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.1.0","protocol":1,"key":"default","node":"5C21","host_time":${SENDER_BOOT_HOST_TIME + 640}}`,
+      `{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default","node":"5C21","host_time":${SENDER_BOOT_HOST_TIME + 640}}`,
     );
     // Without a choice, events of connections with no known node go out with node null.
     expect([...journal.events()].at(-1)).toMatchObject({ node: null, hostTime: 7 });

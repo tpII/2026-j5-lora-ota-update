@@ -20,6 +20,7 @@
 #include "../services/echo_service.h"
 #include "../services/presence_service.h"
 #include "../services/test_run_service.h"
+#include "../services/transfer_service.h"
 #include "../vm/virtual_machine.h"
 
 namespace firmware {
@@ -62,6 +63,10 @@ private:
   void handleTestFrame(const FrameHeader &header, const uint8_t *payload, size_t length,
                        const ReceivedFrame &frame, uint32_t nowMillis);
 
+  // Image transfer: activations and the immediate HELLO that the transfer service asks for.
+  void serviceTransferRequests();
+  void activateAvailableImage(ActivationCause cause, uint16_t source);
+
   // Transmission queue.
   bool enqueueFrame(MessageType type, uint16_t destination, const uint8_t *payload,
                     size_t payloadLength, bool priority);
@@ -69,6 +74,7 @@ private:
   OutgoingFrame *reserveQueueSlot(bool priority);
   void enqueueHello();
   void enqueueTestFrame();
+  void enqueueTransferFrame(uint32_t nowMillis);
 
   // Console.
   void registerCommands();
@@ -84,7 +90,10 @@ private:
   void commandResend();
   void commandPresence(const Command &command);
   void commandLoadRegisters(const Command &command);
-  void commandLoadProgram(const Command &command);
+  void commandLoadImage(const Command &command);
+  void commandActivate(const Command &command);
+  void commandFragmentSize(const Command &command);
+  void commandProgram();
   bool isRunActive() const;
   void requestRadioSettings(const RadioSettings &settings);
   void applyRadioSettings(const RadioSettings &settings);
@@ -118,6 +127,7 @@ private:
   PresenceService presence_;
   EchoService echo_;
   TestRunService runs_;
+  TransferService transfer_;
   SerialTransport serial_;
   WirelessTransport wireless_;
   Console console_;
@@ -134,7 +144,10 @@ private:
   Command resendCommand_;
   Command presenceCommand_;
   Command loadRegistersCommand_;
-  Command loadProgramCommand_;
+  Command loadImageCommand_;
+  Command activateCommand_;
+  Command fragmentSizeCommand_;
+  Command programCommand_;
 
   OutgoingFrame queue_[TRANSMIT_QUEUE_CAPACITY] = {};
   size_t queueHead_ = 0;
@@ -154,7 +167,7 @@ private:
   uint16_t echoCounter_ = 0;
   uint32_t lastExpiryMillis_ = 0;
   uint32_t lastTickMillis_ = 0;
-  char commandLine_[PROGRAM_LINE_CAPACITY + 1] = {};
+  char commandLine_[IMAGE_LINE_CAPACITY + 1] = {};
   char accessPointName_[12] = {};
 };
 

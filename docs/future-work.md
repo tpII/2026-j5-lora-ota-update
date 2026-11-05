@@ -33,8 +33,3 @@ Las PDR de campo del E2 se midieron con tramas de 20 bytes, y la prueba de capac
 ## Restricciones regulatorias en el firmware
 
 Después de las pruebas de radio, el firmware debería hacer cumplir la Res. ENACOM 4653/2019 ([ADR 0004](adrs/0004-only-500-khz-channels-on-air.md)). La idea es un parámetro que indique si el nodo tiene antena o carga. Con antena, el firmware rechazaría 125 y 250 kHz y limitaría la potencia a unos 26 dBm.
-
-## M1 con la transferencia
-
-M1 se mide recién cuando exista la transferencia de imágenes ([ADR 0006](adrs/0006-convergence-time-deferred.md)).
-

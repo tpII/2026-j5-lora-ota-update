@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../configuration.h"
 #include "serial_transport.h"
 #include "wireless_transport.h"
 
@@ -23,6 +24,10 @@ public:
   // caller adds its own fields to the returned object and then calls writeEvent().
   JsonObject beginEvent(const char *name);
   void writeEvent();
+  // Writes the event with one more field at the end: the bytes as a text of two lowercase
+  // hexadecimal digits per byte. The digits go straight into the line, so a whole program does not
+  // need a copy inside the JSON document.
+  void writeEvent(const char *hexadecimalKey, const uint8_t *bytes, size_t length);
   void writeDebug(const char *text);
 
   // Lines dropped on any transport because its output buffer was full.
@@ -34,6 +39,8 @@ private:
   SerialTransport *serial_ = nullptr;
   WirelessTransport *wireless_ = nullptr;
   JsonDocument event_;
+  // Static storage rather than the stack of loop(), because the program event takes over 2 KB.
+  char line_[EVENT_LINE_CAPACITY] = {};
   uint32_t droppedLines_ = 0;
 };
 

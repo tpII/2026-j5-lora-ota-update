@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   MAXIMUM_COMMAND_LENGTH,
-  MAXIMUM_PROGRAM_COMMAND_LENGTH,
+  MAXIMUM_IMAGE_COMMAND_LENGTH,
+  buildActivateCommand,
   buildEchoCommand,
-  buildLoadProgramCommand,
+  buildFragmentSizeCommand,
+  buildLoadImageCommand,
   buildLoadRegistersCommand,
   buildPresenceOffCommand,
   buildRadioSetCommand,
@@ -14,6 +16,8 @@ import {
   type CommandResult,
   type RadioSettingChanges,
 } from "./console-command.ts";
+import { assembleImage, encodeImageHeader, parseHex } from "$lib/image/image-format.ts";
+import { TEST_VECTOR_IMAGE } from "$lib/testing/image-test-vector.ts";
 
 function commandOf(result: CommandResult): string {
   if (!result.valid) {
@@ -171,25 +175,67 @@ describe("buildLoadRegistersCommand", () => {
   });
 
   it("refuses missing, fractional and out-of-range values", () => {
-    expect(problemFieldsOf(buildLoadRegistersCommand([1, 2.5, 4294967296]))).toEqual(["r2", "r3", "r4"]);
+    expect(problemFieldsOf(buildLoadRegistersCommand([1, 2.5, 4294967296]))).toEqual([
+      "r2",
+      "r3",
+      "r4",
+    ]);
   });
 });
 
-describe("buildLoadProgramCommand", () => {
-  it("writes the version, the length and the code in hexadecimal", () => {
-    expect(commandOf(buildLoadProgramCommand(2, Uint8Array.of(0x01, 0x01, 0x00)))).toBe(
-      "load_program 2 3 010100",
+describe("buildLoadImageCommand", () => {
+  it("writes the image in lowercase hexadecimal", () => {
+    const image = parseHex(TEST_VECTOR_IMAGE.toUpperCase());
+    expect(commandOf(buildLoadImageCommand(image ?? new Uint8Array(0)))).toBe(
+      `load_image ${TEST_VECTOR_IMAGE}`,
     );
   });
 
-  it("may exceed the limit of the other commands with a full program", () => {
-    const command = commandOf(buildLoadProgramCommand(4294967295, new Uint8Array(1024)));
+  it("may exceed the limit of the other commands with a full image", () => {
+    // 1024 HALT instructions, with a signature the node will reject but the panel cannot check.
+    const image = assembleImage(
+      encodeImageHeader(4294967295, 1024),
+      new Uint8Array(1024),
+      new Uint8Array(64),
+    );
+    const command = commandOf(buildLoadImageCommand(image));
+    expect(command.length).toBe("load_image ".length + 2 * 1097);
     expect(command.length).toBeGreaterThan(MAXIMUM_COMMAND_LENGTH);
-    expect(command.length).toBeLessThanOrEqual(MAXIMUM_PROGRAM_COMMAND_LENGTH);
+    expect(command.length).toBeLessThanOrEqual(MAXIMUM_IMAGE_COMMAND_LENGTH);
+    expect(MAXIMUM_IMAGE_COMMAND_LENGTH).toBe(2226);
   });
 
-  it("refuses version 0 and an empty or oversized program", () => {
-    expect(problemFieldsOf(buildLoadProgramCommand(0, new Uint8Array(0)))).toEqual(["version", "program"]);
-    expect(problemFieldsOf(buildLoadProgramCommand(1, new Uint8Array(1025)))).toEqual(["program"]);
+  it("refuses an image too short, too long or malformed", () => {
+    expect(problemFieldsOf(buildLoadImageCommand(new Uint8Array(73)))).toEqual(["image"]);
+    expect(problemFieldsOf(buildLoadImageCommand(new Uint8Array(1098)))).toEqual(["image"]);
+    const image = parseHex(TEST_VECTOR_IMAGE) ?? new Uint8Array(0);
+    image[0] = 0;
+    expect(problemFieldsOf(buildLoadImageCommand(image))).toEqual(["image"]);
+  });
+});
+
+describe("buildActivateCommand", () => {
+  it("writes the version in decimal", () => {
+    expect(commandOf(buildActivateCommand(1762300800))).toBe("activate 1762300800");
+    expect(commandOf(buildActivateCommand(4294967295))).toBe("activate 4294967295");
+  });
+
+  it("refuses version 0 and values out of range", () => {
+    expect(problemFieldsOf(buildActivateCommand(0))).toEqual(["version"]);
+    expect(problemFieldsOf(buildActivateCommand(2 ** 32))).toEqual(["version"]);
+    expect(problemFieldsOf(buildActivateCommand(1.5))).toEqual(["version"]);
+  });
+});
+
+describe("buildFragmentSizeCommand", () => {
+  it("queries the transfer state without an argument", () => {
+    expect(commandOf(buildFragmentSizeCommand())).toBe("fragment_size");
+  });
+
+  it("sets a size from 32 to 231 bytes", () => {
+    expect(commandOf(buildFragmentSizeCommand(32))).toBe("fragment_size 32");
+    expect(commandOf(buildFragmentSizeCommand(231))).toBe("fragment_size 231");
+    expect(problemFieldsOf(buildFragmentSizeCommand(31))).toEqual(["bytes"]);
+    expect(problemFieldsOf(buildFragmentSizeCommand(232))).toEqual(["bytes"]);
   });
 });

@@ -88,7 +88,7 @@ export function instructionLength(opcode: number): number {
   return instruction === undefined ? 0 : LENGTH_OF_FORM[instruction.form];
 }
 
-/** Two hexadecimal digits per byte, in lowercase, as `load_program` takes the code. */
+/** Two hexadecimal digits per byte, in lowercase, as the `program` event writes the code. */
 export function formatProgramHex(code: Uint8Array): string {
   return Array.from(code, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

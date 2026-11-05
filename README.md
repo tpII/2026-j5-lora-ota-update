@@ -7,16 +7,17 @@ Red de nodos ESP32 con LoRa que distribuyen entre pares programas para una micro
 
 ## Estructura del repositorio
 
-| Ruta                  | Contenido                                           |
-| --------------------- | --------------------------------------------------- |
-| `CONTEXT.md`          | Directivas del repositorio y glosario, en inglés    |
-| `docs/E1-J5.pdf`      | Plan de proyecto entregado a la cátedra (E1)        |
-| `docs/adrs/`          | Registro de decisiones de arquitectura              |
-| `docs/protocol/`      | Contratos: parámetros de radio, trama y consola     |
-| `docs/future-work.md` | Tareas postergadas a propósito                      |
-| `firmware/`           | Sketch de Arduino de los nodos                      |
-| `control/`            | Panel de control: aplicación web con Svelte y Vite+ |
-| `measurements/`       | Datos crudos de las mediciones                      |
+| Ruta                  | Contenido                                                    |
+| --------------------- | ------------------------------------------------------------ |
+| `CONTEXT.md`          | Directivas del repositorio y glosario, en inglés             |
+| `docs/E1-J5.pdf`      | Plan de proyecto entregado a la cátedra (E1)                 |
+| `docs/adrs/`          | Registro de decisiones de arquitectura                       |
+| `docs/protocol/`      | Contratos: parámetros de radio, trama, imagen, VM y consola  |
+| `docs/future-work.md` | Tareas postergadas a propósito                               |
+| `firmware/`           | Sketch de Arduino de los nodos                               |
+| `keys/`               | Clave privada del operador por defecto, solo para desarrollo |
+| `control/`            | Panel de control: aplicación web con Svelte y Vite+          |
+| `measurements/`       | Datos crudos de las mediciones                               |
 
 ## Puesta en marcha
 

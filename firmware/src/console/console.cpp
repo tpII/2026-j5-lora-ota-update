@@ -5,8 +5,6 @@
 
 namespace firmware {
 
-static constexpr size_t EVENT_LINE_CAPACITY = 1024;
-
 void Console::begin(SerialTransport &serial, WirelessTransport &wireless) {
   serial_ = &serial;
   wireless_ = &wireless;
@@ -29,12 +27,39 @@ JsonObject Console::beginEvent(const char *name) {
 }
 
 void Console::writeEvent() {
-  char line[EVENT_LINE_CAPACITY];
-  if (measureJson(event_) >= sizeof(line)) {
+  if (measureJson(event_) >= sizeof(line_)) {
     ++droppedLines_;
     return;
   }
-  writeLine(line, serializeJson(event_, line, sizeof(line)));
+  writeLine(line_, serializeJson(event_, line_, sizeof(line_)));
+}
+
+void Console::writeEvent(const char *hexadecimalKey, const uint8_t *bytes, size_t length) {
+  static const char DIGITS[] = "0123456789abcdef";
+  // The document ends with '}': it is replaced by ,"key":"digits"}.
+  const size_t documentLength = measureJson(event_);
+  const size_t keyLength = strlen(hexadecimalKey);
+  const size_t total = documentLength + keyLength + 2 * length + 6;
+  if (total >= sizeof(line_)) {
+    ++droppedLines_;
+    return;
+  }
+  size_t position = serializeJson(event_, line_, sizeof(line_)) - 1;
+  line_[position++] = ',';
+  line_[position++] = '"';
+  memcpy(line_ + position, hexadecimalKey, keyLength);
+  position += keyLength;
+  line_[position++] = '"';
+  line_[position++] = ':';
+  line_[position++] = '"';
+  for (size_t index = 0; index < length; ++index) {
+    line_[position++] = DIGITS[bytes[index] >> 4];
+    line_[position++] = DIGITS[bytes[index] & 0x0F];
+  }
+  line_[position++] = '"';
+  line_[position++] = '}';
+  line_[position] = '\0';
+  writeLine(line_, position);
 }
 
 void Console::writeDebug(const char *text) {

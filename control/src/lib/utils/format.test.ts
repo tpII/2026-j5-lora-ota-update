@@ -4,6 +4,7 @@ import {
   formatDeliveryRatio,
   formatDuration,
   formatFrequency,
+  formatImageVersion,
   formatModulation,
   formatNumber,
   formatPower,
@@ -12,6 +13,14 @@ import {
   formatSyncWord,
 } from "./format.ts";
 import { countWithNoun, describeErrorReason } from "./labels.ts";
+
+describe("formatting of image versions", () => {
+  it("writes the version without thousands separators and names the factory program", () => {
+    expect(formatImageVersion(1762300800)).toBe("1762300800");
+    expect(formatImageVersion(0)).toBe("0 (fábrica)");
+    expect(formatImageVersion(null)).toBe("—");
+  });
+});
 
 describe("formatting for the operator", () => {
   it("uses the decimal comma and the thousands dot of Argentina", () => {

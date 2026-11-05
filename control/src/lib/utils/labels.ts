@@ -3,8 +3,15 @@ import type { CampaignStatus, PointStatus } from "$lib/measurements/capacity-tes
 import type { CapacityTestSeries } from "$lib/measurements/capacity-test-plan.ts";
 import type { CommunicationTestStatus } from "$lib/measurements/communication-test.ts";
 import type { ReceiverModeStatus } from "$lib/measurements/communication-receiver.ts";
-import type { ConsoleEventName, LnaMode } from "$lib/console/console-event.ts";
+import type {
+  ActivationCause,
+  BurstCause,
+  ConsoleEventName,
+  ImageRejectionReason,
+  LnaMode,
+} from "$lib/console/console-event.ts";
 import type { MeasurementTest } from "$lib/measurements/measurement-export.ts";
+import type { ActivationBlockReason, GraphNodeSource } from "$lib/nodes/connection-graph.ts";
 import type { ConnectionStatus } from "$lib/nodes/node-connection.ts";
 import type { ReceptionOutcome } from "$lib/measurements/test-run-ledger.ts";
 import type { TransportKind } from "$lib/transports/console-transport.ts";
@@ -32,6 +39,16 @@ export const EVENT_DESCRIPTIONS: { readonly [Name in ConsoleEventName]: string }
   vm: "estado de la VM",
   vm_print: "salida de la VM",
   vm_fault: "falla de la VM",
+  transfer: "estado de la transferencia",
+  image: "imagen disponible",
+  image_rejected: "imagen rechazada",
+  fragment_rx: "fragmento recibido",
+  burst_start: "comienzo de ráfaga",
+  burst_done: "fin de ráfaga",
+  report_sent: "reporte enviado",
+  report_received: "reporte recibido",
+  activation: "activación",
+  program: "programa activo",
   error: "error",
 };
 
@@ -43,11 +60,13 @@ const ERROR_REASON_DESCRIPTIONS: Readonly<Record<string, string>> = {
   unreachable_power: "el modelo de placa no puede entregar esa potencia",
   not_supported: "el parámetro no existe en este modelo",
   busy: "hay una corrida o un eco en curso",
+  not_available: "la versión de activate no es la disponible",
   radio_failure: "la radio rechazó la operación",
   wifi_failure: "no se pudo encender el punto de acceso",
-  line_too_long: "la línea supera los 200 caracteres (o el largo de un programa, en load_program)",
-  version_not_newer: "la versión del programa no es mayor que la activa",
-  invalid_program: "el código del programa no es válido",
+  line_too_long: "la línea supera los 200 caracteres (o el largo de una imagen, en load_image)",
+  version_not_newer:
+    "la versión de load_image no es mayor que la disponible, o la de activate no es mayor que la activa",
+  invalid_image: "la imagen no es hexadecimal o no pasa la verificación",
 };
 
 export const VM_FAULT_LABELS: { readonly [Fault in VmFault]: string } = {
@@ -57,6 +76,39 @@ export const VM_FAULT_LABELS: { readonly [Fault in VmFault]: string } = {
   invalid_opcode: "opcode inválido",
   invalid_register: "registro inválido",
   truncated_instruction: "instrucción incompleta al final del programa",
+};
+
+export const IMAGE_REJECTION_LABELS: { readonly [Reason in ImageRejectionReason]: string } = {
+  format: "formato inválido",
+  signature: "firma inválida",
+  program: "el programa no pasa la validación de la VM",
+};
+
+export const BURST_CAUSE_LABELS: { readonly [Cause in BurstCause]: string } = {
+  load: "carga por la consola",
+  complete: "imagen completada por la radio",
+  hello: "HELLO de un vecino con una versión disponible menor",
+  report: "reporte de un receptor",
+};
+
+export const ACTIVATION_CAUSE_LABELS: { readonly [Cause in ActivationCause]: string } = {
+  console: "orden del operador",
+  hello: "HELLO que la anuncia como activa",
+  neighbor: "un vecino ya la tenía activa",
+};
+
+export const ACTIVATION_BLOCK_REASON_LABELS: {
+  readonly [Reason in ActivationBlockReason]: string;
+} = {
+  unknown: "no se conoce su versión disponible",
+  missing: "todavía no tiene la imagen",
+  newer: "tiene disponible una versión mayor",
+};
+
+export const GRAPH_NODE_SOURCE_LABELS: { readonly [Source in GraphNodeSource]: string } = {
+  console: "consola",
+  neighbor: "HELLO de un vecino",
+  neighbor_list: "lista de vecinos de otro nodo",
 };
 
 export function describeErrorReason(reason: string): string {

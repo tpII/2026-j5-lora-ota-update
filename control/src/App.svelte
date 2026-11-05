@@ -10,6 +10,7 @@
   import PanelHeader from "./lib/components/PanelHeader.svelte";
   import RadioSection from "./lib/components/sections/RadioSection.svelte";
   import RunSection from "./lib/components/sections/RunSection.svelte";
+  import UpdateSection from "./lib/components/sections/UpdateSection.svelte";
   import VirtualMachineSection from "./lib/components/sections/VirtualMachineSection.svelte";
   import VirtualMachineSimulatorSection from "./lib/components/sections/VirtualMachineSimulatorSection.svelte";
   import { ControlPanel } from "./lib/state/control-panel.svelte.ts";
@@ -23,6 +24,7 @@
     | "runs"
     | "capacity"
     | "communication"
+    | "update"
     | "vm"
     | "simulator"
     | "export";
@@ -35,6 +37,7 @@
     { key: "runs", label: "Corridas" },
     { key: "capacity", label: "Prueba de capacidad" },
     { key: "communication", label: "Prueba de comunicación" },
+    { key: "update", label: "Actualización" },
     { key: "vm", label: "VM" },
     { key: "simulator", label: "Simulador" },
     { key: "export", label: "Exportar" },
@@ -129,8 +132,11 @@
   >
     <CommunicationTestSection {panel} />
   </div>
+  <div id="section-update" role="tabpanel" aria-labelledby="tab-update" hidden={activeSection !== "update"}>
+    <UpdateSection {panel} {draft} active={activeSection === "update"} />
+  </div>
   <div id="section-vm" role="tabpanel" aria-labelledby="tab-vm" hidden={activeSection !== "vm"}>
-    <VirtualMachineSection {panel} {draft} />
+    <VirtualMachineSection {panel} />
   </div>
   <div id="section-simulator" role="tabpanel" aria-labelledby="tab-simulator" hidden={activeSection !== "simulator"}>
     <VirtualMachineSimulatorSection {draft} />

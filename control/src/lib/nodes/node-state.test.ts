@@ -5,6 +5,9 @@ import {
   RECEIVER_RUN_LOG,
   SENDER_BOOT_HOST_TIME,
   SENDER_RUN_LOG,
+  UPDATE_ORIGIN_LOG,
+  UPDATE_RECEIVER_LOG,
+  UPDATE_VERSION,
   readFixtureEvents,
   type TimedConsoleEvent,
 } from "$lib/testing/console-fixtures.ts";
@@ -12,6 +15,8 @@ import {
   INITIAL_NODE_STATE,
   applyConsoleEvent,
   estimateUptime,
+  imageReceptionFraction,
+  isBurstActive,
   isNeighborExpired,
   isRunActive,
   neighborAge,
@@ -39,7 +44,7 @@ describe("applyConsoleEvent with a recorded session", () => {
       model: "V4.3",
       epoch: 12,
       firmwareVersion: "0.1.0",
-      protocolVersion: 1,
+      protocolVersion: 2,
       networkKey: "default",
       bootCount: 1,
     });
@@ -73,6 +78,9 @@ describe("applyConsoleEvent with a recorded session", () => {
       id: "5C21",
       model: "V2",
       version: 0,
+      availableVersion: 0,
+      vmFault: null,
+      vmFailing: false,
       transmitted: 4,
       rssi: -47,
       snr: 9.5,
@@ -155,8 +163,9 @@ describe("applyConsoleEvent with a recorded session", () => {
         model: "V4.3",
         epoch: 13,
         firmware: "0.1.0",
-        protocol: 1,
+        protocol: 2,
         key: "default",
+        operator_key: "default",
       },
       9,
     );
@@ -244,8 +253,9 @@ describe("applyConsoleEvent with test runs", () => {
         model: "V4.3",
         epoch: 13,
         firmware: "0.1.0",
-        protocol: 1,
+        protocol: 2,
         key: "default",
+        operator_key: "default",
       },
       BOOT_HOST_TIME + 90000,
     );
@@ -289,7 +299,12 @@ describe("applyConsoleEvent with the virtual machine", () => {
   );
 
   it("takes the program and the registers from vm", () => {
-    expect(loaded.virtualMachine).toMatchObject({ version: 3, size: 21, tick: 0, registers: [1, 2, 3, 4] });
+    expect(loaded.virtualMachine).toMatchObject({
+      version: 3,
+      size: 21,
+      tick: 0,
+      registers: [1, 2, 3, 4],
+    });
   });
 
   it("updates the printed register and keeps the output", () => {
@@ -311,15 +326,295 @@ describe("applyConsoleEvent with the virtual machine", () => {
       { t: 30, ev: "vm_fault", tick: 1, pc: 6, reason: "division_by_zero" },
       HOST_TIME + 20,
     );
-    expect(faulted.lastVirtualMachineFault).toMatchObject({ address: 6, reason: "division_by_zero" });
+    expect(faulted.lastVirtualMachineFault).toMatchObject({
+      address: 6,
+      reason: "division_by_zero",
+    });
   });
 
   it("returns to the factory program after a boot", () => {
     const rebooted = applyConsoleEvent(
       loaded,
-      { t: 5, ev: "boot", id: "3A7F", model: "V2", epoch: 2, firmware: "0.1.0", protocol: 1, key: "default" },
+      {
+        t: 5,
+        ev: "boot",
+        id: "3A7F",
+        model: "V2",
+        epoch: 2,
+        firmware: "0.1.0",
+        protocol: 2,
+        key: "default",
+        operator_key: "default",
+      },
       HOST_TIME + 30,
     );
     expect(rebooted.virtualMachine).toMatchObject({ version: 0, size: 0, registers: [0, 0, 0, 0] });
+  });
+});
+
+describe("applyConsoleEvent with an update", () => {
+  const receiverEvents = readFixtureEvents(UPDATE_RECEIVER_LOG, RECEIVER_BOOT_HOST_TIME);
+  const originEvents = readFixtureEvents(UPDATE_ORIGIN_LOG, SENDER_BOOT_HOST_TIME);
+  const receiver = replay(receiverEvents);
+  const origin = replay(originEvents);
+
+  /** State of the receiver right after the first event that satisfies `isLast`. */
+  function receiverUntil(isLast: (event: TimedConsoleEvent["event"]) => boolean): NodeState {
+    const end = receiverEvents.findIndex(({ event }) => isLast(event));
+    return replay(receiverEvents.slice(0, end + 1));
+  }
+
+  it("boots with version 0, no image and fragments of 231 bytes", () => {
+    const booted = replay(receiverEvents.slice(0, 1));
+    expect(booted).toMatchObject({
+      operatorKey: "default",
+      activeVersion: 0,
+      availableVersion: 0,
+      imageReception: null,
+      transfer: {
+        activeVersion: 0,
+        availableVersion: 0,
+        receivingVersion: null,
+        fragmentSize: 231,
+      },
+    });
+  });
+
+  it("follows the reception fragment by fragment", () => {
+    const afterThird = receiverUntil((event) => event.ev === "fragment_rx" && event.index === 3);
+    expect(afterThird.imageReception).toMatchObject({
+      version: UPDATE_VERSION,
+      source: "5C21",
+      fragmentSize: 32,
+      fragmentCount: 4,
+      heldFragments: [0, 2, 3],
+      acceptedFragments: 3,
+      newFragments: 3,
+      reportsSent: 0,
+    });
+    expect(imageReceptionFraction(afterThird.imageReception!)).toBe(0.75);
+    const afterReport = receiverUntil((event) => event.ev === "report_sent");
+    expect(afterReport.imageReception).toMatchObject({
+      heldFragments: [0, 2, 3],
+      reportsSent: 1,
+      firstReport: { peer: "5C21", missing: [1], round: 1, fragmentCount: 4 },
+    });
+  });
+
+  it("closes the reception with the image and records it", () => {
+    const completed = receiverUntil((event) => event.ev === "image");
+    expect(completed.imageReception).toBeNull();
+    expect(completed.availableVersion).toBe(UPDATE_VERSION);
+    expect(completed.activeVersion).toBe(0);
+    expect(receiver.images).toEqual([
+      {
+        hostTime: RECEIVER_BOOT_HOST_TIME + 60196,
+        version: UPDATE_VERSION,
+        programSize: 29,
+        imageSize: 102,
+        via: "radio",
+        source: "5C21",
+        fragments: 4,
+        reports: 1,
+        durationMilliseconds: 137,
+      },
+    ]);
+  });
+
+  it("counts the fragments of each burst", () => {
+    expect(receiver.bursts).toEqual([
+      {
+        version: UPDATE_VERSION,
+        fragmentSize: 32,
+        count: 4,
+        cause: "complete",
+        trigger: null,
+        startHostTime: RECEIVER_BOOT_HOST_TIME + 60217,
+        transmitted: 4,
+        completion: {
+          sent: 4,
+          durationMicroseconds: 99000,
+          hostTime: RECEIVER_BOOT_HOST_TIME + 60316,
+        },
+      },
+    ]);
+    expect(origin.bursts.map((burst) => [burst.cause, burst.trigger, burst.transmitted])).toEqual([
+      ["load", null, 4],
+      ["report", "3A7F", 1],
+    ]);
+    expect(isBurstActive(origin)).toBe(false);
+    const sending = replay(
+      originEvents.slice(
+        0,
+        originEvents.findIndex(({ event }) => event.ev === "burst_done"),
+      ),
+    );
+    expect(isBurstActive(sending)).toBe(true);
+  });
+
+  it("records the reports it receives and the fragments it ignores", () => {
+    expect(origin.reportsReceived).toEqual([
+      {
+        hostTime: SENDER_BOOT_HOST_TIME + 50164,
+        peer: "3A7F",
+        version: UPDATE_VERSION,
+        fragmentSize: 32,
+        fragmentCount: 4,
+        missing: [1],
+        round: null,
+      },
+    ]);
+    expect(origin.ignoredFragmentCount).toBe(4);
+    expect(origin.imageReception).toBeNull();
+  });
+
+  it("activates with the HELLO of the origin", () => {
+    expect(receiver.activeVersion).toBe(UPDATE_VERSION);
+    expect(receiver.activations).toEqual([
+      {
+        hostTime: RECEIVER_BOOT_HOST_TIME + 80022,
+        version: UPDATE_VERSION,
+        previous: 0,
+        cause: "hello",
+        source: "5C21",
+      },
+    ]);
+    expect(origin.activations[0]).toMatchObject({ cause: "console", source: null });
+  });
+
+  it("learns the versions of the neighbors from their HELLO", () => {
+    const beforeActivation = receiverUntil(
+      (event) => event.ev === "hello" && event.available === UPDATE_VERSION,
+    );
+    expect(beforeActivation.neighbors[0]).toMatchObject({
+      id: "5C21",
+      version: 0,
+      availableVersion: UPDATE_VERSION,
+    });
+    expect(origin.neighbors[0]).toMatchObject({
+      id: "3A7F",
+      version: UPDATE_VERSION,
+      availableVersion: UPDATE_VERSION,
+      vmFault: null,
+      vmFailing: false,
+    });
+  });
+
+  it("keeps the active program and the transfer state", () => {
+    expect(receiver.program).toEqual({
+      hostTime: RECEIVER_BOOT_HOST_TIME + 90001,
+      version: UPDATE_VERSION,
+      size: 29,
+      code: "020105000000020203000000110102010112010a000000150102010100",
+    });
+    expect(receiver.transfer).toEqual({
+      activeVersion: UPDATE_VERSION,
+      availableVersion: UPDATE_VERSION,
+      receivingVersion: null,
+      missingBytes: null,
+      fragmentSize: 231,
+      hostTime: RECEIVER_BOOT_HOST_TIME + 91002,
+    });
+    expect(origin.transfer?.fragmentSize).toBe(32);
+  });
+
+  it("drops a reception whose image fails the verification", () => {
+    expect(receiver.imageReception).toBeNull();
+    expect(receiver.imageRejections).toEqual([
+      {
+        hostTime: RECEIVER_BOOT_HOST_TIME + 95002,
+        version: UPDATE_VERSION + 100,
+        reason: "signature",
+        source: "9B04",
+      },
+    ]);
+    expect(receiver.availableVersion).toBe(UPDATE_VERSION);
+  });
+
+  it("starts a new reception when a newer version arrives and forgets the old one on boot", () => {
+    const fragment = (version: number, index: number, t: number) =>
+      applyConsoleEvent(
+        receiverUntil((event) => event.ev === "image"),
+        {
+          t,
+          ev: "fragment_rx",
+          src: "9B04",
+          version,
+          index,
+          count: 2,
+          size: 231,
+          remaining: 1 - index,
+          accepted: true,
+          new: true,
+          rssi: -90,
+          snr: 1,
+        },
+        RECEIVER_BOOT_HOST_TIME + t,
+      );
+    const newer = fragment(UPDATE_VERSION + 7, 0, 70000);
+    expect(newer.imageReception).toMatchObject({ version: UPDATE_VERSION + 7, heldFragments: [0] });
+    const loaded = applyConsoleEvent(
+      newer,
+      {
+        t: 70100,
+        ev: "image",
+        version: UPDATE_VERSION + 9,
+        size: 29,
+        image_size: 102,
+        via: "console",
+        src: null,
+        fragments: 0,
+        reports: 0,
+        duration: 0,
+      },
+      RECEIVER_BOOT_HOST_TIME + 70100,
+    );
+    expect(loaded.imageReception).toBeNull();
+    expect(loaded.availableVersion).toBe(UPDATE_VERSION + 9);
+    const rebooted = applyConsoleEvent(
+      newer,
+      {
+        t: 5,
+        ev: "boot",
+        id: "3A7F",
+        model: "V4.3",
+        epoch: 13,
+        firmware: "0.1.0",
+        protocol: 2,
+        key: "default",
+        operator_key: "custom",
+      },
+      RECEIVER_BOOT_HOST_TIME + 80000,
+    );
+    expect(rebooted).toMatchObject({
+      operatorKey: "custom",
+      activeVersion: 0,
+      availableVersion: 0,
+      imageReception: null,
+      program: null,
+    });
+  });
+
+  it("records the faults since the last activation", () => {
+    const faulted = applyConsoleEvent(
+      receiver,
+      { t: 100000, ev: "vm_fault", tick: 3, pc: 6, reason: "division_by_zero" },
+      RECEIVER_BOOT_HOST_TIME + 100000,
+    );
+    expect(faulted.faultSinceActivation).toBe("division_by_zero");
+    const reactivated = applyConsoleEvent(
+      faulted,
+      {
+        t: 100100,
+        ev: "activation",
+        version: UPDATE_VERSION + 1,
+        previous: UPDATE_VERSION,
+        cause: "console",
+        src: null,
+      },
+      RECEIVER_BOOT_HOST_TIME + 100100,
+    );
+    expect(reactivated.faultSinceActivation).toBeNull();
+    expect(reactivated.lastVirtualMachineFault?.reason).toBe("division_by_zero");
   });
 });

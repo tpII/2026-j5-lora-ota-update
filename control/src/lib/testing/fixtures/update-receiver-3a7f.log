@@ -1,0 +1,44 @@
+{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}
+{"t":813,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}
+{"t":815,"ev":"wifi","state":"off","ssid":"J5-3A7F","channel":1,"clients":0}
+boot 3A7F V4.3 e12
+{"t":54001,"ev":"hello","src":"5C21","epoch":7,"seq":8,"model":"V2","version":0,"available":0,"vm_fault":null,"vm_failing":false,"tx":8,"rssi":-47.0,"snr":9.75,"ferr":-1220,"neighbors":[{"id":"3A7F","rssi":-41.5,"snr":9.5}]}
+hello 5C21 -47 dBm
+{"t":56001,"ev":"tx","type":"hello","dst":"FFFF","seq":9,"size":35,"toa":19310,"toa_calc":19264}
+{"t":60032,"ev":"hello","src":"5C21","epoch":7,"seq":9,"model":"V2","version":0,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":9,"rssi":-47.5,"snr":9.5,"ferr":-1218,"neighbors":[{"id":"3A7F","rssi":-41.5,"snr":9.5}]}
+{"t":60059,"ev":"fragment_rx","src":"5C21","version":1762300800,"index":0,"count":4,"size":32,"remaining":3,"accepted":true,"new":true,"rssi":-47.0,"snr":9.75}
+{"t":60113,"ev":"fragment_rx","src":"5C21","version":1762300800,"index":2,"count":4,"size":32,"remaining":1,"accepted":true,"new":true,"rssi":-47.5,"snr":9.5}
+{"t":60131,"ev":"fragment_rx","src":"5C21","version":1762300800,"index":3,"count":4,"size":32,"remaining":0,"accepted":true,"new":true,"rssi":-47.0,"snr":9.75}
+{"t":60132,"ev":"report_sent","dst":"5C21","version":1762300800,"size":32,"count":4,"missing":[1],"round":1}
+{"t":60148,"ev":"tx","type":"report","dst":"5C21","seq":10,"size":23,"toa":15470,"toa_calc":15424,"version":1762300800}
+report 1762300800 1 missing
+{"t":60192,"ev":"fragment_rx","src":"5C21","version":1762300800,"index":1,"count":4,"size":32,"remaining":0,"accepted":true,"new":true,"rssi":-47.0,"snr":9.75}
+{"t":60196,"ev":"image","version":1762300800,"size":29,"image_size":102,"via":"radio","src":"5C21","fragments":4,"reports":1,"duration":137}
+image 1762300800 radio
+{"t":60216,"ev":"tx","type":"hello","dst":"FFFF","seq":11,"size":35,"toa":19310,"toa_calc":19264}
+{"t":60217,"ev":"burst_start","version":1762300800,"size":32,"count":4,"cause":"complete","trigger":null}
+{"t":60244,"ev":"tx","type":"fragment","dst":"FFFF","seq":12,"size":56,"toa":26990,"toa_calc":26944,"version":1762300800,"index":0}
+{"t":60271,"ev":"tx","type":"fragment","dst":"FFFF","seq":13,"size":56,"toa":26990,"toa_calc":26944,"version":1762300800,"index":1}
+{"t":60298,"ev":"tx","type":"fragment","dst":"FFFF","seq":14,"size":56,"toa":26990,"toa_calc":26944,"version":1762300800,"index":2}
+{"t":60316,"ev":"tx","type":"fragment","dst":"FFFF","seq":15,"size":30,"toa":18030,"toa_calc":17984,"version":1762300800,"index":3}
+{"t":60316,"ev":"burst_done","version":1762300800,"size":32,"sent":4,"duration":99000}
+{"t":68002,"ev":"hello","src":"5C21","epoch":7,"seq":15,"model":"V2","version":0,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":15,"rssi":-47.0,"snr":9.75,"ferr":-1221,"neighbors":[{"id":"3A7F","rssi":-41.0,"snr":9.75}]}
+{"t":69001,"ev":"tx","type":"hello","dst":"FFFF","seq":16,"size":35,"toa":19310,"toa_calc":19264}
+{"t":80022,"ev":"hello","src":"5C21","epoch":7,"seq":16,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":16,"rssi":-47.0,"snr":9.75,"ferr":-1219,"neighbors":[{"id":"3A7F","rssi":-41.5,"snr":9.5}]}
+{"t":80022,"ev":"activation","version":1762300800,"previous":0,"cause":"hello","src":"5C21"}
+{"t":80022,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+activate 1762300800
+{"t":80023,"ev":"vm_print","tick":1,"reg":1,"value":8}
+{"t":80023,"ev":"vm_print","tick":1,"reg":1,"value":-6}
+{"t":80041,"ev":"tx","type":"hello","dst":"FFFF","seq":17,"size":35,"toa":19310,"toa_calc":19264}
+{"t":90001,"ev":"program","version":1762300800,"size":29,"code":"020105000000020203000000110102010112010a000000150102010100"}
+{"t":91001,"ev":"status","id":"3A7F","model":"V4.3","epoch":12,"tx":18,"rx":9,"dropped":0,"heap":228512}
+{"t":91001,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}
+{"t":91001,"ev":"wifi","state":"off","ssid":"J5-3A7F","channel":1,"clients":0}
+{"t":91001,"ev":"presence","state":"on","remaining":null}
+{"t":91002,"ev":"vm","version":1762300800,"size":29,"tick":2,"registers":[-6,3,0,0]}
+{"t":91002,"ev":"transfer","active":1762300800,"available":1762300800,"receiving":null,"missing":null,"fragment_size":231}
+{"t":91002,"ev":"neighbor","id":"5C21","model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":16,"rssi":-47.0,"snr":9.75,"age":10980}
+{"t":95001,"ev":"fragment_rx","src":"9B04","version":1762300900,"index":0,"count":1,"size":231,"remaining":0,"accepted":true,"new":true,"rssi":-98.5,"snr":-4.25}
+{"t":95002,"ev":"image_rejected","version":1762300900,"reason":"signature","src":"9B04"}
+image 1762300900 rejected signature

@@ -257,8 +257,9 @@ describe("TestRunLedger with recorded consoles", () => {
         model: "V2",
         epoch: 8,
         firmware: "0.1.0",
-        protocol: 1,
+        protocol: 2,
         key: "default",
+        operator_key: "default",
       },
       reboot,
     );

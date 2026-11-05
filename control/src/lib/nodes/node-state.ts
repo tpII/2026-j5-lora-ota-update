@@ -3,18 +3,26 @@
  * state object and leaves the previous one untouched, so views can compare states by reference.
  */
 import type {
+  ActivationCause,
   BoardModel,
+  BurstCause,
   ConsoleEvent,
+  ConsoleEventOf,
   EchoEvent,
   EchoLostEvent,
   ErrorEvent,
+  FragmentReceptionEvent,
   HelloNeighborReport,
+  ImageArrival,
+  ImageRejectionReason,
   KeyKind,
   NodeIdentifier,
   PresenceState,
+  ReportSentEvent,
   RunEndEvent,
   WifiState,
 } from "$lib/console/console-event.ts";
+import { DEFAULT_FRAGMENT_SIZE } from "$lib/console/console-command.ts";
 import type { VmFault } from "$lib/vm/virtual-machine.ts";
 import { radioSettingsOf, type RadioSettings } from "$lib/radio/radio-settings.ts";
 
@@ -25,6 +33,10 @@ const MAXIMUM_ECHO_RESULTS = 200;
 const MAXIMUM_ERROR_RECORDS = 50;
 const MAXIMUM_FINISHED_RECEPTIONS = 20;
 const MAXIMUM_VM_PRINTS = 100;
+const MAXIMUM_IMAGE_RECORDS = 20;
+const MAXIMUM_ACTIVATION_RECORDS = 20;
+const MAXIMUM_BURST_RECORDS = 50;
+const MAXIMUM_REPORT_RECORDS = 100;
 
 export interface WifiStatus {
   readonly state: WifiState;
@@ -53,8 +65,14 @@ export interface NodeCounters {
 export interface NeighborRecord {
   readonly id: NodeIdentifier;
   readonly model: BoardModel;
-  /** Version of the program the neighbor runs. */
+  /** Active version of the neighbor: the program its VM runs. */
   readonly version: number;
+  /** Available version of the neighbor: the highest whose verified image it holds. */
+  readonly availableVersion: number;
+  /** Last VM fault of the neighbor since its activation; null when there was none. */
+  readonly vmFault: VmFault | null;
+  /** True when the last tick of the neighbor ended in a fault. */
+  readonly vmFailing: boolean;
   /** Packets the neighbor reported as transmitted in its last HELLO. */
   readonly transmitted: number;
   readonly rssi: number;
@@ -166,6 +184,114 @@ export interface VirtualMachineFaultRecord {
   readonly reason: VmFault;
 }
 
+/** The last `transfer` event of the node, as it reported it. */
+export interface TransferStatus {
+  readonly activeVersion: number;
+  readonly availableVersion: number;
+  /** Version of the reception in progress, or null. */
+  readonly receivingVersion: number | null;
+  /** Bytes the reception in progress still lacked, or null. */
+  readonly missingBytes: number | null;
+  /** Fragment size of the node's complete bursts, in bytes. */
+  readonly fragmentSize: number;
+  readonly hostTime: number;
+}
+
+/** A report this node sent or received. */
+export interface ReportRecord {
+  readonly hostTime: number;
+  /** Destination of a sent report, or source of a received one. */
+  readonly peer: NodeIdentifier;
+  readonly version: number;
+  readonly fragmentSize: number;
+  readonly fragmentCount: number;
+  /** Indices of the missing fragments. */
+  readonly missing: readonly number[];
+  /** Number of the report within the reception, from 1; null in a received report. */
+  readonly round: number | null;
+}
+
+/**
+ * The image this node receives over the radio, from its `fragment_rx` and `report_sent` events.
+ * The node counts bytes, not fragments; the panel counts the fragments of the last size it saw,
+ * and a report replaces that count with the one of the node.
+ */
+export interface ImageReceptionProgress {
+  readonly version: number;
+  /** Node that sent the last fragment. */
+  readonly source: NodeIdentifier;
+  readonly fragmentSize: number;
+  readonly fragmentCount: number;
+  /** Indices of the fragments of `fragmentSize` the node holds, in increasing order. */
+  readonly heldFragments: readonly number[];
+  /** Fragments of the reception accepted so far, repeated ones included. */
+  readonly acceptedFragments: number;
+  /** Accepted fragments that brought some missing byte. */
+  readonly newFragments: number;
+  readonly reportsSent: number;
+  readonly firstReport: ReportRecord | null;
+  readonly lastReport: ReportRecord | null;
+  readonly startHostTime: number;
+  readonly lastHostTime: number;
+}
+
+/** An `image` event: an image that became the available version. */
+export interface ImageRecord {
+  readonly hostTime: number;
+  readonly version: number;
+  readonly programSize: number;
+  readonly imageSize: number;
+  readonly via: ImageArrival;
+  /** Node that sent the last fragment; null with "console". */
+  readonly source: NodeIdentifier | null;
+  readonly fragments: number;
+  readonly reports: number;
+  readonly durationMilliseconds: number;
+}
+
+export interface ImageRejectionRecord {
+  readonly hostTime: number;
+  readonly version: number;
+  readonly reason: ImageRejectionReason;
+  readonly source: NodeIdentifier;
+}
+
+export interface ActivationRecord {
+  readonly hostTime: number;
+  readonly version: number;
+  readonly previous: number;
+  readonly cause: ActivationCause;
+  /** Neighbor that announced the version with "hello" and "neighbor"; otherwise null. */
+  readonly source: NodeIdentifier | null;
+}
+
+/** The active program, as the `program` command returned it. */
+export interface ProgramRecord {
+  readonly hostTime: number;
+  readonly version: number;
+  readonly size: number;
+  /** Two lowercase hexadecimal digits per byte; empty with version 0. */
+  readonly code: string;
+}
+
+/** A burst this node sends or sent. */
+export interface BurstRecord {
+  readonly version: number;
+  readonly fragmentSize: number;
+  /** Fragments of the burst when it started. */
+  readonly count: number;
+  readonly cause: BurstCause;
+  readonly trigger: NodeIdentifier | null;
+  readonly startHostTime: number;
+  /** FRAGMENT frames reported by `tx` so far. */
+  readonly transmitted: number;
+  readonly completion: {
+    readonly sent: number;
+    readonly durationMicroseconds: number;
+    readonly hostTime: number;
+  } | null;
+}
+
 export interface NodeState {
   readonly identifier: NodeIdentifier | null;
   readonly model: BoardModel | null;
@@ -173,6 +299,8 @@ export interface NodeState {
   readonly firmwareVersion: string | null;
   readonly protocolVersion: number | null;
   readonly networkKey: KeyKind | null;
+  /** Whether the node verifies images with the default operator public key. */
+  readonly operatorKey: KeyKind | null;
   /** Boots observed since the panel connected. */
   readonly bootCount: number;
   readonly radio: RadioSettings | null;
@@ -197,6 +325,30 @@ export interface NodeState {
   /** Newest last. */
   readonly virtualMachinePrints: readonly VirtualMachinePrintRecord[];
   readonly lastVirtualMachineFault: VirtualMachineFaultRecord | null;
+  /** Reason of the last fault since the last activation, as the HELLO byte `vm` carries it. */
+  readonly faultSinceActivation: VmFault | null;
+  /**
+   * Versions the node reports on its own console: from `boot`, `transfer`, `image`,
+   * `activation`, `vm` and `program`. Null until the first of them.
+   */
+  readonly activeVersion: number | null;
+  readonly availableVersion: number | null;
+  readonly transfer: TransferStatus | null;
+  /** Null when no reception is known to be in progress. */
+  readonly imageReception: ImageReceptionProgress | null;
+  /** Newest last. */
+  readonly images: readonly ImageRecord[];
+  /** Newest last. */
+  readonly imageRejections: readonly ImageRejectionRecord[];
+  /** Newest last. */
+  readonly activations: readonly ActivationRecord[];
+  readonly program: ProgramRecord | null;
+  /** Newest last. */
+  readonly bursts: readonly BurstRecord[];
+  /** Newest last. */
+  readonly reportsReceived: readonly ReportRecord[];
+  /** Fragments ignored because of their version. */
+  readonly ignoredFragmentCount: number;
   /** Value of `t` and host time of the last event, to estimate the uptime of the node. */
   readonly lastEventNodeTime: number | null;
   readonly lastEventHostTime: number | null;
@@ -209,6 +361,7 @@ export const INITIAL_NODE_STATE: NodeState = {
   firmwareVersion: null,
   protocolVersion: null,
   networkKey: null,
+  operatorKey: null,
   bootCount: 0,
   radio: null,
   wifi: null,
@@ -226,6 +379,18 @@ export const INITIAL_NODE_STATE: NodeState = {
   virtualMachine: null,
   virtualMachinePrints: [],
   lastVirtualMachineFault: null,
+  faultSinceActivation: null,
+  activeVersion: null,
+  availableVersion: null,
+  transfer: null,
+  imageReception: null,
+  images: [],
+  imageRejections: [],
+  activations: [],
+  program: null,
+  bursts: [],
+  reportsReceived: [],
+  ignoredFragmentCount: 0,
   lastEventNodeTime: null,
   lastEventHostTime: null,
 };
@@ -302,6 +467,98 @@ function isSameReception(
   return reception.source === source && reception.run === run;
 }
 
+function reportRecordOf(
+  event: ReportSentEvent | ConsoleEventOf<"report_received">,
+  hostTime: number,
+): ReportRecord {
+  return {
+    hostTime,
+    peer: event.ev === "report_sent" ? event.dst : event.src,
+    version: event.version,
+    fragmentSize: event.size,
+    fragmentCount: event.count,
+    missing: [...event.missing],
+    round: event.ev === "report_sent" ? event.round : null,
+  };
+}
+
+function insertSorted(values: readonly number[], value: number): readonly number[] {
+  return values.includes(value)
+    ? values
+    : [...values, value].sort((first, second) => first - second);
+}
+
+function acceptFragment(
+  state: NodeState,
+  event: FragmentReceptionEvent,
+  hostTime: number,
+): NodeState {
+  if (!event.accepted) {
+    return { ...state, ignoredFragmentCount: state.ignoredFragmentCount + 1 };
+  }
+  const previous = state.imageReception?.version === event.version ? state.imageReception : null;
+  // Fragments of another size or count do not line up with the indices counted so far.
+  const sameGeometry =
+    previous !== null &&
+    previous.fragmentSize === event.size &&
+    previous.fragmentCount === event.count;
+  const imageReception: ImageReceptionProgress = {
+    version: event.version,
+    source: event.src,
+    fragmentSize: event.size,
+    fragmentCount: event.count,
+    heldFragments: insertSorted(sameGeometry ? previous.heldFragments : [], event.index),
+    acceptedFragments: (previous?.acceptedFragments ?? 0) + 1,
+    newFragments: (previous?.newFragments ?? 0) + (event.new ? 1 : 0),
+    reportsSent: previous?.reportsSent ?? 0,
+    firstReport: previous?.firstReport ?? null,
+    lastReport: previous?.lastReport ?? null,
+    startHostTime: previous?.startHostTime ?? hostTime,
+    lastHostTime: hostTime,
+  };
+  return { ...state, imageReception };
+}
+
+function recordSentReport(state: NodeState, event: ReportSentEvent, hostTime: number): NodeState {
+  const report = reportRecordOf(event, hostTime);
+  const previous = state.imageReception?.version === event.version ? state.imageReception : null;
+  const missing = new Set(event.missing);
+  const heldFragments: number[] = [];
+  for (let index = 0; index < event.count; ++index) {
+    if (!missing.has(index)) {
+      heldFragments.push(index);
+    }
+  }
+  const imageReception: ImageReceptionProgress = {
+    version: event.version,
+    source: previous?.source ?? event.dst,
+    fragmentSize: event.size,
+    fragmentCount: event.count,
+    heldFragments,
+    acceptedFragments: previous?.acceptedFragments ?? 0,
+    newFragments: previous?.newFragments ?? 0,
+    reportsSent: (previous?.reportsSent ?? 0) + 1,
+    firstReport: previous?.firstReport ?? report,
+    lastReport: report,
+    startHostTime: previous?.startHostTime ?? hostTime,
+    lastHostTime: hostTime,
+  };
+  return { ...state, imageReception };
+}
+
+/** Replaces the last burst that matches `matches` and is still open. */
+function updateOpenBurst(
+  bursts: readonly BurstRecord[],
+  matches: (burst: BurstRecord) => boolean,
+  update: (burst: BurstRecord) => BurstRecord,
+): readonly BurstRecord[] {
+  const position = bursts.findLastIndex((burst) => burst.completion === null && matches(burst));
+  if (position < 0) {
+    return bursts;
+  }
+  return bursts.map((burst, index) => (index === position ? update(burst) : burst));
+}
+
 /** Applies one event received at `hostTime` (milliseconds since 1970 on the host). */
 export function applyConsoleEvent(
   state: NodeState,
@@ -327,6 +584,7 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
         firmwareVersion: event.firmware,
         protocolVersion: event.protocol,
         networkKey: event.key,
+        operatorKey: event.operator_key,
         bootCount: base.bootCount + 1,
         // The node always boots with its HELLO messages on.
         presence: { state: "on", remaining: null, hostTime },
@@ -336,6 +594,21 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
         // The active program is not kept across reboots: the node returns to the factory program.
         virtualMachine: { version: 0, size: 0, tick: 0, registers: [0, 0, 0, 0], hostTime },
         lastVirtualMachineFault: null,
+        faultSinceActivation: null,
+        // Images live only in RAM: the node boots with version 0 and no image.
+        activeVersion: 0,
+        availableVersion: 0,
+        transfer: {
+          activeVersion: 0,
+          availableVersion: 0,
+          receivingVersion: null,
+          missingBytes: null,
+          fragmentSize: DEFAULT_FRAGMENT_SIZE,
+          hostTime,
+        },
+        imageReception: null,
+        program: null,
+        bursts: base.bursts.filter((burst) => burst.completion !== null),
       };
     }
     case "status": {
@@ -379,6 +652,9 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
           id: event.id,
           model: event.model,
           version: event.version,
+          availableVersion: event.available,
+          vmFault: event.vm_fault,
+          vmFailing: event.vm_failing,
           transmitted: event.tx,
           rssi: event.rssi,
           snr: event.snr,
@@ -397,6 +673,9 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
           id: event.src,
           model: event.model,
           version: event.version,
+          availableVersion: event.available,
+          vmFault: event.vm_fault,
+          vmFailing: event.vm_failing,
           transmitted: event.tx,
           rssi: event.rssi,
           snr: event.snr,
@@ -441,6 +720,16 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
         },
       };
     case "tx": {
+      if (event.type === "fragment") {
+        return {
+          ...state,
+          bursts: updateOpenBurst(
+            state.bursts,
+            (burst) => burst.version === event.version,
+            (burst) => ({ ...burst, transmitted: burst.transmitted + 1 }),
+          ),
+        };
+      }
       const run = state.senderRun;
       if (
         event.type !== "test" ||
@@ -517,6 +806,7 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
     case "vm":
       return {
         ...state,
+        activeVersion: event.version,
         virtualMachine: {
           version: event.version,
           size: event.size,
@@ -558,6 +848,128 @@ function reduceEvent(state: NodeState, event: ConsoleEvent, hostTime: number): N
           address: event.pc,
           reason: event.reason,
         },
+        faultSinceActivation: event.reason,
+      };
+    case "transfer": {
+      // The node is the authority on its reception: a different or absent one makes the count
+      // of the panel stale.
+      const reception = state.imageReception;
+      return {
+        ...state,
+        activeVersion: event.active,
+        availableVersion: event.available,
+        transfer: {
+          activeVersion: event.active,
+          availableVersion: event.available,
+          receivingVersion: event.receiving,
+          missingBytes: event.missing,
+          fragmentSize: event.fragment_size,
+          hostTime,
+        },
+        imageReception: reception?.version === event.receiving ? reception : null,
+      };
+    }
+    case "image":
+      return {
+        ...state,
+        availableVersion: event.version,
+        // A reception survives only for a version newer than the available one.
+        imageReception:
+          state.imageReception !== null && state.imageReception.version <= event.version
+            ? null
+            : state.imageReception,
+        images: appendBounded(
+          state.images,
+          {
+            hostTime,
+            version: event.version,
+            programSize: event.size,
+            imageSize: event.image_size,
+            via: event.via,
+            source: event.src,
+            fragments: event.fragments,
+            reports: event.reports,
+            durationMilliseconds: event.duration,
+          },
+          MAXIMUM_IMAGE_RECORDS,
+        ),
+      };
+    case "image_rejected":
+      return {
+        ...state,
+        imageReception:
+          state.imageReception?.version === event.version ? null : state.imageReception,
+        imageRejections: appendBounded(
+          state.imageRejections,
+          { hostTime, version: event.version, reason: event.reason, source: event.src },
+          MAXIMUM_IMAGE_RECORDS,
+        ),
+      };
+    case "fragment_rx":
+      return acceptFragment(state, event, hostTime);
+    case "report_sent":
+      return recordSentReport(state, event, hostTime);
+    case "report_received":
+      return {
+        ...state,
+        reportsReceived: appendBounded(
+          state.reportsReceived,
+          reportRecordOf(event, hostTime),
+          MAXIMUM_REPORT_RECORDS,
+        ),
+      };
+    case "burst_start":
+      return {
+        ...state,
+        bursts: appendBounded(
+          state.bursts,
+          {
+            version: event.version,
+            fragmentSize: event.size,
+            count: event.count,
+            cause: event.cause,
+            trigger: event.trigger,
+            startHostTime: hostTime,
+            transmitted: 0,
+            completion: null,
+          },
+          MAXIMUM_BURST_RECORDS,
+        ),
+      };
+    case "burst_done":
+      return {
+        ...state,
+        bursts: updateOpenBurst(
+          state.bursts,
+          (burst) => burst.version === event.version,
+          (burst) => ({
+            ...burst,
+            completion: { sent: event.sent, durationMicroseconds: event.duration, hostTime },
+          }),
+        ),
+      };
+    case "activation":
+      return {
+        ...state,
+        activeVersion: event.version,
+        faultSinceActivation: null,
+        activations: appendBounded(
+          state.activations,
+          {
+            hostTime,
+            version: event.version,
+            previous: event.previous,
+            cause: event.cause,
+            source: event.src,
+          },
+          MAXIMUM_ACTIVATION_RECORDS,
+        ),
+      };
+    case "program":
+      return {
+        ...state,
+        activeVersion: event.version,
+        program: { hostTime, version: event.version, size: event.size, code: event.code },
       };
     case "error":
       return recordError(state, event, hostTime);
@@ -570,6 +982,18 @@ export function isRunActive(state: NodeState): boolean {
     (state.senderRun !== null && state.senderRun.completion === null) ||
     state.receptions.some((reception) => reception.end === null)
   );
+}
+
+/** Share of the fragments of the reception the node holds, from 0 to 1. */
+export function imageReceptionFraction(reception: ImageReceptionProgress): number {
+  return reception.fragmentCount === 0
+    ? 0
+    : reception.heldFragments.length / reception.fragmentCount;
+}
+
+/** True while the node sends a burst, as far as its `burst_start` and `burst_done` tell. */
+export function isBurstActive(state: NodeState): boolean {
+  return state.bursts.some((burst) => burst.completion === null);
 }
 
 /** Milliseconds since the last packet of the neighbor, at host time `now`. */

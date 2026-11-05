@@ -2,7 +2,7 @@
  * Every event received from the nodes since the operator last cleared the journal, kept for the
  * export. Debug text is not kept: events.jsonl holds events only.
  */
-import type { BoardModel, NodeIdentifier } from "$lib/console/console-event.ts";
+import type { BoardModel, ConsoleEvent, NodeIdentifier } from "$lib/console/console-event.ts";
 import type { ExportedEvent, ParticipatingNode } from "./measurement-export.ts";
 
 /** Enough for long campaigns; past it the journal stops recording and says so. */
@@ -13,6 +13,15 @@ interface JournalEntry {
   readonly text: string;
   readonly object: object;
   readonly hostTime: number;
+  /** The event, when the line is one the contract describes. */
+  readonly event: ConsoleEvent | null;
+}
+
+/** A console event of an identified node, with the host time at which it arrived. */
+export interface NodeConsoleEvent {
+  readonly node: NodeIdentifier;
+  readonly hostTime: number;
+  readonly event: ConsoleEvent;
 }
 
 interface NodeAssignment {
@@ -43,13 +52,22 @@ export class EventJournal {
     return this.#entries[0]?.hostTime ?? null;
   }
 
-  /** Records one event line of connection `connectionKey`; returns false when the journal is full. */
-  append(connectionKey: string, text: string, object: object, hostTime: number): boolean {
+  /**
+   * Records one event line of connection `connectionKey`; returns false when the journal is full.
+   * `event` is the decoded event when the line is one the contract describes.
+   */
+  append(
+    connectionKey: string,
+    text: string,
+    object: object,
+    hostTime: number,
+    event: ConsoleEvent | null = null,
+  ): boolean {
     if (this.#entries.length >= this.#capacity) {
       this.#rejectedCount += 1;
       return false;
     }
-    this.#entries.push({ connectionKey, text, object, hostTime });
+    this.#entries.push({ connectionKey, text, object, hostTime, event });
     return true;
   }
 
@@ -83,6 +101,16 @@ export class EventJournal {
         continue;
       }
       yield { text: entry.text, object: entry.object, node, hostTime: entry.hostTime };
+    }
+  }
+
+  /** The recognized events of identified nodes, in arrival order, for the update metrics. */
+  *consoleEvents(): Generator<NodeConsoleEvent> {
+    for (const entry of this.#entries) {
+      const node = this.#assignments.get(entry.connectionKey)?.id;
+      if (node !== undefined && entry.event !== null) {
+        yield { node, hostTime: entry.hostTime, event: entry.event };
+      }
     }
   }
 

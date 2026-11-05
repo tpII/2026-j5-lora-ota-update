@@ -7,7 +7,11 @@ function codeOf(hex: string): Uint8Array {
   return Uint8Array.from(hex.match(/../g) ?? [], (pair) => Number.parseInt(pair, 16));
 }
 
-function loaded(hex: string, registers: readonly number[] = [0, 0, 0, 0], limit?: number): VirtualMachine {
+function loaded(
+  hex: string,
+  registers: readonly number[] = [0, 0, 0, 0],
+  limit?: number,
+): VirtualMachine {
   const machine = new VirtualMachine(limit);
   expect(machine.load(codeOf(hex)).valid).toBe(true);
   machine.setRegisters(registers);
@@ -17,7 +21,14 @@ function loaded(hex: string, registers: readonly number[] = [0, 0, 0, 0], limit?
 describe("VirtualMachine", () => {
   it("runs the example program and prints after each PRINT", () => {
     const machine = loaded(
-      "020105000000" + "020203000000" + "110102" + "0101" + "12010a000000" + "150102" + "0101" + "00",
+      "020105000000" +
+        "020203000000" +
+        "110102" +
+        "0101" +
+        "12010a000000" +
+        "150102" +
+        "0101" +
+        "00",
     );
     const outcome = runTick(machine);
     expect(outcome.step).toBe("halted");
@@ -34,7 +45,14 @@ describe("VirtualMachine", () => {
 
   it("wraps around and shifts as the firmware does", () => {
     const machine = loaded(
-      "100101000000" + "170203" + "190303" + "2004ffffffff" + "2a04" + "280401000000" + "260321000000" + "00",
+      "100101000000" +
+        "170203" +
+        "190303" +
+        "2004ffffffff" +
+        "2a04" +
+        "280401000000" +
+        "260321000000" +
+        "00",
       [2147483647, -7, 2, 0],
     );
     expect(runTick(machine).step).toBe("halted");
@@ -71,7 +89,11 @@ describe("VirtualMachine", () => {
 
 describe("checkProgram", () => {
   it("rejects what the node rejects", () => {
-    expect(checkProgram(codeOf("0101" + "3f"))).toEqual({ valid: false, address: 2, fault: "invalid_opcode" });
+    expect(checkProgram(codeOf("0101" + "3f"))).toEqual({
+      valid: false,
+      address: 2,
+      fault: "invalid_opcode",
+    });
     expect(checkProgram(codeOf("110105"))).toMatchObject({ fault: "invalid_register" });
     expect(checkProgram(codeOf("020100"))).toMatchObject({ fault: "truncated_instruction" });
   });

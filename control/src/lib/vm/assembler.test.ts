@@ -23,11 +23,22 @@ describe("assemble", () => {
         PRINT R1
         HALT
       `),
-    ).toBe("020105000000" + "020203000000" + "110102" + "0101" + "12010a000000" + "150102" + "0101" + "00");
+    ).toBe(
+      "020105000000" +
+        "020203000000" +
+        "110102" +
+        "0101" +
+        "12010a000000" +
+        "150102" +
+        "0101" +
+        "00",
+    );
   });
 
   it("takes commas or spaces, lowercase mnemonics and hexadecimal or negative immediates", () => {
-    expect(hexOf("andi r4 0xFFFFFFFF\nshri R2,-1\nnot R3")).toBe("2004ffffffff" + "2802ffffffff" + "2a03");
+    expect(hexOf("andi r4 0xFFFFFFFF\nshri R2,-1\nnot R3")).toBe(
+      "2004ffffffff" + "2802ffffffff" + "2a03",
+    );
   });
 
   it("keeps the source line of each instruction and its address", () => {

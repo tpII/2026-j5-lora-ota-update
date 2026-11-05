@@ -1,5 +1,5 @@
 <script lang="ts">
-  import CommunicationExportForm from "$lib/components/CommunicationExportForm.svelte";
+  import MeasurementExportForm from "$lib/components/MeasurementExportForm.svelte";
   import { buildEchoCommand } from "$lib/console/console-command.ts";
   import {
     COMMUNICATION_TEST_PAYLOAD_SIZE,
@@ -469,8 +469,10 @@
       </dl>
 
       {#if !testActive && test.startHostTime !== null}
-        <CommunicationExportForm
-          contents="summary.csv (las métricas) y echoes.csv (un renglón por eco)"
+        <MeasurementExportForm
+          test="communication-test"
+          files="metadata.json, events.jsonl (los eventos del nodo durante la prueba), summary.csv (las métricas) y echoes.csv (un renglón por eco)"
+          fileCount="cuatro"
           directoryPickerAvailable={panel.directoryPickerAvailable}
           exportFiles={(description) => panel.exportCommunicationTest(description)}
         />
@@ -574,8 +576,10 @@
       {/if}
 
       {#if !receiverActive && receiver.deactivationHostTime !== null}
-        <CommunicationExportForm
-          contents="summary.csv (una fila por emisor) y echoes.csv (un renglón por eco respondido)"
+        <MeasurementExportForm
+          test="communication-test"
+          files="metadata.json, events.jsonl (los eventos del nodo mientras estuvo activo el modo receptor), summary.csv (una fila por emisor) y echoes.csv (un renglón por eco respondido)"
+          fileCount="cuatro"
           directoryPickerAvailable={panel.directoryPickerAvailable}
           exportFiles={(description) => panel.exportReceiverMode(description)}
         />

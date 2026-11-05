@@ -6,7 +6,7 @@
 
 namespace firmware {
 
-// LoRa frame, protocol version 1 (docs/protocol/frame.md).
+// LoRa frame, protocol version 2 (docs/protocol/frame.md).
 
 constexpr size_t FRAME_HEADER_SIZE = 8;
 constexpr size_t FRAME_TAG_SIZE = 8;
@@ -21,11 +21,14 @@ enum class MessageType : uint8_t {
   EchoRequest = 0x02,
   EchoReply = 0x03,
   Test = 0x10,
+  Fragment = 0x20,
+  Report = 0x21,
 };
 
 bool isKnownMessageType(uint8_t type);
 
-// Name used in console events ("hello", "echo_request", "echo_reply", "test").
+// Name used in console events ("hello", "echo_request", "echo_reply", "test", "fragment" and
+// "report").
 const char *messageTypeName(uint8_t type);
 
 struct FrameHeader {

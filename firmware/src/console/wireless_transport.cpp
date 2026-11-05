@@ -17,11 +17,11 @@ namespace firmware {
 static constexpr size_t INBOUND_QUEUE_LENGTH = 8;
 static constexpr uint16_t MAXIMUM_PENDING_OUTBOUND = 32;
 // Longer messages close the connection; shorter ones over the line limit are read and discarded.
-static constexpr size_t MAXIMUM_MESSAGE_SIZE = 2 * PROGRAM_LINE_CAPACITY;
+static constexpr size_t MAXIMUM_MESSAGE_SIZE = 2 * IMAGE_LINE_CAPACITY;
 
 namespace {
 
-// Reserved with the length of each message, because a load_program line is ten times longer than
+// Reserved with the length of each message, because a load_image line is ten times longer than
 // any other command.
 struct InboundLine {
   bool overflowed;

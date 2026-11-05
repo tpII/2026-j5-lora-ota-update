@@ -9,8 +9,11 @@ import { SUMMARY_COLUMNS, type TestRunSummaryRow } from "./test-run-ledger.ts";
 export const MEASUREMENT_TESTS = ["power-sweep", "capacity-test"] as const;
 export type MeasurementTest = (typeof MEASUREMENT_TESTS)[number];
 
-/** Every test that names an export folder; the communication test exports from its own section. */
-export type ExportedTest = MeasurementTest | "communication-test";
+/**
+ * Every test that names an export folder; the communication test and the updates export from
+ * their own sections.
+ */
+export type ExportedTest = MeasurementTest | "communication-test" | "update";
 
 export const METADATA_FILE_NAME = "metadata.json";
 export const EVENTS_FILE_NAME = "events.jsonl";

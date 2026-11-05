@@ -10,8 +10,10 @@ namespace firmware {
 
 struct Neighbor {
   uint16_t id;
-  uint8_t model; // 0 until the first HELLO arrives
-  uint32_t version;
+  uint8_t model;      // 0 until the first HELLO arrives
+  uint32_t version;   // active version
+  uint32_t available; // available version
+  uint8_t vmStatus;   // byte vm of the HELLO
   uint32_t transmitted;
   float rssi;
   float snr;
@@ -24,10 +26,12 @@ public:
   // Records any valid frame from a neighbor: refreshes its link quality and age.
   void recordFrame(uint16_t id, float rssi, float snr, uint32_t nowMillis);
   // Records the state that a neighbor announces in its HELLO.
-  void recordHello(uint16_t id, uint8_t model, uint32_t version, uint32_t transmitted);
+  void recordHello(uint16_t id, uint8_t model, uint32_t version, uint32_t available,
+                   uint8_t vmStatus, uint32_t transmitted);
   // Removes the neighbors not heard for NEIGHBOR_EXPIRY_MS.
   void expire(uint32_t nowMillis);
 
+  bool contains(uint16_t id) const;
   size_t count() const { return count_; }
   const Neighbor &at(size_t index) const { return entries_[index]; }
 

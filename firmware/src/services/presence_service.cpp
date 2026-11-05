@@ -28,6 +28,7 @@ bool PresenceService::isDue(uint32_t nowMillis) const {
 }
 
 void PresenceService::scheduleNext(uint32_t nowMillis) {
+  immediateRequested_ = false;
   nextMillis_ = nowMillis +
                 randomBetween(HELLO_PERIOD_MS - HELLO_JITTER_MS, HELLO_PERIOD_MS + HELLO_JITTER_MS);
 }
@@ -85,8 +86,10 @@ size_t PresenceService::encodePayload(const HelloContent &content, uint8_t *outp
       content.neighborCount <= MAXIMUM_NEIGHBORS ? content.neighborCount : MAXIMUM_NEIGHBORS;
   output[0] = content.model;
   writeUint32(output + 1, content.version);
-  writeUint32(output + 5, content.transmitted);
-  output[9] = count;
+  writeUint32(output + 5, content.available);
+  output[9] = content.vmStatus;
+  writeUint32(output + 10, content.transmitted);
+  output[14] = count;
   uint8_t *entry = output + HELLO_FIXED_SIZE;
   for (uint8_t index = 0; index < count; ++index) {
     writeUint16(entry, content.neighbors[index].id);
@@ -101,13 +104,15 @@ bool PresenceService::decodePayload(const uint8_t *payload, size_t length, Hello
   if (length < HELLO_FIXED_SIZE) {
     return false;
   }
-  const uint8_t count = payload[9];
+  const uint8_t count = payload[14];
   if (count > MAXIMUM_NEIGHBORS || length != HELLO_FIXED_SIZE + count * HELLO_NEIGHBOR_SIZE) {
     return false;
   }
   content.model = payload[0];
   content.version = readUint32(payload + 1);
-  content.transmitted = readUint32(payload + 5);
+  content.available = readUint32(payload + 5);
+  content.vmStatus = payload[9];
+  content.transmitted = readUint32(payload + 10);
   content.neighborCount = count;
   const uint8_t *entry = payload + HELLO_FIXED_SIZE;
   for (uint8_t index = 0; index < count; ++index) {

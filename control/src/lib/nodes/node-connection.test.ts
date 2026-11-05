@@ -99,7 +99,7 @@ describe("NodeConnection", () => {
     const { connection, transport, clock } = createConnection();
     await connection.open();
     transport.emit(
-      '{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.1.0","protocol":1,"key":"default"}',
+      '{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}',
     );
     clock.advanceBy(10_000);
     expect(transport.written).toEqual(["status"]);

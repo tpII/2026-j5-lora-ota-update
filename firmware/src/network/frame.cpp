@@ -44,6 +44,8 @@ bool isKnownMessageType(uint8_t type) {
   case MessageType::EchoRequest:
   case MessageType::EchoReply:
   case MessageType::Test:
+  case MessageType::Fragment:
+  case MessageType::Report:
     return true;
   }
   return false;
@@ -59,6 +61,10 @@ const char *messageTypeName(uint8_t type) {
     return "echo_reply";
   case MessageType::Test:
     return "test";
+  case MessageType::Fragment:
+    return "fragment";
+  case MessageType::Report:
+    return "report";
   }
   return "unknown";
 }

@@ -5,6 +5,8 @@ import {
   NODE_SESSION_LOG,
   RECEIVER_RUN_LOG,
   SENDER_RUN_LOG,
+  UPDATE_ORIGIN_LOG,
+  UPDATE_RECEIVER_LOG,
   splitFixtureLines,
 } from "$lib/testing/console-fixtures.ts";
 
@@ -40,6 +42,8 @@ describe("parseConsoleLine with recorded sessions", () => {
       ...parseFixture(NODE_SESSION_LOG),
       ...parseFixture(SENDER_RUN_LOG),
       ...parseFixture(RECEIVER_RUN_LOG),
+      ...parseFixture(UPDATE_ORIGIN_LOG),
+      ...parseFixture(UPDATE_RECEIVER_LOG),
     ]);
     const names = new Set(events.map((event) => event.ev));
     expect([...names].sort()).toEqual([...CONSOLE_EVENT_NAMES].sort());
@@ -62,10 +66,44 @@ describe("parseConsoleLine with recorded sessions", () => {
       model: "V4.3",
       epoch: 12,
       firmware: "0.1.0",
-      protocol: 1,
+      protocol: 2,
       key: "default",
+      operator_key: "default",
     });
     expect(radio).toMatchObject({ ev: "radio", freq: 915.9, sync: 18, chip: -9, lna: "bypass" });
+  });
+
+  it("reads every line of the update sessions as an event or as debug text", () => {
+    const lines = [...parseFixture(UPDATE_ORIGIN_LOG), ...parseFixture(UPDATE_RECEIVER_LOG)];
+    expect(lines.filter((line) => line.kind === "unrecognized")).toEqual([]);
+  });
+
+  it("reads the transfer fields of the update sessions", () => {
+    const events = eventsOf(parseFixture(UPDATE_RECEIVER_LOG));
+    expect(events.find((event) => event.ev === "hello")).toMatchObject({
+      version: 0,
+      available: 0,
+      vm_fault: null,
+      vm_failing: false,
+    });
+    expect(events.find((event) => event.ev === "report_sent")).toEqual({
+      t: 60132,
+      ev: "report_sent",
+      dst: "5C21",
+      version: 1762300800,
+      size: 32,
+      count: 4,
+      missing: [1],
+      round: 1,
+    });
+    expect(events.find((event) => event.ev === "tx" && event.type === "report")).toMatchObject({
+      version: 1762300800,
+    });
+    expect(events.find((event) => event.ev === "image")).toMatchObject({
+      via: "radio",
+      src: "5C21",
+    });
+    expect(events.find((event) => event.ev === "activation")).toMatchObject({ cause: "hello" });
   });
 
   it("reads the null LNA of the V2", () => {
@@ -79,6 +117,46 @@ describe("parseConsoleLine with recorded sessions", () => {
       { id: "3A7F", rssi: -46, snr: 9.5 },
       { id: "9B04", rssi: -101, snr: -7.25 },
     ]);
+  });
+});
+
+describe("parseConsoleLine with contract version 2", () => {
+  it("requires version and index in a fragment transmission", () => {
+    expect(
+      problemOf(
+        '{"t":1,"ev":"tx","type":"fragment","dst":"FFFF","seq":1,"size":56,"toa":1,"toa_calc":1,"version":5}',
+      ),
+    ).toContain("fragment");
+    expect(
+      problemOf(
+        '{"t":1,"ev":"tx","type":"report","dst":"5C21","seq":1,"size":23,"toa":1,"toa_calc":1}',
+      ),
+    ).toContain("report");
+  });
+
+  it("accepts the fault reasons and null in the VM fields of a HELLO", () => {
+    const hello = eventOf(
+      '{"t":1,"ev":"hello","src":"5C21","epoch":7,"seq":3,"model":"V2","version":4,"available":5,"vm_fault":"division_by_zero","vm_failing":true,"tx":3,"rssi":-47.5,"snr":9.75,"ferr":-1220,"neighbors":[]}',
+    );
+    expect(hello).toMatchObject({ vm_fault: "division_by_zero", vm_failing: true });
+    expect(
+      problemOf(
+        '{"t":1,"ev":"hello","src":"5C21","epoch":7,"seq":3,"model":"V2","version":4,"available":5,"vm_fault":"meltdown","vm_failing":true,"tx":3,"rssi":-47.5,"snr":9.75,"ferr":-1220,"neighbors":[]}',
+      ),
+    ).toContain("vm_fault");
+  });
+
+  it("refuses program code that is not lowercase hexadecimal", () => {
+    expect(eventOf('{"t":1,"ev":"program","version":0,"size":0,"code":""}')).toMatchObject({
+      code: "",
+    });
+    expect(problemOf('{"t":1,"ev":"program","version":3,"size":1,"code":"0A"}')).toContain("code");
+  });
+
+  it("knows the error reasons of the image commands", () => {
+    expect(isKnownErrorReason("invalid_image")).toBe(true);
+    expect(isKnownErrorReason("not_available")).toBe(true);
+    expect(isKnownErrorReason("invalid_program")).toBe(false);
   });
 });
 
@@ -137,7 +215,7 @@ describe("parseConsoleLine", () => {
     ).toBe("el campo id debería ser un identificador de cuatro dígitos hexadecimales en mayúscula");
     expect(
       problemOf(
-        '{"t":1,"ev":"boot","id":"3A7F","model":"V3","epoch":1,"firmware":"0.1.0","protocol":1,"key":"default"}',
+        '{"t":1,"ev":"boot","id":"3A7F","model":"V3","epoch":1,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}',
       ),
     ).toBe('el campo model debería ser "V2" o "V4.3"');
     expect(
@@ -158,7 +236,7 @@ describe("parseConsoleLine", () => {
   it("names the element of a list that is invalid", () => {
     expect(
       problemOf(
-        '{"t":1,"ev":"hello","src":"5C21","epoch":7,"seq":3,"model":"V2","version":0,"tx":3,"rssi":-47.5,"snr":9.75,"ferr":-1220,"neighbors":[{"id":"3A7F","rssi":-46,"snr":9.5},{"id":"9B04","rssi":"-101","snr":-7.25}]}',
+        '{"t":1,"ev":"hello","src":"5C21","epoch":7,"seq":3,"model":"V2","version":0,"available":0,"vm_fault":null,"vm_failing":false,"tx":3,"rssi":-47.5,"snr":9.75,"ferr":-1220,"neighbors":[{"id":"3A7F","rssi":-46,"snr":9.5},{"id":"9B04","rssi":"-101","snr":-7.25}]}',
       ),
     ).toBe("el campo neighbors[1].rssi debería ser un número");
   });

@@ -1,16 +1,24 @@
 <script lang="ts">
-  import type { CommunicationTestDescription } from "$lib/measurements/communication-test-metrics.ts";
+  import type { ExportedTest, MeasurementDescription } from "$lib/measurements/measurement-export.ts";
   import type { ExportOutcome } from "$lib/measurements/measurement-writer.ts";
 
   let {
-    contents,
+    test,
+    files,
+    fileCount,
     directoryPickerAvailable,
     exportFiles,
+    disabled = false,
   }: {
-    /** What summary.csv and echoes.csv hold on this side of the test. */
-    contents: string;
+    /** Test that names the folder. */
+    test: ExportedTest;
+    /** The files of the folder and what each holds, as a Spanish list. */
+    files: string;
+    /** Number of files, in words, for the browsers that download them: "cuatro". */
+    fileCount: string;
     directoryPickerAvailable: boolean;
-    exportFiles: (description: CommunicationTestDescription) => Promise<ExportOutcome | null>;
+    exportFiles: (description: Omit<MeasurementDescription, "test">) => Promise<ExportOutcome | null>;
+    disabled?: boolean;
   } = $props();
 
   let place = $state("");
@@ -52,10 +60,9 @@
   <div>
     <h4 class="text-sm font-semibold">Exportar las métricas</h4>
     <p class="panel-hint">
-      Crea la carpeta measurements/&lt;AAAA-MM-DD&gt;-communication-test-&lt;NN&gt;/ con metadata.json,
-      events.jsonl (los eventos del nodo durante la prueba), {contents}.
+      Crea la carpeta measurements/&lt;AAAA-MM-DD&gt;-{test}-&lt;NN&gt;/ con {files}.
       {#if !directoryPickerAvailable}
-        Este navegador no permite elegir carpetas: descarga los cuatro archivos.
+        Este navegador no permite elegir carpetas: descarga los {fileCount} archivos.
       {/if}
     </p>
   </div>
@@ -82,7 +89,7 @@
     </label>
   </div>
   <div class="flex flex-wrap items-center gap-3">
-    <button type="submit" class="panel-button-primary" disabled={exporting}>
+    <button type="submit" class="panel-button-primary" disabled={exporting || disabled}>
       {exporting ? "Exportando…" : "Exportar las métricas"}
     </button>
     {#if outcome !== null}
