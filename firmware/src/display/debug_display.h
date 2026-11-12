@@ -28,7 +28,6 @@ private:
   char statusLine_[DISPLAY_COLUMNS + 1] = {};
   bool dirty_ = false;
   bool suspended_ = false;
-  bool started_ = false;
   uint32_t lastRedrawMillis_ = 0;
 };
 

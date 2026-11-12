@@ -94,6 +94,20 @@ export function listTransmitPowerValues(model: BoardModel | null): number[] {
   return [...values, ...range.additionalValues];
 }
 
+/** Warnings, in Spanish, about transmitting with a power on the 500 kHz channels. */
+export function listTransmitPowerWarnings(power: number, model: BoardModel | null): string[] {
+  const warnings: string[] = [];
+  if (power > ON_AIR_MAXIMUM_POWER_DBM) {
+    warnings.push(
+      "Por encima de unos 26 dBm se supera el límite de densidad espectral de los canales de 500 kHz.",
+    );
+  }
+  if (model === "V2" && power === 20) {
+    warnings.push("A 20 dBm la hoja de datos del SX1276 limita el ciclo de trabajo al 1 %.");
+  }
+  return warnings;
+}
+
 export function hasLowNoiseAmplifier(model: BoardModel | null): boolean {
   return model === "V4.3";
 }

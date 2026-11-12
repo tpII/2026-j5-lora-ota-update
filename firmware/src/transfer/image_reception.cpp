@@ -6,7 +6,7 @@
 
 namespace firmware {
 
-// Signed, because the main loop reads the clock once per pass.
+// Signed difference, so a deadline past the wrap of millis() still compares correctly.
 static bool hasReached(uint32_t nowMillis, uint32_t deadlineMillis) {
   return static_cast<int32_t>(nowMillis - deadlineMillis) >= 0;
 }
@@ -162,7 +162,7 @@ void ImageReception::buildReport(ReportFields &report) const {
 }
 
 bool ImageReception::isBurstInProgress(uint32_t nowMillis) const {
-  return active_ && burstOpen_ && deadlineArmed_ && !hasReached(nowMillis, deadlineMillis_);
+  return burstOpen_ && !hasReached(nowMillis, deadlineMillis_);
 }
 
 bool ImageReception::isReportDue(uint32_t nowMillis) const {

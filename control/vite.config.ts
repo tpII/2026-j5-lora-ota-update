@@ -13,10 +13,10 @@ const PROGRESSIVE_WEB_APPLICATION_OPTIONS: Partial<VitePWAOptions> = {
   strategies: "injectManifest",
   srcDir: "src",
   filename: "service-worker.ts",
-  // A classic script, as the registration expects.
-  // Fonts and board photographs too, so that the panel looks the same without internet.
   injectManifest: {
+    // A classic script, as the registration expects.
     rollupFormat: "iife",
+    // Fonts and board photographs too, so that the panel looks the same without internet.
     globPatterns: ["**/*.{js,css,html,svg,png,woff2,webmanifest}"],
   },
   // A script in the page registers the service worker once it loads, only in the production build.

@@ -15,10 +15,10 @@
     DEFAULT_RADIO_SETTINGS,
     ON_AIR_BANDWIDTH_KILOHERTZ,
     ON_AIR_MAXIMUM_CENTER_MEGAHERTZ,
-    ON_AIR_MAXIMUM_POWER_DBM,
     ON_AIR_MINIMUM_CENTER_MEGAHERTZ,
     SPREADING_FACTORS,
     frequenciesMatch,
+    listTransmitPowerWarnings,
     hasLowNoiseAmplifier,
     formatCodingRate,
     listTransmitPowerValues,
@@ -131,12 +131,7 @@
     } else if (frequency < ON_AIR_MINIMUM_CENTER_MEGAHERTZ || frequency > ON_AIR_MAXIMUM_CENTER_MEGAHERTZ) {
       list.push("Un canal de 500 kHz va centrado entre 915,25 y 927,75 MHz para quedar dentro de la banda.");
     }
-    if (power > ON_AIR_MAXIMUM_POWER_DBM) {
-      list.push("Por encima de unos 26 dBm se supera el límite de densidad espectral de los canales de 500 kHz.");
-    }
-    if (model === "V2" && power === 20) {
-      list.push("A 20 dBm la hoja de datos del SX1276 limita el ciclo de trabajo al 1 %.");
-    }
+    list.push(...listTransmitPowerWarnings(power, model));
     if (withLowNoiseAmplifier && lowNoiseAmplifier === "on") {
       list.push(
         "Con el LNA activo, una señal de más de unos −21 dBm en la antena satura el SX1262 y puede dañarlo: sobre la mesa debe quedar puenteado.",

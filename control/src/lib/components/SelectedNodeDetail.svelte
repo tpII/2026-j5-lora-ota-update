@@ -88,7 +88,7 @@
   <dl class="grid gap-x-6 gap-y-3 text-sm tabular-nums sm:grid-cols-2 lg:grid-cols-4">
     <div class="panel-rule pt-2">
       <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Época</dt>
-      <dd class="mt-0.5 text-ink tabular-nums">{node.epoch ?? "—"}</dd>
+      <dd class="mt-0.5 text-ink">{node.epoch ?? "—"}</dd>
     </div>
 
     <div class="panel-rule pt-2">
@@ -116,7 +116,7 @@
 
     <div class="panel-rule pt-2">
       <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Radio</dt>
-      <dd class="mt-0.5 text-ink tabular-nums">
+      <dd class="mt-0.5 text-ink">
         {#if node.radio !== null}
           {formatModulation(node.radio)} · {formatFrequency(node.radio.freq)}<br />
           {formatPower(node.radio.power)} en la antena · {describeLnaMode(node.radio.lna)}
@@ -141,7 +141,7 @@
 
     <div class="panel-rule pt-2">
       <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">HELLO</dt>
-      <dd class="mt-0.5 text-ink tabular-nums">
+      <dd class="mt-0.5 text-ink">
         {#if node.presence === null}
           —
         {:else if node.presence.state === "on"}
@@ -157,7 +157,7 @@
 
     <div class="panel-rule pt-2">
       <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Estado</dt>
-      <dd class="mt-0.5 text-ink tabular-nums">
+      <dd class="mt-0.5 text-ink">
         {#if node.counters !== null}
           TX {formatNumber(node.counters.transmitted)} · RX {formatNumber(node.counters.received)} · memoria libre
           {formatNumber(node.counters.freeHeap)} B
@@ -176,7 +176,7 @@
 
     <div class="panel-rule pt-2">
       <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Versiones</dt>
-      <dd class="mt-0.5 text-ink tabular-nums">
+      <dd class="mt-0.5 text-ink">
         activa <span class="font-mono">{formatImageVersion(node.activeVersion)}</span><br />
         disponible <span class="font-mono">{formatImageVersion(node.availableVersion)}</span>
         {#if node.imageReception !== null}
@@ -188,7 +188,7 @@
     {#if senderRun !== null || activeReceptions.length > 0}
       <div class="panel-rule pt-2">
         <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Corrida</dt>
-        <dd class="mt-0.5 text-ink tabular-nums">
+        <dd class="mt-0.5 text-ink">
           {#if senderRun !== null}
             Transmite la corrida {senderRun.run}: {formatNumber(senderRun.transmitted)} de {formatNumber(senderRun.count)}
           {/if}

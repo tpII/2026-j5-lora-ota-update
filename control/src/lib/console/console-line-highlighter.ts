@@ -17,7 +17,7 @@ import { createJavaScriptRawEngine } from "shiki/engine/javascript";
 /** A piece of a line drawn with one style. */
 export interface HighlightedSegment {
   readonly text: string;
-  /** Inline CSS of the segment, for example "color:#0451A5". */
+  /** Inline CSS of the segment, for example "color:#5CE1F0". */
   readonly style: string;
 }
 
@@ -32,7 +32,7 @@ const NEON_THEME: ThemeRegistration = {
   settings: [
     { settings: { foreground: "#98B0B8" } },
     { scope: ["support.type.property-name.json"], settings: { foreground: "#5CE1F0" } },
-    { scope: ["string.quoted.double.json", "string"], settings: { foreground: "#9EF0B8" } },
+    { scope: ["string"], settings: { foreground: "#9EF0B8" } },
     { scope: ["constant.numeric"], settings: { foreground: "#FFC86B" } },
     { scope: ["constant.language"], settings: { foreground: "#FF7AC0" } },
     { scope: ["punctuation"], settings: { foreground: "#6F868E" } },

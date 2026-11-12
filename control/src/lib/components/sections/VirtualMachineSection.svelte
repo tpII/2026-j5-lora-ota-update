@@ -4,6 +4,7 @@
   import RegisterTable from "../RegisterTable.svelte";
   import TargetNodeLine from "../TargetNodeLine.svelte";
   import { buildLoadRegistersCommand, type CommandProblem } from "$lib/console/console-command.ts";
+  import { countWithNoun } from "$lib/utils/labels.ts";
   import { parseInteger } from "$lib/vm/assembler.ts";
   import { TICK_PERIOD_SECONDS } from "$lib/vm/instruction-set.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
@@ -73,7 +74,7 @@
       {:else}
         <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt class="text-muted">Largo</dt>
-          <dd>{machine.size} {machine.size === 1 ? "byte" : "bytes"}</dd>
+          <dd>{countWithNoun(machine.size, "byte", "bytes")}</dd>
           <dt class="text-muted">Tick</dt>
           <dd class="font-mono">{machine.tick}</dd>
         </dl>

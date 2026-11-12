@@ -3,6 +3,7 @@
   import MeasurementSheetForm from "./MeasurementSheetForm.svelte";
   import type { UpdatePhase } from "$lib/measurements/update-metrics.ts";
   import { formatNumber, formatShortClockTime } from "$lib/utils/format.ts";
+  import { countWithNoun } from "$lib/utils/labels.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   let { panel, active }: { panel: ControlPanel; active: boolean } = $props();
@@ -149,7 +150,7 @@
                   <td class="text-xs">
                     {receiver?.image == null
                       ? "—"
-                      : `${receiver.image.fragments} ${receiver.image.fragments === 1 ? "fragmento" : "fragmentos"} en ${formatNumber(receiver.image.durationMilliseconds)} ms`}
+                      : `${countWithNoun(receiver.image.fragments, "fragmento", "fragmentos")} en ${formatNumber(receiver.image.durationMilliseconds)} ms`}
                   </td>
                 </tr>
               {/each}

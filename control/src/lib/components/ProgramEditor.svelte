@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countWithNoun } from "$lib/utils/labels.ts";
   import { PROGRAM_CAPACITY } from "$lib/vm/instruction-set.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
 
@@ -23,8 +24,7 @@
   </p>
   {#if assembly.valid}
     <p class="text-xs text-muted">
-      {assembly.code.length} de {PROGRAM_CAPACITY} bytes, {assembly.instructions.length}
-      {assembly.instructions.length === 1 ? "instrucción" : "instrucciones"}.
+      {assembly.code.length} de {PROGRAM_CAPACITY} bytes, {countWithNoun(assembly.instructions.length, "instrucción", "instrucciones")}.
     </p>
   {:else}
     <ul class="flex flex-col gap-1">

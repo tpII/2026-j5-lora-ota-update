@@ -57,12 +57,12 @@
   /** Programs the operator can sign again: the active one of the node and those signed here. */
   const sources = $derived.by(() => {
     const list: ProgramSource[] = [];
-    if (record !== null && recovery !== null && recovery.valid) {
+    if (target !== null && record !== null && recovery !== null && recovery.valid) {
       list.push({
         key: `node:${record.version}:${record.hostTime}`,
         version: record.version,
         program: recovery.program,
-        description: `programa activo de ${target?.state.identifier ?? "—"}, informado a las ${formatShortClockTime(record.hostTime)}`,
+        description: `programa activo de ${target.state.identifier}, informado a las ${formatShortClockTime(record.hostTime)}`,
       });
     }
     for (const signed of session.signedImages.toReversed()) {

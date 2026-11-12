@@ -153,7 +153,6 @@ private:
   size_t queueHead_ = 0;
   size_t queueCount_ = 0;
   OutgoingFrame inFlight_ = {};
-  bool hasInFlight_ = false;
   OutgoingFrame lastTransmitted_ = {};
   bool hasLastTransmitted_ = false;
   RadioSettings pendingSettings_ = {};

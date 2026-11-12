@@ -17,7 +17,7 @@ static bool parseInteger(const char *text, long &value) {
   char *end = nullptr;
   errno = 0;
   value = strtol(text, &end, 0);
-  return errno == 0 && end != nullptr && *end == '\0';
+  return errno == 0 && *end == '\0';
 }
 
 static bool parseDecimal(const char *text, float &value) {
@@ -27,7 +27,7 @@ static bool parseDecimal(const char *text, float &value) {
   char *end = nullptr;
   errno = 0;
   value = strtof(text, &end);
-  return errno == 0 && end != nullptr && *end == '\0';
+  return errno == 0 && *end == '\0';
 }
 
 static SettingUpdate rejectRange(char *detail, size_t detailCapacity, const char *range) {

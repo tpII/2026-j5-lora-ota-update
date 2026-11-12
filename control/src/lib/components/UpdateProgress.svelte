@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { ConnectionGraph, GraphNode, LinkQuality } from "$lib/nodes/connection-graph.ts";
+  import {
+    hasActivationPending,
+    type ConnectionGraph,
+    type GraphNode,
+    type LinkQuality,
+  } from "$lib/nodes/connection-graph.ts";
   import { imageReceptionFraction, type NodeState } from "$lib/nodes/node-state.ts";
   import {
     formatDuration,
@@ -12,6 +17,7 @@
   import {
     ACTIVATION_CAUSE_LABELS,
     BURST_CAUSE_LABELS,
+    countWithNoun,
     GRAPH_NODE_SOURCE_LABELS,
     IMAGE_REJECTION_LABELS,
     VM_FAULT_LABELS,
@@ -32,11 +38,7 @@
 
   /** Console state of each connected node, by identifier. */
   const states = $derived(
-    new Map(
-      panel.connections
-        .filter((connection) => connection.status === "open" && connection.state.identifier !== null)
-        .map((connection) => [connection.state.identifier ?? "", connection.state]),
-    ),
+    new Map(panel.identifiedConnections.map((connection) => [connection.state.identifier ?? "", connection.state])),
   );
 
   function describeReception(state: NodeState | undefined): string {
@@ -51,7 +53,7 @@
         transfer !== null && transfer.receivingVersion === reception.version && transfer.missingBytes !== null
           ? `, faltan ${formatNumber(transfer.missingBytes)} bytes`
           : "";
-      return `${reception.version}: ${reception.heldFragments.length} de ${reception.fragmentCount} ${reception.fragmentCount === 1 ? "fragmento" : "fragmentos"} de ${reception.fragmentSize} bytes (${percent} %)${missing}`;
+      return `${reception.version}: ${reception.heldFragments.length} de ${countWithNoun(reception.fragmentCount, "fragmento", "fragmentos")} de ${reception.fragmentSize} bytes (${percent} %)${missing}`;
     }
     if (transfer !== null && transfer.receivingVersion !== null) {
       return `${transfer.receivingVersion}: faltan ${formatNumber(transfer.missingBytes)} bytes`;
@@ -73,14 +75,14 @@
     const rows: ActivityRow[] = [];
     for (const [id, state] of states) {
       for (const [index, burst] of state.bursts.entries()) {
-        const sent = burst.completion === null ? `${burst.transmitted} ${burst.transmitted === 1 ? "enviado" : "enviados"} hasta ahora` : `${burst.completion.sent} ${burst.completion.sent === 1 ? "enviado" : "enviados"}`;
+        const sent = burst.completion === null ? `${countWithNoun(burst.transmitted, "enviado", "enviados")} hasta ahora` : countWithNoun(burst.completion.sent, "enviado", "enviados");
         rows.push({
           key: `${id}:burst:${index}`,
           hostTime: burst.startHostTime,
           node: id,
           kind: "Ráfaga",
           detail:
-            `${burst.version}: ${burst.count} ${burst.count === 1 ? "fragmento" : "fragmentos"} de ${burst.fragmentSize} bytes, ${sent}; ` +
+            `${burst.version}: ${countWithNoun(burst.count, "fragmento", "fragmentos")} de ${burst.fragmentSize} bytes, ${sent}; ` +
             `${BURST_CAUSE_LABELS[burst.cause]}${burst.trigger === null ? "" : ` (${burst.trigger})`}`,
         });
       }
@@ -90,7 +92,7 @@
           hostTime: report.hostTime,
           node: id,
           kind: "Reporte recibido",
-          detail: `de ${report.peer}, versión ${report.version}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${report.fragmentCount} ${report.fragmentCount === 1 ? "fragmento" : "fragmentos"} (${report.missing.join(", ")})`,
+          detail: `de ${report.peer}, versión ${report.version}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${countWithNoun(report.fragmentCount, "fragmento", "fragmentos")} (${report.missing.join(", ")})`,
         });
       }
       const reception = state.imageReception;
@@ -101,7 +103,7 @@
           hostTime: report.hostTime,
           node: id,
           kind: "Reporte enviado",
-          detail: `a ${report.peer}, versión ${report.version}, ronda ${report.round ?? "—"}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${report.fragmentCount} ${report.fragmentCount === 1 ? "fragmento" : "fragmentos"}`,
+          detail: `a ${report.peer}, versión ${report.version}, ronda ${report.round ?? "—"}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${countWithNoun(report.fragmentCount, "fragmento", "fragmentos")}`,
         });
       }
       for (const [index, image] of state.images.entries()) {
@@ -113,7 +115,7 @@
           detail:
             image.via === "console"
               ? `${image.version}, cargada por la consola (${formatNumber(image.imageSize)} bytes)`
-              : `${image.version}, completada por la radio desde ${image.source ?? "—"}: ${image.fragments} ${image.fragments === 1 ? "fragmento" : "fragmentos"}, ${image.reports} ${image.reports === 1 ? "reporte" : "reportes"}, ${formatNumber(image.durationMilliseconds)} ms`,
+              : `${image.version}, completada por la radio desde ${image.source ?? "—"}: ${countWithNoun(image.fragments, "fragmento", "fragmentos")}, ${countWithNoun(image.reports, "reporte", "reportes")}, ${formatNumber(image.durationMilliseconds)} ms`,
         });
       }
       for (const [index, rejection] of state.imageRejections.entries()) {
@@ -169,7 +171,7 @@
         <tbody>
           {#each graph.nodes as node (node.id)}
             {@const state = states.get(node.id)}
-            {@const pending = node.availableVersion !== null && node.activeVersion !== null && node.availableVersion > node.activeVersion}
+            {@const pending = hasActivationPending(node)}
             <tr>
               <td class="font-mono font-semibold">
                 {node.id}

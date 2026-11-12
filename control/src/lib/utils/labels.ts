@@ -10,7 +10,7 @@ import type {
   ImageRejectionReason,
   LnaMode,
 } from "$lib/console/console-event.ts";
-import type { ExportedTest, MeasurementTest } from "$lib/measurements/measurement-export.ts";
+import type { ExportedTest } from "$lib/measurements/measurement-export.ts";
 import type { ActivationBlockReason, GraphNodeSource } from "$lib/nodes/connection-graph.ts";
 import type { ConnectionStatus } from "$lib/nodes/node-connection.ts";
 import type { ReceptionOutcome } from "$lib/measurements/test-run-ledger.ts";
@@ -177,11 +177,6 @@ export const RECEPTION_OUTCOME_LABELS: { readonly [Outcome in ReceptionOutcome]:
   complete: "Completa",
   timeout: "Terminada por plazo",
   no_reception: "Sin paquetes",
-};
-
-export const MEASUREMENT_TEST_LABELS: { readonly [Test in MeasurementTest]: string } = {
-  "power-sweep": "Barrido de potencia",
-  "capacity-test": "Prueba de capacidad",
 };
 
 /** The tests that the «Prueba» control of the measurement section offers, in its order. */

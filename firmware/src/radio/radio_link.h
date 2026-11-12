@@ -44,10 +44,6 @@ public:
   uint32_t measuredTimeOnAirMicros() const { return measuredTimeOnAirMicros_; }
 
 private:
-  int16_t configureTransceiver(const RadioSettings &settings, int8_t transceiverPower);
-  void configureLowNoiseAmplifier(bool enabled);
-  float correctRssi(float rssi, float snr) const;
-
   const BoardSupport *board_ = nullptr;
   RadioSettings settings_{};
   int8_t transceiverPower_ = 0;

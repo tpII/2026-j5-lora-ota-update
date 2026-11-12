@@ -76,6 +76,59 @@ static void discardInterrupt() {
   portEXIT_CRITICAL(&interruptLock);
 }
 
+static void configureLowNoiseAmplifier(bool enabled) {
+#if J5_BOARD_HELTEC_V4_3
+  transceiver.setRfSwitchTable(frontEndPins, enabled ? lowNoiseAmplifierTable : bypassTable);
+#else
+  (void)enabled;
+#endif
+}
+
+static int16_t configureTransceiver(const RadioSettings &settings, int8_t transceiverPower) {
+  transceiver.standby();
+  int16_t state = transceiver.setFrequency(settings.frequencyMhz);
+  if (state == RADIOLIB_ERR_NONE) {
+    state = transceiver.setBandwidth(settings.bandwidthKhz);
+  }
+  if (state == RADIOLIB_ERR_NONE) {
+    state = transceiver.setSpreadingFactor(settings.spreadingFactor);
+  }
+  if (state == RADIOLIB_ERR_NONE) {
+    state = transceiver.setCodingRate(settings.codingRateDenominator);
+  }
+  if (state == RADIOLIB_ERR_NONE) {
+    state = transceiver.setPreambleLength(settings.preambleLength);
+  }
+  if (state == RADIOLIB_ERR_NONE) {
+    state = transceiver.setSyncWord(settings.syncWord);
+  }
+  if (state == RADIOLIB_ERR_NONE) {
+    state = transceiver.setOutputPower(transceiverPower);
+  }
+  if (state == RADIOLIB_ERR_NONE) {
+    state = transceiver.setCurrentLimit(TRANSCEIVER_CURRENT_LIMIT_MA);
+  }
+  if (state == RADIOLIB_ERR_NONE) {
+    configureLowNoiseAmplifier(settings.lowNoiseAmplifierEnabled);
+  }
+  return state;
+}
+
+static float correctRssi(float rssi, float snr) {
+#if J5_BOARD_HELTEC_V2
+  // RadioLib reports -157 + PacketRssi on the HF port. For a positive SNR the SX1276 datasheet
+  // (5.5.5) scales PacketRssi by 16/15; for a negative SNR RadioLib already adds the SNR.
+  if (snr >= 0.0f) {
+    const float packetRssi = rssi + 157.0f;
+    return -157.0f + packetRssi * 16.0f / 15.0f;
+  }
+  return rssi;
+#else
+  (void)snr;
+  return rssi;
+#endif
+}
+
 int16_t RadioLink::begin(const BoardSupport &board, const RadioSettings &settings) {
   board_ = &board;
   SPI.begin(SCK, MISO, MOSI, SS);
@@ -141,44 +194,6 @@ int16_t RadioLink::applySettings(const RadioSettings &settings) {
   return transceiver.startReceive();
 }
 
-int16_t RadioLink::configureTransceiver(const RadioSettings &settings, int8_t transceiverPower) {
-  transceiver.standby();
-  int16_t state = transceiver.setFrequency(settings.frequencyMhz);
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setBandwidth(settings.bandwidthKhz);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setSpreadingFactor(settings.spreadingFactor);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setCodingRate(settings.codingRateDenominator);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setPreambleLength(settings.preambleLength);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setSyncWord(settings.syncWord);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setOutputPower(transceiverPower);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setCurrentLimit(TRANSCEIVER_CURRENT_LIMIT_MA);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    configureLowNoiseAmplifier(settings.lowNoiseAmplifierEnabled);
-  }
-  return state;
-}
-
-void RadioLink::configureLowNoiseAmplifier(bool enabled) {
-#if J5_BOARD_HELTEC_V4_3
-  transceiver.setRfSwitchTable(frontEndPins, enabled ? lowNoiseAmplifierTable : bypassTable);
-#else
-  (void)enabled;
-#endif
-}
-
 int16_t RadioLink::startTransmit(const uint8_t *data, size_t length) {
   if (isInterruptPending()) {
     return RADIO_LINK_RECEPTION_PENDING;
@@ -225,21 +240,6 @@ RadioEvent RadioLink::poll(ReceivedFrame &frame) {
   // readData clears the interrupt flags and leaves the transceiver in continuous reception. Arming
   // the reception again here could cut the preamble of a frame sent right after this one.
   return RadioEvent::FrameReceived;
-}
-
-float RadioLink::correctRssi(float rssi, float snr) const {
-#if J5_BOARD_HELTEC_V2
-  // RadioLib reports -157 + PacketRssi on the HF port. For a positive SNR the SX1276 datasheet
-  // (5.5.5) scales PacketRssi by 16/15; for a negative SNR RadioLib already adds the SNR.
-  if (snr >= 0.0f) {
-    const float packetRssi = rssi + 157.0f;
-    return -157.0f + packetRssi * 16.0f / 15.0f;
-  }
-  return rssi;
-#else
-  (void)snr;
-  return rssi;
-#endif
 }
 
 } // namespace firmware

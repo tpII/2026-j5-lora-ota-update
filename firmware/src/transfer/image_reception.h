@@ -78,6 +78,7 @@ private:
   uint16_t fragments_ = 0;
   uint16_t reports_ = 0;
   uint32_t startMillis_ = 0;
+  // Implies an active reception and an armed deadline.
   bool burstOpen_ = false;
   bool reportRequested_ = false;
   bool deadlineArmed_ = false;

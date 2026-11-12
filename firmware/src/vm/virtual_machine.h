@@ -95,7 +95,6 @@ public:
   size_t programLength() const { return programLength_; }
   const uint8_t *program() const { return program_; }
   uint32_t tickNumber() const { return tickNumber_; }
-  uint16_t programCounter() const { return programCounter_; }
   // index goes from 0 (R1) to 3 (R4).
   int32_t registerValue(uint8_t index) const { return registers_[index]; }
   // Register written by the last PRINT, from 1 to 4.

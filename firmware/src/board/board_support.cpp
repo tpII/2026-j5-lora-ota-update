@@ -90,14 +90,6 @@ int8_t BoardSupport::transceiverPowerFor(int8_t antennaDbm) const {
 #endif
 }
 
-int8_t BoardSupport::minimumTransmitPower() const {
-#if J5_BOARD_HELTEC_V2
-  return 2;
-#else
-  return 4;
-#endif
-}
-
 const char *BoardSupport::transmitPowerRange() const {
 #if J5_BOARD_HELTEC_V2
   return "power 2..17 or 20 on V2";

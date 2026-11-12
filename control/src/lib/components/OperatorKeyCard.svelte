@@ -21,13 +21,11 @@
   const expanded = $derived(key === null || (expandedChoice ?? session.keyOrigin === "generated"));
   /** The operator key of the node chosen, when it differs from the loaded one. */
   const mismatch = $derived.by(() => {
-    const operatorKey = target?.state.operatorKey ?? null;
-    if (key === null || target === null || operatorKey === null) {
+    if (key === null || target === null || target.state.operatorKey === null) {
       return null;
     }
-    return key.isDefault === (operatorKey === "default")
-      ? null
-      : { node: target.state.identifier ?? "—", nodeKeyIsDefault: operatorKey === "default" };
+    const nodeKeyIsDefault = target.state.operatorKey === "default";
+    return key.isDefault === nodeKeyIsDefault ? null : { node: target.state.identifier, nodeKeyIsDefault };
   });
 
   async function importFile(file: File): Promise<void> {

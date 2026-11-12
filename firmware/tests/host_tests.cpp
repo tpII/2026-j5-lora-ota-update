@@ -634,7 +634,7 @@ static void testReceptionCoverage() {
   // The image of the test vector, 102 bytes: in fragments of 32 bytes, 32, 32, 32 and 6.
   uint8_t image[MAXIMUM_IMAGE_SIZE];
   size_t imageLength = 0;
-  decodeHexBytes(VECTOR_IMAGE, image, sizeof(image), imageLength);
+  CHECK(decodeHexBytes(VECTOR_IMAGE, image, sizeof(image), imageLength));
   const uint32_t version = VECTOR_VERSION;
   uint8_t body[MAXIMUM_PAYLOAD_SIZE];
   FragmentFields fields{};
@@ -642,7 +642,7 @@ static void testReceptionCoverage() {
   ImageReception reception;
   reception.reset();
   CHECK(!reception.isActive());
-  makeFragment(image, imageLength, version, 32, 2, 1, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 2, 1, body, fields));
   FragmentReceipt receipt = reception.offer(0x3A7F, fields, 1000, 20);
   CHECK(receipt.accepted && receipt.contributed && receipt.started);
   CHECK(reception.isActive() && reception.version() == version && !reception.isLengthKnown());
@@ -650,7 +650,7 @@ static void testReceptionCoverage() {
   CHECK(reception.missingByteCount() == 128 - 32);
 
   // Out of order, and a repeated fragment adds nothing.
-  makeFragment(image, imageLength, version, 32, 0, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 0, 0, body, fields));
   receipt = reception.offer(0x3A7F, fields, 1010, 20);
   CHECK(receipt.accepted && receipt.contributed && !receipt.started);
   receipt = reception.offer(0x3A7F, fields, 1020, 20);
@@ -663,7 +663,7 @@ static void testReceptionCoverage() {
   CHECK(report.missing[0] == 0x0A);
 
   // The last fragment gives the exact length.
-  makeFragment(image, imageLength, version, 32, 3, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 3, 0, body, fields));
   reception.offer(0x3A7F, fields, 1030, 20);
   CHECK(reception.isLengthKnown() && reception.imageLength() == imageLength);
   CHECK(reception.missingByteCount() == 32 && !reception.isComplete());
@@ -671,14 +671,14 @@ static void testReceptionCoverage() {
   CHECK(report.missing[0] == 0x02);
 
   // A fragment of another size fills the gap: bytes 0 to 63 in fragments of 64.
-  makeFragment(image, imageLength, version, 64, 0, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 64, 0, 0, body, fields));
   receipt = reception.offer(0x00F4, fields, 1040, 30);
   CHECK(receipt.accepted && receipt.contributed && reception.isComplete());
   CHECK(std::memcmp(reception.image(), image, imageLength) == 0);
   CHECK(reception.missingByteCount() == 0 && reception.fragmentCount() == 5);
   CHECK(reception.lastSource() == 0x00F4);
   ImageVerifier verifier;
-  verifier.begin(DEFAULT_OPERATOR_PUBLIC_KEY);
+  CHECK(verifier.begin(DEFAULT_OPERATOR_PUBLIC_KEY));
   ImageHeader header{};
   char detail[48];
   CHECK(verifier.verify(reception.image(), reception.imageLength(), header, detail,
@@ -686,37 +686,37 @@ static void testReceptionCoverage() {
 
   // Mixed sizes from the start: the last fragment of 64 and the two first of 32.
   reception.reset();
-  makeFragment(image, imageLength, version, 64, 1, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 64, 1, 0, body, fields));
   reception.offer(0x3A7F, fields, 0, 30);
   CHECK(reception.isLengthKnown() && reception.missingByteCount() == 64);
-  makeFragment(image, imageLength, version, 32, 0, 1, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 0, 1, body, fields));
   reception.offer(0x3A7F, fields, 0, 20);
-  makeFragment(image, imageLength, version, 32, 1, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 1, 0, body, fields));
   reception.offer(0x3A7F, fields, 0, 20);
   CHECK(reception.isComplete());
 
   // A fragment that contradicts the known length restarts the reception with it.
   reception.reset();
-  makeFragment(image, imageLength, version, 32, 3, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 3, 0, body, fields));
   reception.offer(0x3A7F, fields, 0, 20);
-  makeFragment(image, imageLength, version, 32, 0, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 0, 0, body, fields));
   reception.offer(0x3A7F, fields, 0, 20);
   uint8_t longer[MAXIMUM_IMAGE_SIZE];
   memcpy(longer, image, imageLength);
-  makeFragment(longer, imageLength + 10, version, 32, 3, 0, body, fields);
+  CHECK(makeFragment(longer, imageLength + 10, version, 32, 3, 0, body, fields));
   receipt = reception.offer(0x3A7F, fields, 0, 20);
   CHECK(receipt.accepted && receipt.started && reception.fragmentCount() == 1);
   CHECK(reception.imageLength() == imageLength + 10 && reception.missingByteCount() == 96);
   // A non-last fragment of 64 bytes leaves the length between 65 and 128: no contradiction.
-  makeFragment(longer, imageLength + 10, version, 64, 0, 1, body, fields);
+  CHECK(makeFragment(longer, imageLength + 10, version, 64, 0, 1, body, fields));
   receipt = reception.offer(0x3A7F, fields, 0, 20);
   CHECK(receipt.accepted && !receipt.started);
 
   // A newer version replaces the reception; an older one is ignored.
-  makeFragment(image, imageLength, version + 1, 32, 0, 3, body, fields);
+  CHECK(makeFragment(image, imageLength, version + 1, 32, 0, 3, body, fields));
   receipt = reception.offer(0x3A7F, fields, 0, 20);
   CHECK(receipt.started && reception.version() == version + 1);
-  makeFragment(image, imageLength, version, 32, 1, 2, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 1, 2, body, fields));
   receipt = reception.offer(0x3A7F, fields, 0, 20);
   CHECK(!receipt.accepted && reception.version() == version + 1);
 
@@ -738,7 +738,7 @@ static void testReceptionCoverage() {
   // A last fragment that leaves the image below 74 bytes belongs to the reception: the bytes
   // complete and the verification rejects the image for format.
   reception.reset();
-  makeFragment(image, 50, version, 231, 0, 0, body, fields);
+  CHECK(makeFragment(image, 50, version, 231, 0, 0, body, fields));
   receipt = reception.offer(0x3A7F, fields, 0, 20);
   CHECK(receipt.accepted && receipt.started && reception.isComplete());
   CHECK(reception.imageLength() == 50);
@@ -746,9 +746,9 @@ static void testReceptionCoverage() {
                         sizeof(detail)) == ImageCheck::Format);
   // In a reception in progress it contradicts the known length and restarts it.
   reception.reset();
-  makeFragment(image, imageLength, version, 32, 0, 3, body, fields);
+  CHECK(makeFragment(image, imageLength, version, 32, 0, 3, body, fields));
   reception.offer(0x3A7F, fields, 0, 20);
-  makeFragment(image, 50, version, 40, 1, 0, body, fields);
+  CHECK(makeFragment(image, 50, version, 40, 1, 0, body, fields));
   CHECK(fields.count == 2 && fields.dataLength == 10);
   receipt = reception.offer(0x3A7F, fields, 0, 20);
   CHECK(receipt.accepted && receipt.started && reception.isLengthKnown());
@@ -756,7 +756,7 @@ static void testReceptionCoverage() {
   // Before its last fragment arrives, the length of an image is unknown even when count x size
   // is 74.
   reception.reset();
-  makeFragment(image, 74, version, 37, 0, 1, body, fields);
+  CHECK(makeFragment(image, 74, version, 37, 0, 1, body, fields));
   reception.offer(0x3A7F, fields, 0, 20);
   CHECK(!reception.isLengthKnown());
 }
@@ -764,14 +764,14 @@ static void testReceptionCoverage() {
 static void testReceptionDeadlines() {
   uint8_t image[MAXIMUM_IMAGE_SIZE];
   size_t imageLength = 0;
-  decodeHexBytes(VECTOR_IMAGE, image, sizeof(image), imageLength);
+  CHECK(decodeHexBytes(VECTOR_IMAGE, image, sizeof(image), imageLength));
   uint8_t body[MAXIMUM_PAYLOAD_SIZE];
   FragmentFields fields{};
   ImageReception reception;
   reception.reset();
 
   // Three fragments still to come, 20 ms each: the burst ends 60 ms plus the margin later.
-  makeFragment(image, imageLength, 1, 32, 0, 3, body, fields);
+  CHECK(makeFragment(image, imageLength, 1, 32, 0, 3, body, fields));
   reception.offer(0x3A7F, fields, 1000, 20);
   CHECK(reception.isBurstInProgress(1000) && !reception.isReportDue(1000));
   CHECK(reception.isBurstInProgress(1000 + 60 + TRANSFER_MARGIN_MS - 1));
@@ -787,23 +787,23 @@ static void testReceptionDeadlines() {
   CHECK(reception.reportCount() == 2 && !reception.isReportDue(2541));
 
   // A fragment re-arms the burst deadline; the last of the burst asks for a report at once.
-  makeFragment(image, imageLength, 1, 32, 1, 1, body, fields);
+  CHECK(makeFragment(image, imageLength, 1, 32, 1, 1, body, fields));
   reception.offer(0x3A7F, fields, 2600, 20);
   CHECK(reception.isBurstInProgress(2600) && !reception.isReportDue(3000));
-  makeFragment(image, imageLength, 1, 32, 3, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, 1, 32, 3, 0, body, fields));
   reception.offer(0x3A7F, fields, 2620, 20);
   CHECK(!reception.isBurstInProgress(2620) && reception.isReportDue(2620));
   ReportFields report{};
   reception.buildReport(report);
   CHECK(report.missing[0] == 0x04);
   // Complete: no report is due any more.
-  makeFragment(image, imageLength, 1, 32, 2, 0, body, fields);
+  CHECK(makeFragment(image, imageLength, 1, 32, 2, 0, body, fields));
   reception.offer(0x3A7F, fields, 2640, 20);
   CHECK(reception.isComplete() && !reception.isReportDue(2640));
   CHECK(!reception.isBurstInProgress(2640));
   // Across the wrap of millis().
   reception.reset();
-  makeFragment(image, imageLength, 1, 32, 0, 1, body, fields);
+  CHECK(makeFragment(image, imageLength, 1, 32, 0, 1, body, fields));
   reception.offer(0x3A7F, fields, 0xFFFFFF00u, 20);
   CHECK(reception.isBurstInProgress(0xFFFFFF00u + 519) && !reception.isReportDue(0x10u));
   CHECK(reception.isReportDue(0xFFFFFF00u + 520));

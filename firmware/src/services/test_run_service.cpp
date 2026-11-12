@@ -23,14 +23,14 @@ uint16_t TestRunService::startSending(uint16_t count, uint16_t size, uint16_t in
 
 bool TestRunService::isFrameDue(uint32_t nowMillis) const {
   return sender_.active && !sender_.stopRequested && !sender_.frameInFlight &&
-         sender_.nextIndex < sender_.count &&
+         sender_.sent < sender_.count &&
          static_cast<int32_t>(nowMillis - sender_.nextTransmitMillis) >= 0;
 }
 
 size_t TestRunService::buildNextPayload(uint8_t *output) {
   TestFields fields{};
   fields.run = sender_.run;
-  fields.index = sender_.nextIndex;
+  fields.index = sender_.sent;
   fields.count = sender_.count;
   fields.interval = sender_.interval;
   sender_.frameInFlight = true;
@@ -52,10 +52,9 @@ bool TestRunService::onFrameSent(int64_t endMicros, uint32_t nowMillis) {
   }
   sender_.frameInFlight = false;
   ++sender_.sent;
-  ++sender_.nextIndex;
   sender_.lastEndMicros = endMicros;
   sender_.nextTransmitMillis = nowMillis + sender_.interval;
-  return sender_.nextIndex >= sender_.count || sender_.stopRequested;
+  return sender_.sent >= sender_.count || sender_.stopRequested;
 }
 
 void TestRunService::onFrameFailed() {
@@ -106,7 +105,6 @@ ReceiverRun *TestRunService::recordTestFrame(uint16_t source, const TestFields &
     run->source = source;
     run->run = fields.run;
     run->count = fields.count;
-    run->interval = fields.interval;
     run->rssiMinimum = rssi;
     run->rssiMaximum = rssi;
     run->firstMillis = nowMillis;

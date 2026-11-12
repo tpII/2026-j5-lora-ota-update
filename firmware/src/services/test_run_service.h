@@ -26,7 +26,6 @@ struct SenderRun {
   uint16_t count;
   uint16_t size;
   uint16_t interval;
-  uint16_t nextIndex;
   uint16_t sent;
   int64_t firstStartMicros;
   int64_t lastEndMicros;
@@ -38,7 +37,6 @@ struct ReceiverRun {
   uint16_t source;
   uint16_t run;
   uint16_t count;
-  uint16_t interval;
   uint16_t received;
   float rssiSum;
   float rssiMinimum;

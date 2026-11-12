@@ -22,11 +22,10 @@ public:
   // Initializes libsodium and decodes the operator public key, given as 64 hexadecimal digits.
   // Returns false when either fails; every image then fails with Signature.
   bool begin(const char *publicKeyHex);
-  bool isKeyValid() const { return keyValid_; }
 
   // Checks the conditions in the order of the contract and stops at the first that fails. The
-  // detail buffer receives a short English explanation that starts with the reason name. The
-  // header is filled whenever the data holds one.
+  // detail buffer receives a short English explanation that starts with the reason name; detail
+  // may be null when detailCapacity is 0. The header is filled whenever the data holds one.
   ImageCheck verify(const uint8_t *image, size_t length, ImageHeader &header, char *detail,
                     size_t detailCapacity) const;
   // The two halves of verify, for a caller that checks something between them, as load_image

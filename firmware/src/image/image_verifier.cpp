@@ -9,9 +9,7 @@
 namespace firmware {
 
 static void writeDetail(char *detail, size_t capacity, const char *text) {
-  if (capacity > 0) {
-    snprintf(detail, capacity, "%s", text);
-  }
+  snprintf(detail, capacity, "%s", text);
 }
 
 const char *imageCheckName(ImageCheck check) {
@@ -102,10 +100,8 @@ ImageCheck ImageVerifier::checkSignatureAndProgram(const uint8_t *image, const I
 
   size_t errorOffset = 0;
   if (!validateProgram(program, header.programLength, errorOffset)) {
-    if (detailCapacity > 0) {
-      snprintf(detail, detailCapacity, "program: bad instruction at %u",
-               static_cast<unsigned>(errorOffset));
-    }
+    snprintf(detail, detailCapacity, "program: bad instruction at %u",
+             static_cast<unsigned>(errorOffset));
     return ImageCheck::Program;
   }
   writeDetail(detail, detailCapacity, "");

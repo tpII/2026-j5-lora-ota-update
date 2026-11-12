@@ -12,12 +12,15 @@ import {
   forceSimulation,
   forceX,
   forceY,
+  type ForceLink as LinkForce,
+  type ForceX,
+  type ForceY,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
 import type { NodeIdentifier } from "$lib/console/console-event.ts";
-import type { ConnectionGraph, GraphLink } from "./connection-graph.ts";
+import { graphLinkKey, weakerRssi, type ConnectionGraph } from "./connection-graph.ts";
 import type { PinnedPosition, PinnedPositions } from "./graph-pins.ts";
 
 /** Where a node is drawn, in pixels from the top left corner of the drawing. */
@@ -58,20 +61,11 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
 
-function linkKey(link: GraphLink): string {
-  return `${link.first}:${link.second}`;
-}
-
-/** The weaker direction of a link, which limits it; null when neither end reported it. */
-function weakerRssi(link: GraphLink): number | null {
-  const values = [link.firstHearsSecond?.rssi, link.secondHearsFirst?.rssi].filter(
-    (value): value is number => value !== undefined,
-  );
-  return values.length === 0 ? null : Math.min(...values);
-}
-
 export class GraphForceModel {
   readonly #simulation: Simulation<ForceNode, ForceLink>;
+  readonly #linkForce: LinkForce<ForceNode, ForceLink>;
+  readonly #xForce: ForceX<ForceNode>;
+  readonly #yForce: ForceY<ForceNode>;
   readonly #nodes = new Map<NodeIdentifier, ForceNode>();
   readonly #pins: Map<NodeIdentifier, PinnedPosition>;
   readonly #options: GraphForceModelOptions;
@@ -86,18 +80,18 @@ export class GraphForceModel {
   constructor(options: GraphForceModelOptions) {
     this.#options = options;
     this.#pins = new Map(options.pins);
+    this.#linkForce = forceLink<ForceNode, ForceLink>([])
+      .id((node) => node.id)
+      .distance((link) => this.#linkDistance(link.rssi))
+      .strength(0.6);
+    this.#xForce = forceX<ForceNode>(0).strength(0.05);
+    this.#yForce = forceY<ForceNode>(0).strength(0.07);
     this.#simulation = forceSimulation<ForceNode, ForceLink>([])
-      .force(
-        "link",
-        forceLink<ForceNode, ForceLink>([])
-          .id((node) => node.id)
-          .distance((link) => this.#linkDistance(link.rssi))
-          .strength(0.6),
-      )
+      .force("link", this.#linkForce)
       .force("charge", forceManyBody<ForceNode>().strength(-420))
       .force("collision", forceCollide<ForceNode>(COLLISION_RADIUS))
-      .force("x", forceX<ForceNode>(0).strength(0.05))
-      .force("y", forceY<ForceNode>(0).strength(0.07))
+      .force("x", this.#xForce)
+      .force("y", this.#yForce)
       .on("tick", () => this.#publish());
     if (options.running === false) {
       this.#simulation.stop();
@@ -119,13 +113,13 @@ export class GraphForceModel {
         node.y = (node.y ?? 0) + height / 2;
       }
     }
-    this.#simulation.force<ReturnType<typeof forceX<ForceNode>>>("x")?.x(width / 2);
-    this.#simulation.force<ReturnType<typeof forceY<ForceNode>>>("y")?.y(height / 2);
+    this.#xForce.x(width / 2);
+    this.#yForce.y(height / 2);
     for (const node of this.#nodes.values()) {
       this.#applyPin(node);
     }
     // Link distances depend on the size.
-    this.#simulation.force("link", this.#simulation.force("link") ?? null);
+    this.#simulation.force("link", this.#linkForce);
     this.#reheat(0.5);
   }
 
@@ -136,7 +130,7 @@ export class GraphForceModel {
   update(graph: ConnectionGraph): void {
     const topology = [
       graph.nodes.map((node) => node.id).join(","),
-      graph.links.map((link) => linkKey(link)).join(","),
+      graph.links.map((link) => graphLinkKey(link)).join(","),
     ].join("|");
     const linkWeights = graph.links
       .map((link) => {
@@ -211,7 +205,10 @@ export class GraphForceModel {
     this.#reheat(0.5);
   }
 
-  /** Frees every node, including those of nodes that are not in the graph now. */
+  /**
+   * Frees every node and forgets every pin, including the pins of nodes that are not in the graph
+   * now.
+   */
   releaseAll(): void {
     this.#pins.clear();
     for (const node of this.#nodes.values()) {
@@ -236,9 +233,7 @@ export class GraphForceModel {
     const links: ForceLink[] = graph.links
       .filter((link) => this.#nodes.has(link.first) && this.#nodes.has(link.second))
       .map((link) => ({ source: link.first, target: link.second, rssi: weakerRssi(link) }));
-    this.#simulation
-      .force<ReturnType<typeof forceLink<ForceNode, ForceLink>>>("link")
-      ?.links(links);
+    this.#linkForce.links(links);
   }
 
   /** True while a drag holds the simulation warm; for tests. */
@@ -258,7 +253,7 @@ export class GraphForceModel {
     const neighbor = graph.links
       .map((link) => (link.first === id ? link.second : link.second === id ? link.first : null))
       .map((other) => (other === null ? undefined : this.#nodes.get(other)))
-      .find((other) => other?.x !== undefined && other.y !== undefined);
+      .find((other) => other !== undefined);
     // A fixed spread by order of arrival, so that two new nodes never start on the same point.
     const angle = this.#nodes.size * 2.399963;
     const spread = 24 + 6 * this.#nodes.size;

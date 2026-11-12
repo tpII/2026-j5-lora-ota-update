@@ -8,14 +8,13 @@
   /**
    * The Programa section: the single editor of the program draft, the reference interpreter that
    * computes the expected outputs and the VM of the chosen node that reports its own, side by side
-   * (metric M5). `openUpdate`, when given, turns the mention of the Actualización section into a
-   * link to it.
+   * (metric M5). `openUpdate` turns the mention of the Actualización section into a link to it.
    */
   let {
     panel,
     draft,
     openUpdate,
-  }: { panel: ControlPanel; draft: ProgramDraft; openUpdate?: () => void } = $props();
+  }: { panel: ControlPanel; draft: ProgramDraft; openUpdate: () => void } = $props();
 </script>
 
 <div class="flex flex-col gap-3">
@@ -24,15 +23,11 @@
     <p class="panel-hint">
       El editor no envía nada a los nodos: los programas les llegan como imágenes, que se firman, se cargan
       y se activan desde la pestaña
-      {#if openUpdate === undefined}
-        Actualización.
-      {:else}
-        <button
-          type="button"
-          class="font-medium text-neon underline-offset-2 hover:underline"
-          onclick={openUpdate}>Actualización</button
-        >.
-      {/if}
+      <button
+        type="button"
+        class="font-medium text-neon underline-offset-2 hover:underline"
+        onclick={openUpdate}>Actualización</button
+      >.
     </p>
     <ProgramEditor {draft} />
   </div>

@@ -46,7 +46,6 @@ public:
   // load_image: the image as two hexadecimal digits per byte. On Invalid and VersionNotNewer the
   // detail buffer explains the error.
   ImageLoad loadImage(const char *hexadecimal, char *detail, size_t detailCapacity);
-  uint8_t fragmentSize() const { return fragmentSize_; }
   void setFragmentSize(uint8_t size) { fragmentSize_ = size; }
   void emitTransfer(uint32_t activeVersion);
 

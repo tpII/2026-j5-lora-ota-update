@@ -182,6 +182,22 @@ export class ControlPanel {
     );
   }
 
+  /**
+   * Identified nodes that transmit a manual run of the power sweep: the runs of an active capacity
+   * test belong to the test.
+   */
+  get manualRunConnections(): readonly ConnectionView[] {
+    const campaignSender = this.isCampaignActive ? (this.campaign?.sender ?? null) : null;
+    return this.connections.filter(
+      (connection) =>
+        connection.status === "open" &&
+        connection.state.identifier !== null &&
+        connection.state.identifier !== campaignSender &&
+        connection.state.senderRun !== null &&
+        connection.state.senderRun.completion === null,
+    );
+  }
+
   get hasWebSocketConnection(): boolean {
     return this.connections.some(
       (connection) => connection.transportKind === "websocket" && connection.status !== "closed",

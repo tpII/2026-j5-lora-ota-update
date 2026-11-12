@@ -40,7 +40,6 @@ public:
   // Transmit power is expressed at the antenna connector (docs/protocol/radio.md).
   bool isTransmitPowerReachable(int16_t antennaDbm) const;
   int8_t transceiverPowerFor(int8_t antennaDbm) const;
-  int8_t minimumTransmitPower() const;
   const char *transmitPowerRange() const;
 
 private:

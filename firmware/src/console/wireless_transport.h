@@ -18,7 +18,6 @@ public:
 
   bool isEnabled() const { return enabled_; }
   uint8_t clientCount() const;
-  uint8_t channel() const { return channel_; }
 
   // Returns true when a command line from a client is available.
   bool readLine(char *buffer, size_t capacity, bool &overflowed);
@@ -31,7 +30,6 @@ public:
 
 private:
   bool enabled_ = false;
-  uint8_t channel_ = 0;
 };
 
 } // namespace firmware

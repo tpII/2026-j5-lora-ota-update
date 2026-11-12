@@ -19,8 +19,6 @@ static constexpr size_t DEBUG_TEXT_CAPACITY = 64;
 // leaves the available one untouched.
 static uint8_t consoleImage[MAXIMUM_IMAGE_SIZE];
 
-static uint32_t roundUpToMillis(uint32_t micros) { return (micros + 999) / 1000; }
-
 static void writeMissingIndices(JsonObject event, const ReportFields &report) {
   JsonArray missing = event["missing"].to<JsonArray>();
   for (uint8_t index = 0; index < report.count; ++index) {
@@ -108,7 +106,6 @@ void TransferService::handleFragment(uint16_t source, const uint8_t *payload, si
   FragmentFields fields{};
   decodeFragment(payload, length, fields);
   FragmentReceipt receipt{};
-  // Only versions newer than the available one are received.
   if (fields.version > availableVersion_) {
     receipt = reception_.offer(source, fields, nowMillis, fragmentAirMillis(fields.size));
   }
@@ -132,10 +129,9 @@ void TransferService::handleFragment(uint16_t source, const uint8_t *payload, si
 }
 
 void TransferService::completeReception(uint32_t nowMillis) {
-  char detail[48];
   ImageHeader header{};
-  ImageCheck check = verifier_.verify(reception_.image(), reception_.imageLength(), header, detail,
-                                      sizeof(detail));
+  ImageCheck check =
+      verifier_.verify(reception_.image(), reception_.imageLength(), header, nullptr, 0);
   // The fragments name the version too; an image that claims another one is malformed.
   if (check == ImageCheck::Valid && header.version != reception_.version()) {
     check = ImageCheck::Format;
@@ -188,9 +184,7 @@ void TransferService::installImage(const uint8_t *image, size_t length, const Im
   if (bursts_.hasStartedBurst()) {
     emitBurstDone();
   }
-  if (image != availableImage_) {
-    memmove(availableImage_, image, length);
-  }
+  memcpy(availableImage_, image, length);
   availableLength_ = length;
   availableVersion_ = header.version;
   availableHeader_ = header;
@@ -212,15 +206,12 @@ void TransferService::handleReport(uint16_t source, const uint8_t *payload, size
   ReportFields report{};
   decodeReport(payload, length, report);
   emitReport("report_received", "src", source, report, 0);
-  // Only the available image is sent; a report of any other version is ignored.
-  if (availableVersion_ != 0 && report.version == availableVersion_) {
-    bursts_.mergeReport(report, source);
-  }
+  bursts_.mergeReport(report, source);
 }
 
 void TransferService::handleHello(uint16_t source, uint32_t activeVersion,
                                   uint32_t availableVersion, uint32_t ownActiveVersion) {
-  if (availableVersion_ != 0 && availableVersion < availableVersion_ && !bursts_.hasBurst()) {
+  if (availableVersion < availableVersion_ && !bursts_.hasBurst()) {
     bursts_.requestFullBurst(fragmentSize_, BurstCause::Hello, source);
   }
   if (activeVersion == availableVersion_ && availableVersion_ > ownActiveVersion) {

@@ -70,8 +70,6 @@ static void copyFirstWord(const char *line, char *word, size_t capacity) {
   word[length] = '\0';
 }
 
-static uint32_t roundUpToMillis(uint32_t micros) { return (micros + 999) / 1000; }
-
 // A register value: decimal, signed or not, or hexadecimal with 0x. Values above INT32_MAX keep
 // their bit pattern, so 0xFFFFFFFF and -1 load the same register contents.
 static bool parseRegisterValue(const char *text, int32_t &value) {
@@ -237,7 +235,6 @@ void NodeApplication::serviceTransmitter(uint32_t nowMillis) {
     }
     return;
   }
-  hasInFlight_ = true;
   onTransmitStarted(nowMillis);
 }
 
@@ -275,10 +272,6 @@ void NodeApplication::onTransmitStarted(uint32_t nowMillis) {
 }
 
 void NodeApplication::onTransmitDone(uint32_t nowMillis) {
-  if (!hasInFlight_) {
-    return;
-  }
-  hasInFlight_ = false;
   ++transmittedCount_;
   lastTransmitted_ = inFlight_;
   hasLastTransmitted_ = true;
@@ -634,9 +627,7 @@ void NodeApplication::enqueueHello() {
   content.available = transfer_.availableVersion();
   content.vmStatus = encodeVmStatus(vm_.lastFault(), vm_.lastTickFaulted());
   content.transmitted = transmittedCount_;
-  const size_t count = neighbors_.count();
-  content.neighborCount =
-      static_cast<uint8_t>(count < MAXIMUM_NEIGHBORS ? count : MAXIMUM_NEIGHBORS);
+  content.neighborCount = static_cast<uint8_t>(neighbors_.count());
   for (uint8_t index = 0; index < content.neighborCount; ++index) {
     const Neighbor &neighbor = neighbors_.at(index);
     content.neighbors[index].id = neighbor.id;

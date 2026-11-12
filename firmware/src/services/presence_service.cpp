@@ -1,7 +1,6 @@
 #include "presence_service.h"
 
 #include <esp_random.h>
-#include <math.h>
 
 #include "../network/byte_order.h"
 #include "../network/link_quality.h"
@@ -24,7 +23,7 @@ void PresenceService::begin(uint32_t nowMillis) {
 }
 
 bool PresenceService::isDue(uint32_t nowMillis) const {
-  return !suspended_ && !held_ && static_cast<int32_t>(nowMillis - nextMillis_) >= 0;
+  return !isInhibited() && static_cast<int32_t>(nowMillis - nextMillis_) >= 0;
 }
 
 void PresenceService::scheduleNext(uint32_t nowMillis) {

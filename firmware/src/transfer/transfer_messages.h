@@ -42,7 +42,8 @@ struct ReportFields {
   uint8_t missing[MAXIMUM_REPORT_BITMAP_SIZE];
 };
 
-// Number of fragments of the given size that an image of the given length takes.
+// The count fits uint8_t: with size >= MINIMUM_FRAGMENT_SIZE and imageLength <=
+// MAXIMUM_IMAGE_SIZE it is at most MAXIMUM_FRAGMENT_COUNT.
 inline uint8_t fragmentCountFor(size_t imageLength, uint8_t size) {
   return static_cast<uint8_t>((imageLength + size - 1) / size);
 }

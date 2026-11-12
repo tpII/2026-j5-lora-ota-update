@@ -5,8 +5,7 @@
   import CapacityTestSection from "$lib/components/sections/CapacityTestSection.svelte";
   import CommunicationTestSection from "$lib/components/sections/CommunicationTestSection.svelte";
   import RunSection from "$lib/components/sections/RunSection.svelte";
-  import type { ExportedTest, MeasurementDescription } from "$lib/measurements/measurement-export.ts";
-  import type { ExportOutcome } from "$lib/measurements/measurement-writer.ts";
+  import type { ExportedTest } from "$lib/measurements/measurement-export.ts";
   import {
     formatBitRate,
     formatDeliveryRatio,
@@ -51,16 +50,7 @@
   /** For each test, the node it runs on, in Spanish, or null when it does not run. */
   const progressNotes = $derived.by((): { readonly [Test in SectionTest]: string | null } => {
     const campaignSender = panel.isCampaignActive ? (panel.campaign?.sender ?? null) : null;
-    const manualSenders = panel.connections
-      .filter(
-        (connection) =>
-          connection.status === "open" &&
-          connection.state.identifier !== null &&
-          connection.state.identifier !== campaignSender &&
-          connection.state.senderRun !== null &&
-          connection.state.senderRun.completion === null,
-      )
-      .map((connection) => connection.state.identifier);
+    const manualSenders = panel.manualRunConnections.map((connection) => connection.state.identifier);
     const communicationTest = panel.communicationTest;
     const receiverMode = panel.receiverMode;
     return {
@@ -97,16 +87,6 @@
     }
   }
 
-  function exportSelectedMeasurement(
-    description: Omit<MeasurementDescription, "test">,
-  ): Promise<ExportOutcome | null> {
-    const test = selectedTest;
-    if (test === "communication-test") {
-      return Promise.resolve(null);
-    }
-    return panel.exportMeasurement({ test, ...description }, exportedNodes);
-  }
-
   function clearRecord(): void {
     if (
       window.confirm(
@@ -123,7 +103,7 @@
   <RegulatoryChannelNote />
 
   <div class="flex flex-wrap items-center gap-3">
-    <span id="measurement-test-caption" class="panel-caption sr-only">Prueba</span>
+    <span id="measurement-test-caption" class="sr-only">Prueba</span>
     <div
       class="flex flex-wrap gap-1"
       role="tablist"
@@ -278,6 +258,7 @@
         prueba termina y el receptor cuando se lo desactiva.
       </p>
     {:else}
+      {@const test = selectedTest}
       <div class="flex flex-col gap-2">
         <span class="panel-caption">Nodos que participaron</span>
         {#if panel.participatingNodes.length === 0}
@@ -305,12 +286,12 @@
       {#key `${selectedTest}:${recordGeneration}`}
         <MeasurementExportAction
           {panel}
-          test={selectedTest}
+          {test}
           files="metadata.json, events.jsonl (los eventos de los nodos marcados) y summary.csv (una fila por receptor de cada corrida)"
           fileCount="tres"
-          label={EXPORT_LABELS[selectedTest]}
+          label={EXPORT_LABELS[test]}
           disabled={exportedNodes.length === 0}
-          exportFiles={exportSelectedMeasurement}
+          exportFiles={(description) => panel.exportMeasurement({ test, ...description }, exportedNodes)}
         />
       {/key}
     {/if}

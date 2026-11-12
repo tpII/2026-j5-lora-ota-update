@@ -5,6 +5,7 @@
 #include "../configuration.h"
 #include "../network/byte_order.h"
 #include "../network/link_quality.h"
+#include "../radio/time_on_air.h"
 
 namespace firmware {
 
@@ -31,7 +32,7 @@ void EchoService::markTransmitting(int64_t startMicros, uint32_t startMillis,
   transmitting_ = true;
   startMicros_ = startMicros;
   startMillis_ = startMillis;
-  timeoutMillis_ = 2 * ((timeOnAirMicros + 999) / 1000) + RESPONSE_MARGIN_MS;
+  timeoutMillis_ = 2 * roundUpToMillis(timeOnAirMicros) + RESPONSE_MARGIN_MS;
 }
 
 bool EchoService::isReplyExpected(uint16_t source, uint16_t number) const {

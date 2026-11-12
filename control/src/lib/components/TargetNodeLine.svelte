@@ -9,7 +9,7 @@
   let {
     panel,
     role = "Nodo",
-    connection: pinnedConnection = undefined,
+    connection: pinnedConnection,
   }: { panel: ControlPanel; role?: string; connection?: ConnectionView | null } = $props();
 
   const connection = $derived(

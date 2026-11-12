@@ -2,7 +2,14 @@
   import { onDestroy } from "svelte";
   import BoardThumbnail from "./BoardThumbnail.svelte";
   import { STATUS_COMMAND } from "$lib/console/console-command.ts";
-  import type { GraphLink, GraphNode, LinkQuality } from "$lib/nodes/connection-graph.ts";
+  import {
+    graphLinkKey,
+    hasActivationPending,
+    weakerRssi,
+    type GraphLink,
+    type GraphNode,
+    type LinkQuality,
+  } from "$lib/nodes/connection-graph.ts";
   import { GraphForceModel, type GraphPlacements, type NodePlacement } from "$lib/nodes/graph-force-model.ts";
   import { browserStorage, loadPinnedPositions, savePinnedPositions } from "$lib/nodes/graph-pins.ts";
   import { formatDuration, formatImageVersion, formatRssi, formatSnr } from "$lib/utils/format.ts";
@@ -94,17 +101,13 @@
   let press: { id: string; pointerId: number; startX: number; startY: number; moved: boolean } | null = null;
   /** Set when a press ended as a drag, so that the click that follows does not select. */
   let suppressClick = false;
-  let frame: HTMLDivElement | undefined = $state();
+  let frame: HTMLDivElement;
 
   /** Opens the tooltip on focus only from the keyboard; a click or a drag also focuses the button. */
   function focusFromKeyboard(event: FocusEvent, target: Hovered): void {
     if ((event.currentTarget as HTMLElement).matches(":focus-visible")) {
       focusTarget = target;
     }
-  }
-
-  function linkKey(link: GraphLink): string {
-    return `${link.first}:${link.second}`;
   }
 
   function midpoint(link: GraphLink): { x: number; y: number } | null {
@@ -115,26 +118,10 @@
       : { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
   }
 
-  /** The weaker of the two directions, which limits the link. */
-  function weakerRssi(link: GraphLink): number | null {
-    const values = [link.firstHearsSecond, link.secondHearsFirst]
-      .filter((quality): quality is LinkQuality => quality !== null)
-      .map((quality) => quality.rssi);
-    return values.length === 0 ? null : Math.min(...values);
-  }
-
   /** An integer with a typographic minus sign. */
   function formatSignedInteger(value: number): string {
     const rounded = Math.round(value);
     return rounded < 0 ? `−${-rounded}` : String(rounded);
-  }
-
-  function hasActivationPending(node: GraphNode): boolean {
-    return (
-      node.availableVersion !== null &&
-      node.activeVersion !== null &&
-      node.availableVersion > node.activeVersion
-    );
   }
 
   function hasVmTrouble(node: GraphNode): boolean {
@@ -184,8 +171,8 @@
   }
 
   function pointInFrame(event: PointerEvent): { x: number; y: number } {
-    const box = frame?.getBoundingClientRect();
-    return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) };
+    const box = frame.getBoundingClientRect();
+    return { x: event.clientX - box.left, y: event.clientY - box.top };
   }
 
   function startPress(event: PointerEvent, id: string): void {
@@ -233,7 +220,6 @@
     }
   });
 
-  /** The selection before the first click of a double click, which only releases the node. */
   /**
    * A double click releases a pinned node, so the first click on a pinned node waits for the second
    * before choosing it: choosing and going back would throw away what the sections keep for the node
@@ -299,6 +285,10 @@
     }
   }
 
+  const hoveredLink = $derived(
+    hovered?.kind === "link" ? graph.links.find((candidate) => graphLinkKey(candidate) === hovered.key) : undefined,
+  );
+
   /** Where the tooltip of the hovered element anchors, kept inside the drawing. */
   const tooltipAnchor = $derived.by(() => {
     if (hovered === null) {
@@ -308,9 +298,7 @@
     if (hovered.kind === "node") {
       point = placements.get(hovered.id) ?? null;
     } else {
-      const key = hovered.key;
-      const link = graph.links.find((candidate) => linkKey(candidate) === key);
-      point = link === undefined ? null : midpoint(link);
+      point = hoveredLink === undefined ? null : midpoint(hoveredLink);
     }
     if (point === null) {
       return null;
@@ -450,13 +438,13 @@
     {/if}
 
     <svg class="pointer-events-none absolute inset-0 size-full overflow-visible" aria-hidden="true">
-      {#each graph.links as link (linkKey(link))}
+      {#each graph.links as link (graphLinkKey(link))}
         {@const first = placements.get(link.first)}
         {@const second = placements.get(link.second)}
         {#if first !== undefined && second !== undefined}
           {@const highlighted =
             hovered !== null &&
-            ((hovered.kind === "link" && hovered.key === linkKey(link)) ||
+            ((hovered.kind === "link" && hovered.key === graphLinkKey(link)) ||
               (hovered.kind === "node" && (hovered.id === link.first || hovered.id === link.second)))}
           <line
             x1={first.x}
@@ -522,7 +510,7 @@
       </button>
     {/each}
 
-    {#each graph.links as link (linkKey(link))}
+    {#each graph.links as link (graphLinkKey(link))}
       {@const middle = midpoint(link)}
       {@const rssi = weakerRssi(link)}
       {#if middle !== null && rssi !== null}
@@ -531,10 +519,10 @@
           class="absolute top-(--y) left-(--x) -translate-1/2 cursor-default rounded-sm bg-screen px-1.5 py-0.5 font-mono text-[0.6875rem] text-neon tabular-nums ring-1 ring-neon/35 hover:text-neon-bright"
           style="--x: {middle.x.toFixed(1)}px; --y: {middle.y.toFixed(1)}px"
           aria-label="Enlace {link.first} – {link.second}, {formatSignedInteger(rssi)} dBm"
-          aria-describedby={hovered?.kind === "link" && hovered.key === linkKey(link) ? "graph-tooltip" : undefined}
-          onpointerenter={() => (pointerTarget = { kind: "link", key: linkKey(link) })}
+          aria-describedby={hovered?.kind === "link" && hovered.key === graphLinkKey(link) ? "graph-tooltip" : undefined}
+          onpointerenter={() => (pointerTarget = { kind: "link", key: graphLinkKey(link) })}
           onpointerleave={() => (pointerTarget = null)}
-          onfocus={(event) => focusFromKeyboard(event, { kind: "link", key: linkKey(link) })}
+          onfocus={(event) => focusFromKeyboard(event, { kind: "link", key: graphLinkKey(link) })}
           onblur={() => (focusTarget = null)}
         >
           {formatSignedInteger(rssi)}
@@ -554,9 +542,7 @@
           {@const node = nodesById.get(hovered.id)}
           {#if node !== undefined}{@render nodeTooltip(node)}{/if}
         {:else}
-          {@const key = hovered.key}
-          {@const link = graph.links.find((candidate) => linkKey(candidate) === key)}
-          {#if link !== undefined}{@render linkTooltip(link)}{/if}
+          {#if hoveredLink !== undefined}{@render linkTooltip(hoveredLink)}{/if}
         {/if}
       </div>
     {/if}

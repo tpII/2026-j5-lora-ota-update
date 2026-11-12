@@ -194,7 +194,6 @@ bool WirelessTransport::begin(const char *ssid, const char *password, uint8_t ch
   httpd_register_uri_handler(server, &consoleUri);
 
   enabled_ = true;
-  channel_ = channel;
   clientChanged.store(true);
   return true;
 }

@@ -24,7 +24,6 @@ void DebugDisplay::begin() {
   display.setFontPosTop();
   logWindow.begin(DISPLAY_COLUMNS, DISPLAY_LOG_ROWS, logBuffer);
   logWindow.setLineHeightOffset(0);
-  started_ = true;
   dirty_ = true;
 }
 
@@ -42,8 +41,7 @@ void DebugDisplay::appendLine(const char *text) {
 void DebugDisplay::setSuspended(bool suspended) { suspended_ = suspended; }
 
 void DebugDisplay::poll(uint32_t nowMillis) {
-  if (!started_ || !dirty_ || suspended_ ||
-      nowMillis - lastRedrawMillis_ < DISPLAY_REFRESH_INTERVAL_MS) {
+  if (!dirty_ || suspended_ || nowMillis - lastRedrawMillis_ < DISPLAY_REFRESH_INTERVAL_MS) {
     return;
   }
   lastRedrawMillis_ = nowMillis;

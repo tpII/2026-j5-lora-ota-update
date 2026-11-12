@@ -8,7 +8,7 @@
   } from "$lib/nodes/connection-graph.ts";
   import { MAXIMUM_IMAGE_VERSION, MINIMUM_IMAGE_VERSION, isImageVersion } from "$lib/image/image-format.ts";
   import { formatImageVersion } from "$lib/utils/format.ts";
-  import { ACTIVATION_BLOCK_REASON_LABELS } from "$lib/utils/labels.ts";
+  import { ACTIVATION_BLOCK_REASON_LABELS, countWithNoun } from "$lib/utils/labels.ts";
   import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   let {
@@ -152,7 +152,7 @@
     <p class="text-sm">
       {readiness.nodeCount === 0
         ? "El grafo de conexiones todavía no tiene nodos."
-        : `${readiness.activeCount} de ${readiness.nodeCount} ${readiness.nodeCount === 1 ? "nodo" : "nodos"} ${readiness.activeCount === 1 ? "ejecuta" : "ejecutan"} la versión ${readiness.version}.`}
+        : `${readiness.activeCount} de ${countWithNoun(readiness.nodeCount, "nodo", "nodos")} ${readiness.activeCount === 1 ? "ejecuta" : "ejecutan"} la versión ${readiness.version}.`}
     </p>
     {#if readiness.blockers.length > 0}
       <div class="flex flex-col gap-1">

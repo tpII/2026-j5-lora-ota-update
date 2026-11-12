@@ -58,6 +58,28 @@ export interface ConnectionGraph {
 }
 
 /** Why a node keeps the activation order disabled. */
+/** Key of a link, unique within a graph. */
+export function graphLinkKey(link: GraphLink): string {
+  return linkKey(link.first, link.second);
+}
+
+/** The weaker direction of a link, which limits it; null when neither end reported it. */
+export function weakerRssi(link: GraphLink): number | null {
+  const values = [link.firstHearsSecond?.rssi, link.secondHearsFirst?.rssi].filter(
+    (value): value is number => value !== undefined,
+  );
+  return values.length === 0 ? null : Math.min(...values);
+}
+
+/** True when a node holds a newer version than the one it executes, waiting for activation. */
+export function hasActivationPending(node: GraphNode): boolean {
+  return (
+    node.availableVersion !== null &&
+    node.activeVersion !== null &&
+    node.availableVersion > node.activeVersion
+  );
+}
+
 export type ActivationBlockReason =
   /** The panel does not know its available version. */
   | "unknown"

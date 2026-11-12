@@ -74,8 +74,8 @@
     busy
       ? panel.connections.find(
           (connection) => connection.status === "open" && connection.state.identifier === runningIdentifier,
-        )
-      : (panel.selectedIdentifiedConnection ?? undefined),
+        ) ?? null
+      : panel.selectedIdentifiedConnection,
   );
   const nodeKey = $derived(node?.key ?? "");
   const neighborIdentifiers = $derived(node?.state.neighbors.map((neighbor) => neighbor.id) ?? []);
@@ -84,7 +84,7 @@
   // Start from the modulation the node uses, once per node chosen.
   $effect(() => {
     const radio = node?.state.radio ?? null;
-    if (node !== undefined && radio !== null && prefilledKey !== node.key && !busy) {
+    if (node !== null && radio !== null && prefilledKey !== node.key && !busy) {
       prefilledKey = node.key;
       spreadingFactor = radio.sf;
       bandwidth = radio.bw;
@@ -140,7 +140,7 @@
   );
   const frameLength = computeFrameLength(COMMUNICATION_TEST_PAYLOAD_SIZE);
   const timeOnAir = $derived(echoTimeOnAirMicroseconds(configuration, preamble));
-  const nodeReady = $derived(node !== undefined && node.state.radio !== null && !otherTestActive);
+  const nodeReady = $derived(node !== null && node.state.radio !== null && !otherTestActive);
 
   const metrics = $derived(test === null ? null : computeCommunicationTestMetrics(test));
   const progress = $derived(
@@ -186,7 +186,7 @@
         Con un operador en cada nodo, los dos acuerdan SF, ancho de banda y tasa de código; primero se activa el modo
         receptor en un nodo y después se inicia la prueba en el otro, en modo emisor.
       </p>
-      <TargetNodeLine {panel} role="Nodo conectado" connection={busy ? (node ?? null) : undefined} />
+      <TargetNodeLine {panel} role="Nodo conectado" connection={busy ? node : undefined} />
     </div>
 
     <fieldset class="flex flex-col gap-4" disabled={busy}>

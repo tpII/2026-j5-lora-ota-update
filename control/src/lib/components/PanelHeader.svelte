@@ -5,7 +5,7 @@
 </script>
 
 <header class="sticky top-0 z-10 border-b border-line bg-canvas/85 backdrop-blur">
-  <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3">
+  <div class="mx-auto max-w-7xl px-4 py-3">
     <div class="flex items-center gap-3">
       <span class="panel-oled px-2 py-1 text-sm">J5</span>
       <h1 class="text-xl font-semibold">Panel de control</h1>

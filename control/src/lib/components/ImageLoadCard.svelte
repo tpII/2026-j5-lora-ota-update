@@ -11,7 +11,7 @@
   import type { ImageVersionCheck } from "$lib/image/image-preparation.ts";
   import { PROGRAM_CAPACITY } from "$lib/vm/instruction-set.ts";
   import { formatNumber, formatShortClockTime } from "$lib/utils/format.ts";
-  import { describeErrorReason } from "$lib/utils/labels.ts";
+  import { countWithNoun, describeErrorReason } from "$lib/utils/labels.ts";
   import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
   import type { ImageSigningSession } from "$lib/state/image-signing-session.svelte.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
@@ -122,8 +122,11 @@
       <span class="panel-caption">Programa del editor</span>
       {#if assembly.valid}
         <p class="text-sm">
-          {formatNumber(assembly.code.length)} de {formatNumber(PROGRAM_CAPACITY)} bytes, {assembly.instructions.length}
-          {assembly.instructions.length === 1 ? "instrucción" : "instrucciones"}{#if imageSize !== null}; la imagen
+          {formatNumber(assembly.code.length)} de {formatNumber(PROGRAM_CAPACITY)} bytes, {countWithNoun(
+            assembly.instructions.length,
+            "instrucción",
+            "instrucciones",
+          )}{#if imageSize !== null}; la imagen
             ocupa {formatNumber(imageSize)} bytes con el encabezado y la firma{/if}.
         </p>
       {:else}
@@ -176,8 +179,7 @@
     bytes; al arrancar vale {DEFAULT_FRAGMENT_SIZE}. Las reparaciones usan el tamaño del reporte.
     {#if nodeFragmentSize !== null}
       Hoy el nodo usa {nodeFragmentSize} bytes{#if imageSize !== null && fragmentCount !== null}: la imagen de
-        {formatNumber(imageSize)} bytes viaja en {fragmentCount}
-        {fragmentCount === 1 ? "fragmento" : "fragmentos"}{/if}.
+        {formatNumber(imageSize)} bytes viaja en {countWithNoun(fragmentCount, "fragmento", "fragmentos")}{/if}.
     {/if}
   </p>
   {#if fragmentSizeProblem !== null}
@@ -188,7 +190,7 @@
     <button type="submit" class="panel-button-primary" disabled={!canLoad}>
       {loading
         ? "Firmando…"
-        : target === null || target.state.identifier === null
+        : target === null
           ? "Firmar y cargar"
           : `Firmar y cargar en ${target.state.identifier}`}
     </button>

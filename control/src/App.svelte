@@ -26,7 +26,7 @@
   const draft = new ProgramDraft();
   let activeSection = $state<SectionKey>("network");
 
-  /** Opens a section from a link inside another one, and moves the focus to its tab. */
+  /** Opens a section and moves the focus to its tab. */
   function openSection(key: SectionKey): void {
     activeSection = key;
     document.getElementById(`tab-${key}`)?.focus();

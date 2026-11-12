@@ -13,6 +13,9 @@ namespace firmware {
 // rounds this value up to whole milliseconds on the SX1276, so the firmware computes it itself.
 uint32_t computeTimeOnAirMicros(size_t frameLength, const RadioSettings &settings);
 
+// A time in microseconds rounded up to whole milliseconds, for the timers that count milliseconds.
+inline uint32_t roundUpToMillis(uint32_t micros) { return (micros + 999) / 1000; }
+
 } // namespace firmware
 
 #endif
