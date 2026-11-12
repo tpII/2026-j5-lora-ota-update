@@ -90,7 +90,7 @@
                   <td class="font-mono">{formatImageVersion(neighbor.availableVersion)}</td>
                   <td class="min-w-36 text-xs {hasVirtualMachineTrouble(neighbor) ? 'text-danger' : ''}">
                     {neighbor.vmFault === null ? "—" : VM_FAULT_LABELS[neighbor.vmFault]}
-                    {#if neighbor.vmFailing}· el último tick falló{/if}
+                    {#if neighbor.vmFailing}· falló desde su HELLO anterior{/if}
                   </td>
                   {#if chosen}
                     <td>

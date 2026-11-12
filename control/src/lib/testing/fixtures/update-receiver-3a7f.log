@@ -26,17 +26,17 @@ image 1762300800 radio
 {"t":69001,"ev":"tx","type":"hello","dst":"FFFF","seq":16,"size":35,"toa":19310,"toa_calc":19264}
 {"t":80022,"ev":"hello","src":"5C21","epoch":7,"seq":16,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":16,"rssi":-47.0,"snr":9.75,"ferr":-1219,"neighbors":[{"id":"3A7F","rssi":-41.5,"snr":9.5}]}
 {"t":80022,"ev":"activation","version":1762300800,"previous":0,"cause":"hello","src":"5C21"}
-{"t":80022,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":80022,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}
 activate 1762300800
-{"t":80023,"ev":"vm_print","tick":1,"reg":1,"value":8}
-{"t":80023,"ev":"vm_print","tick":1,"reg":1,"value":-6}
+{"t":80023,"ev":"vm_print","n":1,"reg":1,"value":8}
+{"t":80023,"ev":"vm_print","n":2,"reg":1,"value":-6}
 {"t":80041,"ev":"tx","type":"hello","dst":"FFFF","seq":17,"size":35,"toa":19310,"toa_calc":19264}
 {"t":90001,"ev":"program","version":1762300800,"size":29,"code":"020105000000020203000000110102010112010a000000150102010100"}
 {"t":91001,"ev":"status","id":"3A7F","model":"V4.3","epoch":12,"tx":18,"rx":9,"dropped":0,"heap":228512}
 {"t":91001,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}
 {"t":91001,"ev":"wifi","state":"off","ssid":"J5-3A7F","channel":1,"clients":0}
 {"t":91001,"ev":"presence","state":"on","remaining":null}
-{"t":91002,"ev":"vm","version":1762300800,"size":29,"tick":2,"registers":[-6,3,0,0]}
+{"t":91002,"ev":"vm","version":1762300800,"size":29,"starts":2,"registers":[-6,3,0,0]}
 {"t":91002,"ev":"transfer","active":1762300800,"available":1762300800,"receiving":null,"missing":null,"fragment_size":231}
 {"t":91002,"ev":"neighbor","id":"5C21","model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":16,"rssi":-47.0,"snr":9.75,"age":10980}
 {"t":95001,"ev":"fragment_rx","src":"9B04","version":1762300900,"index":0,"count":1,"size":231,"remaining":0,"accepted":true,"new":true,"rssi":-98.5,"snr":-4.25}

@@ -94,3 +94,73 @@ describe("formatPrintLine", () => {
     expect(formatPrintLine(4, -6)).toBe("VM: R4 - 0xFFFFFFFA");
   });
 });
+
+describe("assemble with labels", () => {
+  it("resolves labels before and after their use", () => {
+    expect(
+      hexOf(`
+            LOAD R2, 5
+        loop:
+            ADDI R1, 1
+            PRINT R1
+            SUBI R2, 1
+            JNZ R2, loop
+            CALL done
+            JMP loop
+        done: RET
+      `),
+    ).toBe(
+      "020205000000" +
+        "100101000000" +
+        "0101" +
+        "120201000000" +
+        "32020600" +
+        "341e00" +
+        "300600" +
+        "35",
+    );
+  });
+
+  it("attaches the labels to the next instruction", () => {
+    const result = assemble("start:\nfirst: second: NOT R1\nJMP start");
+    expect(result.valid).toBe(true);
+    if (result.valid) {
+      expect(result.instructions.map(({ labels, source }) => [labels, source])).toEqual([
+        [["start", "first", "second"], "NOT R1"],
+        [[], "JMP start"],
+      ]);
+    }
+  });
+
+  it("takes a numeric address that starts an instruction", () => {
+    expect(hexOf("NOT R1\nJZ R1, 0")).toBe("2a01" + "31010000");
+    expect(assemble("NOT R1\nJMP 1").valid).toBe(false);
+  });
+
+  it("reports undefined, repeated and reserved labels with their line", () => {
+    const result = assemble("JMP nowhere\nhere: NOT R1\nhere: NOT R2\nr1: HALT\nJMP: HALT\nlast:");
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.problems.map((problem) => problem.line)).toEqual([1, 3, 4, 5]);
+    }
+  });
+
+  it("refuses a jump to a label after the last instruction", () => {
+    expect(assemble("JMP end\nend:").valid).toBe(false);
+  });
+});
+
+describe("assemble SLEEP", () => {
+  it("encodes the milliseconds as a 32-bit unsigned integer", () => {
+    expect(hexOf("SLEEP 10")).toBe("030a000000");
+    expect(hexOf("sleep 0xFFFFFFFF")).toBe("03ffffffff");
+    expect(hexOf("SLEEP 4294967295")).toBe("03ffffffff");
+  });
+
+  it("refuses a negative wait, a register and a missing operand", () => {
+    expect(assemble("SLEEP -1").valid).toBe(false);
+    expect(assemble("SLEEP R1").valid).toBe(false);
+    expect(assemble("SLEEP").valid).toBe(false);
+    expect(assemble("SLEEP 4294967296").valid).toBe(false);
+  });
+});

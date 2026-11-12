@@ -4,7 +4,7 @@
   import { recoverProgram } from "$lib/image/image-preparation.ts";
   import { disassemble } from "$lib/vm/disassembler.ts";
   import { formatHex } from "$lib/utils/hex.ts";
-  import { describeProgramFault } from "$lib/vm/fault-descriptions.ts";
+  import { describeProgramDefect } from "$lib/vm/fault-descriptions.ts";
   import { formatImageVersion, formatShortClockTime } from "$lib/utils/format.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
@@ -91,7 +91,7 @@
   function moveToEditor(source: ProgramSource): void {
     const result = disassemble(source.program);
     if (!result.valid) {
-      problem = `El programa no se puede desensamblar: ${describeProgramFault(result.fault, result.address)}.`;
+      problem = `El programa no se puede desensamblar: ${describeProgramDefect(result.defect, result.address)}.`;
       return;
     }
     if (!window.confirm("El programa reemplaza al del editor. ¿Continuar?")) {

@@ -20,10 +20,10 @@ Hoy no se detectan dos imágenes distintas con la misma versión ([ADR 0010](adr
 
 ## Resultados de la VM desde cualquier nodo
 
-El RF1 pide que los resultados de cada nodo se vean desde una computadora conectada a cualquier nodo, y el RF8 y M5 piden compararlos con el intérprete de referencia según el programa y la versión que cada nodo tiene activos. Hoy los `PRINT` salen solo por la consola y el OLED del nodo que ejecuta el programa. El E1 los ponía en el HELLO, pero el HELLO tiene que seguir siendo corto ([ADR 0010](adrs/0010-receiver-driven-repair.md)) y un tick puede ejecutar muchos `PRINT`. Las fallas ya viajan en el byte de estado de la VM del HELLO ([ADR 0011](adrs/0011-implicit-activation-without-rollback.md)). Cada resultado que viaje por LoRa tiene que indicar la versión activa y el tick que lo produjeron. Quedan por discutir estas opciones:
+El RF1 pide que los resultados de cada nodo se vean desde una computadora conectada a cualquier nodo, y el RF8 y M5 piden compararlos con el intérprete de referencia según el programa y la versión que cada nodo tiene activos. Hoy los `PRINT` salen solo por la consola y el OLED del nodo que ejecuta el programa. El E1 los ponía en el HELLO, pero el HELLO tiene que seguir siendo corto ([ADR 0010](adrs/0010-receiver-driven-repair.md)) y un programa puede ejecutar hasta diez `PRINT` por segundo. Las fallas ya viajan en el byte de estado de la VM del HELLO ([ADR 0011](adrs/0011-implicit-activation-without-rollback.md)). Cada resultado que viaje por LoRa tiene que indicar la versión activa y el número de salida que lo produjeron. Quedan por discutir estas opciones:
 
-- Un mensaje propio por tick con los valores de los `PRINT`, sin reparación: se pierde con la misma probabilidad que cualquier otro paquete.
-- Los cuatro registros al terminar cada tick, 16 bytes: como la VM es determinista, el panel puede ejecutar el tick siguiente desde esos registros y compararlo con los que el nodo informe después.
+- Un mensaje propio cada tanto con las últimas salidas y sus números, sin reparación: se pierde con la misma probabilidad que cualquier otro paquete, pero el número de salida muestra qué faltó.
+- El estado de la VM cada tanto: los cuatro registros, el PC, la pila de retorno con su profundidad y el número de salida, 39 bytes. Como la VM es determinista, el panel puede seguir la ejecución desde ese estado y compararla con la que el nodo informe después.
 - Una consulta del panel a un nodo remoto por LoRa: solo lee, pero suma un mensaje de pedido entre nodos.
 
 ## Pérdida según el tamaño del fragmento

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { describeProgramFault } from "./fault-descriptions.ts";
+import { describeProgramDefect } from "./fault-descriptions.ts";
 
-describe("describeProgramFault", () => {
-  it("names the fault and its address", () => {
-    expect(describeProgramFault("division_by_zero", 12)).toBe(
-      "división por cero en la dirección 12",
+describe("describeProgramDefect", () => {
+  it("names the defect and its address", () => {
+    expect(describeProgramDefect("invalid_jump_target", 12)).toBe(
+      "salto o llamada a una dirección que no es el comienzo de una instrucción en la dirección 12",
     );
   });
 });

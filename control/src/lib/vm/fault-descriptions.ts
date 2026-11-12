@@ -1,16 +1,21 @@
-/** Spanish texts for the faults of the VM, for every view that tells why a program stopped. */
-import type { VmFault } from "./virtual-machine.ts";
+/** Spanish texts for the faults of the VM and the defects of a program, for every view that tells why a program stopped or was rejected. */
+import type { ProgramDefect, VmFault } from "./virtual-machine.ts";
 
 export const VM_FAULT_LABELS: { readonly [Fault in VmFault]: string } = {
   division_by_zero: "división por cero",
-  instruction_limit: "se superó el tope de instrucciones del tick",
-  end_of_program: "el programa terminó sin HALT",
+  end_of_program: "el programa llegó al final sin HALT",
+  stack_overflow: "CALL con la pila de retorno llena",
+  stack_underflow: "RET con la pila de retorno vacía",
+};
+
+export const PROGRAM_DEFECT_LABELS: { readonly [Defect in ProgramDefect]: string } = {
   invalid_opcode: "opcode inválido",
   invalid_register: "registro inválido",
   truncated_instruction: "instrucción incompleta al final del programa",
+  invalid_jump_target: "salto o llamada a una dirección que no es el comienzo de una instrucción",
 };
 
-/** Where and why the VM rejects a program: "división por cero en la dirección 12". */
-export function describeProgramFault(fault: VmFault, address: number): string {
-  return `${VM_FAULT_LABELS[fault]} en la dirección ${address}`;
+/** Where and why the VM rejects a program: "opcode inválido en la dirección 12". */
+export function describeProgramDefect(defect: ProgramDefect, address: number): string {
+  return `${PROGRAM_DEFECT_LABELS[defect]} en la dirección ${address}`;
 }

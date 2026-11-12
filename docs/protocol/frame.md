@@ -89,8 +89,8 @@ El cuerpo ocupa 15 bytes más 4 por vecino. El byte `vm` resume las fallas de la
 
 | Bits | Descripción |
 |---|---|
-| 0 a 2 | Motivo de la última falla: `0` ninguna, `1` `division_by_zero`, `2` `instruction_limit`, `3` `end_of_program`, `4` `invalid_opcode`, `5` `invalid_register` y `6` `truncated_instruction` ([la VM](virtual-machine.md)) |
-| 3 | `1` si el último tick terminó en falla |
+| 0 a 2 | Motivo de la última falla: `0` ninguna, `1` `division_by_zero`, `2` `end_of_program`, `3` `stack_overflow` y `4` `stack_underflow` ([la VM](virtual-machine.md)) |
+| 3 | `1` si el programa falló desde el HELLO anterior; el nodo lo pone en `0` después de armar cada HELLO |
 | 4 a 7 | Reservados, en `0` |
 
 Cada nodo emite un HELLO cada 10 s, con una variación aleatoria de ±20 %, y otro apenas cambia su versión activa o su versión disponible. Durante una corrida lo suspenden tanto el emisor como los receptores. Mientras dura una ráfaga, el nodo que la manda y el que la recibe postergan el HELLO periódico hasta que termina; el HELLO por un cambio de versión no se posterga. Un vecino sale de la tabla si pasan 60 s sin recibir ningún paquete suyo, de cualquier tipo.
@@ -182,7 +182,7 @@ Un nodo activa su versión disponible v, si es mayor que la activa, en estos cas
 - cuando completa la imagen de v y algún vecino de su tabla ya anuncia v como versión activa;
 - cuando el operador lo ordena por la consola con `activate`.
 
-Activar carga el programa en la VM, corta el tick en curso, vuelve a contar los ticks desde 1, ejecuta el primer tick enseguida y pone en 0 el byte `vm` del HELLO; los registros no cambian. La causa no importa: es igual con la consola, con un HELLO o con la tabla de vecinos. El nodo nunca vuelve por su cuenta a una versión anterior.
+Activar carga el programa en la VM, detiene el que corría, vuelve a contar los arranques y las salidas desde 1, arranca el programa nuevo enseguida y pone en 0 el byte `vm` del HELLO; los registros no cambian. La causa no importa: es igual con la consola, con un HELLO o con la tabla de vecinos. El nodo nunca vuelve por su cuenta a una versión anterior.
 
 ### Suspensión
 

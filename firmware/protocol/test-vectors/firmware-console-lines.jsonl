@@ -54,8 +54,8 @@
 {"t":0,"ev":"run_start","run":2,"count":1,"size":8,"interval":0}
 {"t":0,"ev":"run_done","run":2,"count":1,"sent":0,"duration":0,"aborted":true}
 {"t":0,"ev":"presence","state":"off","remaining":3600}
-{"t":0,"ev":"vm","version":0,"size":0,"tick":0,"registers":[-1,16,2147483647,-1]}
-{"t":0,"ev":"vm","version":0,"size":0,"tick":0,"registers":[-2147483648,0,-16,255]}
+{"t":0,"ev":"vm","version":0,"size":0,"starts":0,"registers":[-1,16,2147483647,-1]}
+{"t":0,"ev":"vm","version":0,"size":0,"starts":0,"registers":[-2147483648,0,-16,255]}
 {"t":0,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":231}
 {"t":0,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":64}
 {"t":0,"ev":"program","version":0,"size":0,"code":""}
@@ -68,11 +68,11 @@
 {"t":0,"ev":"error","cmd":"load_image","reason":"version_not_newer","detail":"available version 1762300800"}
 {"t":0,"ev":"error","cmd":"activate","reason":"not_available","detail":"available version 1762300800"}
 {"t":0,"ev":"activation","version":1762300800,"previous":0,"cause":"console","src":null}
-{"t":0,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[-2147483648,0,-16,255]}
+{"t":0,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[-2147483648,0,-16,255]}
 {"t":0,"ev":"error","cmd":"activate","reason":"version_not_newer","detail":"active version 1762300800"}
 {"t":0,"ev":"run_start","run":1,"count":1,"size":8,"interval":0}
 {"t":0,"ev":"presence","state":"off","remaining":1}
-{"t":0,"ev":"vm","version":0,"size":0,"tick":0,"registers":[-2147483648,-1,0,-1]}
+{"t":0,"ev":"vm","version":0,"size":0,"starts":0,"registers":[-2147483648,-1,0,-1]}
 {"t":0,"ev":"error","cmd":"load_image","reason":"invalid_image","detail":"signature: not signed by the operator"}
 {"t":0,"ev":"error","cmd":"activate","reason":"not_available","detail":"available version 0"}
 {"t":0,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":32}
@@ -90,7 +90,7 @@
 {"t":110,"ev":"tx","type":"fragment","dst":"FFFF","seq":1,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":0}
 {"t":12110,"ev":"tx","type":"fragment","dst":"FFFF","seq":2,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":1}
 {"t":12110,"ev":"activation","version":1762300800,"previous":0,"cause":"console","src":null}
-{"t":12110,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":12110,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}
 {"t":12120,"ev":"tx","type":"hello","dst":"FFFF","seq":3,"size":31,"toa":17984,"toa_calc":17984}
 {"t":12130,"ev":"run_start","run":1,"count":2,"size":8,"interval":1000}
 {"t":12130,"ev":"tx","type":"test","dst":"FFFF","seq":4,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":0}
@@ -109,14 +109,13 @@
 {"t":20020,"ev":"tx","type":"test","dst":"FFFF","seq":2,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":2}
 {"t":20020,"ev":"run_done","run":1,"count":3,"sent":3,"duration":35424,"aborted":false}
 {"t":23020,"ev":"tx","type":"hello","dst":"FFFF","seq":3,"size":31,"toa":17984,"toa_calc":17984}
-{"t":0,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":0,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}
 {"t":0,"ev":"tx","type":"hello","dst":"FFFF","seq":0,"size":31,"toa":17984,"toa_calc":17984}
 {"t":0,"ev":"hello","src":"3A7F","epoch":1,"seq":0,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-60,"snr":8,"ferr":0,"neighbors":[]}
-{"t":0,"ev":"vm_print","tick":1,"reg":1,"value":8}
+{"t":0,"ev":"vm_print","n":1,"reg":1,"value":8}
 {"t":10,"ev":"burst_start","version":1762300800,"size":32,"count":4,"cause":"load","trigger":null}
 {"t":10,"ev":"tx","type":"fragment","dst":"FFFF","seq":1,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":0}
 {"t":10,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":0,"count":4,"size":32,"remaining":3,"accepted":true,"new":true,"rssi":-60,"snr":8}
-{"t":10,"ev":"vm_print","tick":1,"reg":1,"value":-6}
 {"t":20,"ev":"tx","type":"fragment","dst":"FFFF","seq":2,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":1}
 {"t":20,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":1,"count":4,"size":32,"remaining":2,"accepted":true,"new":true,"rssi":-60,"snr":8}
 {"t":30,"ev":"tx","type":"fragment","dst":"FFFF","seq":3,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":2}
@@ -132,15 +131,16 @@
 {"t":50,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":2,"count":4,"size":32,"remaining":0,"accepted":true,"new":true,"rssi":-60,"snr":8}
 {"t":50,"ev":"image","version":1762300800,"size":29,"image_size":102,"via":"radio","src":"3A7F","fragments":4,"reports":1,"duration":40}
 {"t":50,"ev":"activation","version":1762300800,"previous":0,"cause":"neighbor","src":"3A7F"}
-{"t":50,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":50,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}
 {"t":50,"ev":"tx","type":"hello","dst":"FFFF","seq":1,"size":35,"toa":19264,"toa_calc":19264}
 {"t":50,"ev":"hello","src":"1A2B","epoch":1,"seq":1,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":1,"rssi":-60,"snr":8,"ferr":0,"neighbors":[{"id":"3A7F","rssi":-60,"snr":8}]}
-{"t":50,"ev":"vm_print","tick":1,"reg":1,"value":8}
+{"t":50,"ev":"vm_print","n":1,"reg":1,"value":8}
 {"t":60,"ev":"burst_start","version":1762300800,"size":231,"count":1,"cause":"complete","trigger":null}
 {"t":60,"ev":"tx","type":"fragment","dst":"FFFF","seq":2,"size":126,"toa":52544,"toa_calc":52544,"version":1762300800,"index":0}
 {"t":60,"ev":"burst_done","version":1762300800,"size":231,"sent":1,"duration":52544}
 {"t":60,"ev":"fragment_rx","src":"1A2B","version":1762300800,"index":0,"count":1,"size":231,"remaining":0,"accepted":false,"new":false,"rssi":-60,"snr":8}
-{"t":60,"ev":"vm_print","tick":1,"reg":1,"value":-6}
+{"t":100,"ev":"vm_print","n":2,"reg":1,"value":-6}
+{"t":150,"ev":"vm_print","n":2,"reg":1,"value":-6}
 {"t":4242,"ev":"error","cmd":"radio","reason":"radio_failure","detail":"apply","code":-2}
 {"t":4242,"ev":"error","cmd":"status","reason":"usage","detail":"status"}
 {"t":4242,"ev":"error","cmd":"frobnicate","reason":"unknown_command"}
@@ -199,21 +199,25 @@
 {"t":9100,"ev":"test_rx","src":"0004","run":1,"index":0,"count":5,"size":8,"rssi":-50,"snr":8,"ferr":0}
 {"t":0,"ev":"image","version":5,"size":3,"image_size":76,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
 {"t":1000,"ev":"activation","version":5,"previous":0,"cause":"hello","src":"3A7F"}
-{"t":1000,"ev":"vm","version":5,"size":3,"tick":0,"registers":[0,0,0,0]}
-{"t":1000,"ev":"vm_print","tick":1,"reg":1,"value":0}
-{"t":2000,"ev":"vm","version":5,"size":3,"tick":1,"registers":[-1,-2,3,2147483647]}
-{"t":11000,"ev":"vm_print","tick":2,"reg":1,"value":-1}
-{"t":11000,"ev":"image","version":6,"size":7,"image_size":80,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":1000,"ev":"vm","version":5,"size":3,"starts":0,"registers":[0,0,0,0]}
+{"t":1000,"ev":"vm_print","n":1,"reg":1,"value":0}
+{"t":2000,"ev":"vm","version":5,"size":3,"starts":1,"registers":[-1,-2,3,2147483647]}
+{"t":11100,"ev":"vm_print","n":2,"reg":1,"value":-1}
+{"t":11100,"ev":"image","version":6,"size":7,"image_size":80,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
 {"t":20000,"ev":"activation","version":6,"previous":5,"cause":"console","src":null}
-{"t":20000,"ev":"vm","version":6,"size":7,"tick":0,"registers":[-1,-2,3,2147483647]}
-{"t":20000,"ev":"vm_fault","tick":1,"pc":0,"reason":"division_by_zero"}
+{"t":20000,"ev":"vm","version":6,"size":7,"starts":0,"registers":[-1,-2,3,2147483647]}
+{"t":20000,"ev":"vm_fault","starts":1,"pc":0,"reason":"division_by_zero"}
 {"t":20000,"ev":"image","version":7,"size":3,"image_size":76,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
 {"t":30000,"ev":"activation","version":7,"previous":6,"cause":"neighbor","src":"00F4"}
-{"t":30000,"ev":"vm","version":7,"size":3,"tick":0,"registers":[-1,-2,3,2147483647]}
+{"t":30000,"ev":"vm","version":7,"size":3,"starts":0,"registers":[-1,-2,3,2147483647]}
 {"t":30000,"ev":"program","version":7,"size":3,"code":"010100"}
+{"t":30000,"ev":"image","version":8,"size":8,"image_size":81,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":30000,"ev":"activation","version":8,"previous":7,"cause":"console","src":null}
+{"t":30000,"ev":"vm","version":8,"size":8,"starts":0,"registers":[-1,-2,3,2147483647]}
+{"t":40050,"ev":"vm_print","n":1,"reg":1,"value":-1}
 {"t":200,"ev":"hello","src":"3A7F","epoch":1,"seq":1,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-60,"snr":8,"ferr":0,"neighbors":[]}
 {"t":200,"ev":"activation","version":1762300800,"previous":0,"cause":"hello","src":"3A7F"}
-{"t":200,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":200,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}
 {"t":300,"ev":"hello","src":"3A7F","epoch":1,"seq":2,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-60,"snr":8,"ferr":0,"neighbors":[]}
 {"t":100,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":231}
 {"t":100,"ev":"image","version":1762300800,"size":29,"image_size":102,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
@@ -222,7 +226,7 @@
 {"t":110,"ev":"tx","type":"fragment","dst":"FFFF","seq":1,"size":126,"toa":52544,"toa_calc":52544,"version":1762300800,"index":0}
 {"t":110,"ev":"burst_done","version":1762300800,"size":231,"sent":1,"duration":52544}
 {"t":300,"ev":"activation","version":1762300800,"previous":0,"cause":"hello","src":"00F4"}
-{"t":300,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":300,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}
 {"t":400,"ev":"tx","type":"hello","dst":"FFFF","seq":2,"size":31,"toa":17984,"toa_calc":17984}
 {"t":410,"ev":"burst_start","version":1762300800,"size":231,"count":1,"cause":"hello","trigger":"00F4"}
 {"t":410,"ev":"tx","type":"fragment","dst":"FFFF","seq":3,"size":126,"toa":52544,"toa_calc":52544,"version":1762300800,"index":0}

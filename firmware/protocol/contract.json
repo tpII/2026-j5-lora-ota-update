@@ -151,25 +151,35 @@
     "programCapacity": 1024,
     "registerCount": 4,
     "registerValue": { "minimum": -2147483648, "maximum": 4294967295 },
-    "tickPeriodMilliseconds": 10000,
     "instructionsPerPoll": 64,
-    "maximumInstructionsPerTick": 10000,
+    "restartDelayMilliseconds": 10000,
+    "minimumPrintIntervalMilliseconds": 100,
+    "returnStackDepth": 8,
     "operandForms": [
       { "name": "none", "length": 1 },
       { "name": "register", "length": 2 },
       { "name": "register-immediate", "length": 6 },
-      { "name": "register-register", "length": 3 }
+      { "name": "register-register", "length": 3 },
+      { "name": "immediate", "length": 5 },
+      { "name": "address", "length": 3 },
+      { "name": "register-address", "length": 4 }
     ],
     "instructionEffects": [
       { "name": "halt", "forms": ["none"] },
       { "name": "print", "forms": ["register"] },
       { "name": "write", "forms": ["register", "register-immediate", "register-register"] },
-      { "name": "divide", "forms": ["register-immediate", "register-register"] }
+      { "name": "divide", "forms": ["register-immediate", "register-register"] },
+      { "name": "sleep", "forms": ["immediate"] },
+      { "name": "jump", "forms": ["address"] },
+      { "name": "branch", "forms": ["register-address"] },
+      { "name": "call", "forms": ["address"] },
+      { "name": "return", "forms": ["none"] }
     ],
     "instructions": [
       { "mnemonic": "HALT", "identifier": "Halt", "opcode": "0x00", "form": "none", "effect": "halt" },
       { "mnemonic": "PRINT", "identifier": "Print", "opcode": "0x01", "form": "register", "effect": "print" },
       { "mnemonic": "LOAD", "identifier": "Load", "opcode": "0x02", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "SLEEP", "identifier": "Sleep", "opcode": "0x03", "form": "immediate", "effect": "sleep" },
       { "mnemonic": "ADDI", "identifier": "AddImmediate", "opcode": "0x10", "form": "register-immediate", "effect": "write" },
       { "mnemonic": "ADDR", "identifier": "AddRegister", "opcode": "0x11", "form": "register-register", "effect": "write" },
       { "mnemonic": "SUBI", "identifier": "SubtractImmediate", "opcode": "0x12", "form": "register-immediate", "effect": "write" },
@@ -190,17 +200,22 @@
       { "mnemonic": "SHLR", "identifier": "ShiftLeftRegister", "opcode": "0x27", "form": "register-register", "effect": "write" },
       { "mnemonic": "SHRI", "identifier": "ShiftRightImmediate", "opcode": "0x28", "form": "register-immediate", "effect": "write" },
       { "mnemonic": "SHRR", "identifier": "ShiftRightRegister", "opcode": "0x29", "form": "register-register", "effect": "write" },
-      { "mnemonic": "NOT", "identifier": "Not", "opcode": "0x2A", "form": "register", "effect": "write" }
+      { "mnemonic": "NOT", "identifier": "Not", "opcode": "0x2A", "form": "register", "effect": "write" },
+      { "mnemonic": "JMP", "identifier": "Jump", "opcode": "0x30", "form": "address", "effect": "jump" },
+      { "mnemonic": "JZ", "identifier": "JumpIfZero", "opcode": "0x31", "form": "register-address", "effect": "branch" },
+      { "mnemonic": "JNZ", "identifier": "JumpIfNotZero", "opcode": "0x32", "form": "register-address", "effect": "branch" },
+      { "mnemonic": "JNEG", "identifier": "JumpIfNegative", "opcode": "0x33", "form": "register-address", "effect": "branch" },
+      { "mnemonic": "CALL", "identifier": "Call", "opcode": "0x34", "form": "address", "effect": "call" },
+      { "mnemonic": "RET", "identifier": "Return", "opcode": "0x35", "form": "none", "effect": "return" }
     ],
     "faults": [
       { "name": "none", "code": 0 },
       { "name": "division_by_zero", "code": 1 },
-      { "name": "instruction_limit", "code": 2 },
-      { "name": "end_of_program", "code": 3 },
-      { "name": "invalid_opcode", "code": 4 },
-      { "name": "invalid_register", "code": 5 },
-      { "name": "truncated_instruction", "code": 6 }
-    ]
+      { "name": "end_of_program", "code": 2 },
+      { "name": "stack_overflow", "code": 3 },
+      { "name": "stack_underflow", "code": 4 }
+    ],
+    "programDefects": ["invalid_opcode", "invalid_register", "truncated_instruction", "invalid_jump_target"]
   },
   "radio": {
     "frequencyMegahertz": { "minimum": 915.0, "maximum": 928.0, "default": 915.9, "rangeDecimals": 1 },

@@ -20,7 +20,7 @@ import {
   MINIMUM_PROGRAM_SIZE,
 } from "$lib/protocol/protocol-contract.ts";
 import { pad } from "$lib/utils/format.ts";
-import { checkProgram, type VmFault } from "$lib/vm/virtual-machine.ts";
+import { checkProgram, type ProgramDefect } from "$lib/vm/virtual-machine.ts";
 
 export interface ImageHeader {
   readonly flags: number;
@@ -53,7 +53,7 @@ export type ImageDecoding =
   | {
       readonly valid: false;
       readonly reason: Extract<ImageRejectionReason, "program">;
-      readonly fault: VmFault;
+      readonly defect: ProgramDefect;
       readonly address: number;
     };
 
@@ -186,7 +186,7 @@ export function decodeImage(bytes: Uint8Array): ImageDecoding {
   const program = bytes.slice(IMAGE_HEADER_SIZE, IMAGE_HEADER_SIZE + programLength);
   const check = checkProgram(program);
   if (!check.valid) {
-    return { valid: false, reason: "program", fault: check.fault, address: check.address };
+    return { valid: false, reason: "program", defect: check.defect, address: check.address };
   }
   return {
     valid: true,

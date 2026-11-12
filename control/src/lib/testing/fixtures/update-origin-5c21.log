@@ -28,11 +28,11 @@ burst 1762300800 4/4
 {"t":58000,"ev":"tx","type":"hello","dst":"FFFF","seq":15,"size":35,"toa":19310,"toa_calc":19264}
 {"t":59000,"ev":"hello","src":"3A7F","epoch":12,"seq":16,"model":"V4.3","version":0,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":16,"rssi":-41.5,"snr":9.5,"ferr":1182,"neighbors":[{"id":"5C21","rssi":-47.0,"snr":9.75}]}
 {"t":70005,"ev":"activation","version":1762300800,"previous":0,"cause":"console","src":null}
-{"t":70005,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":70005,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}
 activate 1762300800
-{"t":70006,"ev":"vm_print","tick":1,"reg":1,"value":8}
+{"t":70006,"ev":"vm_print","n":1,"reg":1,"value":8}
 VM: R1 - 0x00000008
-{"t":70006,"ev":"vm_print","tick":1,"reg":1,"value":-6}
+{"t":70006,"ev":"vm_print","n":2,"reg":1,"value":-6}
 VM: R1 - 0xFFFFFFFA
 {"t":70020,"ev":"tx","type":"hello","dst":"FFFF","seq":16,"size":35,"toa":19310,"toa_calc":19264}
 {"t":70041,"ev":"hello","src":"3A7F","epoch":12,"seq":17,"model":"V4.3","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":17,"rssi":-41.5,"snr":9.5,"ferr":1179,"neighbors":[{"id":"5C21","rssi":-47.0,"snr":9.75}]}

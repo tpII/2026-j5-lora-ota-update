@@ -22,9 +22,9 @@ static_assert(VM_FAULT_COUNT - 1 <= VM_STATUS_FAULT_MASK, "every VmFault code fi
 static_assert((VM_STATUS_FAULT_MASK & VM_STATUS_FAILING_BIT) == 0,
               "the failing bit lies outside the fault code");
 
-static uint8_t encodeVmStatus(VmFault lastFault, bool lastTickFaulted) {
+static uint8_t encodeVmStatus(VmFault lastFault, bool faultedSinceReport) {
   return static_cast<uint8_t>((static_cast<uint8_t>(lastFault) & VM_STATUS_FAULT_MASK) |
-                              (lastTickFaulted ? VM_STATUS_FAILING_BIT : 0));
+                              (faultedSinceReport ? VM_STATUS_FAILING_BIT : 0));
 }
 
 static VmFault decodeVmStatusFault(uint8_t status) {

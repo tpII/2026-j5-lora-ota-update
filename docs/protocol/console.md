@@ -109,7 +109,7 @@ Uno por cada vecino, después de `status`.
 | `version` | Versión activa del vecino |
 | `available` | Versión disponible del vecino |
 | `vm_fault` | Motivo de la última falla de la VM del vecino desde su activación, con los nombres de `vm_fault`, o `null` si no hubo ninguna |
-| `vm_failing` | `true` si el último tick del vecino terminó en falla |
+| `vm_failing` | `true` si el programa del vecino falló entre sus dos últimos HELLO |
 | `tx` | Paquetes transmitidos por el vecino, según su último HELLO |
 | `rssi`, `snr` | Calidad del último paquete recibido del vecino |
 | `age` | Milisegundos desde el último paquete recibido del vecino |
@@ -258,7 +258,7 @@ Con `status`, `load_registers` y cada activación. La VM está descripta en [la 
 |---|---|
 | `version` | Versión activa; `0` es el programa de fábrica, que está vacío |
 | `size` | Largo del programa en bytes |
-| `tick` | Ticks del programa activo hasta ahora |
+| `starts` | Veces que el programa activo arrancó desde la dirección 0 desde su activación |
 | `registers` | Arreglo con R1 a R4, como enteros de 32 bits con signo |
 
 ### `vm_print`
@@ -267,19 +267,19 @@ Con cada instrucción `PRINT`. El nodo escribe además `VM: Rn - 0x00000000` com
 
 | Campo | Descripción |
 |---|---|
-| `tick` | Tick en curso |
+| `n` | Número de la salida desde la activación, desde 1: la salida n se compara con la salida n del intérprete de referencia (M5) |
 | `reg` | Registro, de 1 a 4 |
 | `value` | Valor del registro, como entero de 32 bits con signo |
 
 ### `vm_fault`
 
-Cuando una falla termina un tick.
+Cuando una falla detiene el programa, que vuelve a empezar a los 10 s.
 
 | Campo | Descripción |
 |---|---|
-| `tick` | Tick que terminó |
+| `starts` | Arranque del programa que terminó en la falla, contado desde la activación |
 | `pc` | Dirección de la instrucción que falló |
-| `reason` | `"division_by_zero"`, `"instruction_limit"`, `"end_of_program"`, `"invalid_opcode"`, `"invalid_register"` o `"truncated_instruction"` |
+| `reason` | `"division_by_zero"`, `"end_of_program"`, `"stack_overflow"` o `"stack_underflow"` |
 
 ### `transfer`
 
@@ -401,7 +401,7 @@ Cuando un comando no se puede ejecutar o la radio falla.
 | `wifi_failure` | No se pudo encender el punto de acceso o registrar en su servidor la consola WebSocket |
 | `line_too_long` | La línea supera los 200 caracteres, o en `load_image` los 2226 de una imagen completa. Una línea de `load_image` que entra en ese largo pero lleva más de 1097 bytes responde `invalid_image` con `"format: longer than 1097 bytes"` |
 | `version_not_newer` | La versión de `load_image` no es mayor que la disponible, o la de `activate` no es mayor que la activa |
-| `invalid_image` | La imagen de `load_image` no es hexadecimal o no pasa la verificación ([imagen](image.md)); `detail` empieza con `format`, `signature` o `program` y lo explica. Con `program`, nombra la falla que provocaría la primera instrucción mala, con los nombres de `vm_fault`, y su dirección: `"program: invalid_opcode at 2"` |
+| `invalid_image` | La imagen de `load_image` no es hexadecimal o no pasa la verificación ([imagen](image.md)); `detail` empieza con `format`, `signature` o `program` y lo explica. Con `program`, nombra el defecto de la primera instrucción mala, con los nombres de `programDefects` del contrato ([la VM](virtual-machine.md)), y su dirección: `"program: invalid_jump_target at 2"` |
 
 ## Comandos
 
@@ -423,7 +423,7 @@ Una línea de texto con palabras separadas por espacios, en minúscula. En el mo
 | `presence on` | Reanuda los HELLO; el primero sale entre 1 y 3 s después, como al arrancar |
 | `load_registers <r1> <r2> <r3> <r4>` | Asigna los cuatro registros de la VM. Cada valor va en decimal o en hexadecimal con `0x`, de −2147483648 a 4294967295; por encima de 2147483647 se guarda el patrón de bits. Emite `vm` |
 | `load_image <imagen>` | Carga una imagen firmada ([imagen](image.md)), con dos dígitos hexadecimales por byte. Su versión tiene que ser mayor que la disponible. El nodo revisa primero el formato, después la versión y por último la firma y el programa, así que una imagen mal formada responde `invalid_image` aunque su versión no sea mayor. Si pasa la verificación, pasa a ser la versión disponible: emite `image`, un HELLO y la ráfaga completa. No la activa |
-| `activate <versión>` | Activa la versión disponible, que tiene que ser `versión` y mayor que la activa. Emite `activation`, `vm` y un HELLO, y ejecuta el primer tick enseguida |
+| `activate <versión>` | Activa la versión disponible, que tiene que ser `versión` y mayor que la activa. Emite `activation`, `vm` y un HELLO, y arranca el programa enseguida |
 | `fragment_size [<bytes>]` | Sin argumento, emite `transfer`. Con argumento, fija el tamaño de fragmento de las ráfagas completas siguientes, de 32 a 231 bytes, y emite `transfer`. Al arrancar vale 231 |
 | `program` | Emite `program` con el programa activo, para volver a firmarlo con otra versión |
 

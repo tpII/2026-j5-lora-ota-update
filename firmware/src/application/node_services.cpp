@@ -37,7 +37,7 @@ AnnouncedState NodeServices::announcedState() const {
   announced.modelKnown = true;
   announced.model = model_;
   announced.lastFault = activation.lastFault();
-  announced.vmFailing = activation.lastTickFaulted();
+  announced.vmFailing = activation.hasFaultedSinceReport();
   announced.version = activation.activeVersion();
   announced.available = transfer.availableVersion();
   announced.transmitted = queue.sentCount();
@@ -102,6 +102,8 @@ void NodeServices::enqueueHello(uint32_t nowMillis) {
   FrameDescription description{};
   uint8_t payload[MAXIMUM_PAYLOAD_SIZE];
   const size_t length = presence.buildHello(announcedState(), nowMillis, description, payload);
+  // The failing bit covers the interval up to this HELLO; the next one starts clean.
+  activation.clearFaultReport();
   enqueueMessage(FrameOwner::Presence, description, payload, length, false);
 }
 

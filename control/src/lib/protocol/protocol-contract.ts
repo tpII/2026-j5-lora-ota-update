@@ -278,18 +278,33 @@ export const MAXIMUM_REGISTER_VALUE = 4294967295;
 /** Detail of the out_of_range error for a register value. */
 export const REGISTER_VALUE_DETAIL = "-2147483648..4294967295 or 0x hexadecimal";
 
-/** Time between the starts of two ticks. */
-export const VM_TICK_PERIOD_MILLISECONDS = 10000;
+/**
+ * Instructions that one pass of the main loop runs at most, between radio services: the program
+ * runs without end, in blocks of this size.
+ */
+export const VM_INSTRUCTIONS_PER_POLL = 64;
 
-/** A tick that reaches this many instructions ends with the fault instruction_limit. */
-export const VM_MAXIMUM_INSTRUCTIONS_PER_TICK = 10000;
+/** After HALT or a fault, the program starts again from address 0 once this time passes. */
+export const VM_RESTART_DELAY_MILLISECONDS = 10000;
 
-/** Operands of an instruction: none, one register, a register and an immediate or two registers. */
+/** The VM does not run for this time after each PRINT, so that a loop cannot flood the console. */
+export const VM_MINIMUM_PRINT_INTERVAL_MILLISECONDS = 100;
+
+/** Levels of the return stack of CALL and RET. */
+export const RETURN_STACK_DEPTH = 8;
+
+/**
+ * Operands of an instruction: none, one register, a register and an immediate, two registers, an
+ * unsigned immediate, an address or a register and an address.
+ */
 export const OPERAND_FORMS = [
   "none",
   "register",
   "register-immediate",
   "register-register",
+  "immediate",
+  "address",
+  "register-address",
 ] as const;
 
 /** Length in bytes of an instruction of each form, opcode included. */
@@ -298,6 +313,9 @@ export const OPERAND_FORM_LENGTHS = {
   register: 2,
   "register-immediate": 6,
   "register-register": 3,
+  immediate: 5,
+  address: 3,
+  "register-address": 4,
 } as const;
 
 /** Every instruction, in opcode order. */
@@ -305,6 +323,7 @@ export const INSTRUCTION_ENCODINGS = [
   { mnemonic: "HALT", opcode: 0x00, form: "none", effect: "halt" },
   { mnemonic: "PRINT", opcode: 0x01, form: "register", effect: "print" },
   { mnemonic: "LOAD", opcode: 0x02, form: "register-immediate", effect: "write" },
+  { mnemonic: "SLEEP", opcode: 0x03, form: "immediate", effect: "sleep" },
   { mnemonic: "ADDI", opcode: 0x10, form: "register-immediate", effect: "write" },
   { mnemonic: "ADDR", opcode: 0x11, form: "register-register", effect: "write" },
   { mnemonic: "SUBI", opcode: 0x12, form: "register-immediate", effect: "write" },
@@ -326,19 +345,35 @@ export const INSTRUCTION_ENCODINGS = [
   { mnemonic: "SHRI", opcode: 0x28, form: "register-immediate", effect: "write" },
   { mnemonic: "SHRR", opcode: 0x29, form: "register-register", effect: "write" },
   { mnemonic: "NOT", opcode: 0x2a, form: "register", effect: "write" },
+  { mnemonic: "JMP", opcode: 0x30, form: "address", effect: "jump" },
+  { mnemonic: "JZ", opcode: 0x31, form: "register-address", effect: "branch" },
+  { mnemonic: "JNZ", opcode: 0x32, form: "register-address", effect: "branch" },
+  { mnemonic: "JNEG", opcode: 0x33, form: "register-address", effect: "branch" },
+  { mnemonic: "CALL", opcode: 0x34, form: "address", effect: "call" },
+  { mnemonic: "RET", opcode: 0x35, form: "none", effect: "return" },
 ] as const;
 
 /**
- * Fault that ends a tick, with the names of the vm_fault event. The code travels in the byte vm of
- * the HELLO; None is code 0 and never appears on the console, which writes null instead.
+ * Fault that stops the program, with the names of the vm_fault event. The code travels in the byte
+ * vm of the HELLO; None is code 0 and never appears on the console, which writes null instead. A
+ * valid program can raise only these: what validateProgram() rejects is a ProgramDefectReason.
  */
 export const VM_FAULTS = [
   "division_by_zero",
-  "instruction_limit",
   "end_of_program",
+  "stack_overflow",
+  "stack_underflow",
+] as const;
+
+/**
+ * Why the load rejects a program: an unknown opcode, a register out of range, an instruction cut by
+ * the end or a jump or call to an address that does not start an instruction.
+ */
+export const PROGRAM_DEFECT_REASONS = [
   "invalid_opcode",
   "invalid_register",
   "truncated_instruction",
+  "invalid_jump_target",
 ] as const;
 
 // -------------------------------------------------------------------------------------------------

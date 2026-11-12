@@ -71,7 +71,7 @@ public:
   }
 
   // The timers of the services: the deadline of an echo, the ends of the runs, the expiry of a
-  // hold and the ticks of the VM.
+  // hold and a block of the VM program.
   void poll(uint32_t nowMillis);
 
   // The echo command: queues a request to the node. Returns false when the queue is full.

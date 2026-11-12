@@ -1,38 +1,53 @@
 /**
  * Reference interpreter of the node's virtual machine. It follows firmware/src/vm/virtual_machine.cpp
  * step by step, so that a program can be tried on the computer and the output of a node can be
- * checked against it: the same program with the same registers gives the same values.
+ * checked against it: the same program with the same registers gives the same sequence of outputs.
  */
 import {
   REGISTER_COUNT,
-  VM_MAXIMUM_INSTRUCTIONS_PER_TICK,
+  RETURN_STACK_DEPTH,
+  type PROGRAM_DEFECT_REASONS,
   type VM_FAULTS,
 } from "$lib/protocol/protocol-contract.ts";
-import { INSTRUCTION_BY_OPCODE, instructionLength, type Mnemonic } from "./instruction-set.ts";
+import {
+  INSTRUCTION_BY_OPCODE,
+  addressOffsetOfForm,
+  instructionLength,
+  registerCountOfForm,
+  type Mnemonic,
+} from "./instruction-set.ts";
 
-/** Fault that ends a tick, with the names of the `vm_fault` event. */
+/** Fault that stops the program, with the names of the `vm_fault` event. */
 export type VmFault = (typeof VM_FAULTS)[number];
 
+/** Why the node rejects a program before running it. */
+export type ProgramDefect = (typeof PROGRAM_DEFECT_REASONS)[number];
+
 /** How a call to execute() ended. */
-export type VmStep = "idle" | "running" | "printed" | "halted" | "faulted";
+export type VmStep = "idle" | "running" | "printed" | "sleeping" | "halted" | "faulted";
 
 export type ProgramCheck =
   | { readonly valid: true }
-  | { readonly valid: false; readonly address: number; readonly fault: VmFault };
+  | { readonly valid: false; readonly address: number; readonly defect: ProgramDefect };
 
 export interface PrintedValue {
-  readonly tick: number;
+  /** Number of the output since the program was loaded, from 1. */
+  readonly number: number;
   /** From 1 to REGISTER_COUNT. */
   readonly register: number;
   readonly value: number;
 }
 
-export interface TickOutcome {
-  readonly step: "halted" | "faulted";
+export interface RunOutcome {
+  /** "running" when the program reached the instruction limit of the call without stopping. */
+  readonly step: "halted" | "faulted" | "running";
   readonly prints: readonly PrintedValue[];
 }
 
-type BinaryMnemonic = Exclude<Mnemonic, "HALT" | "PRINT" | "LOAD" | "NOT">;
+type BinaryMnemonic = Exclude<
+  Mnemonic,
+  "HALT" | "PRINT" | "LOAD" | "SLEEP" | "NOT" | "JMP" | "JZ" | "JNZ" | "JNEG" | "CALL" | "RET"
+>;
 
 type BinaryOperation = (left: number, right: number) => number;
 
@@ -81,58 +96,78 @@ function isRegisterOperand(operand: number | undefined): boolean {
   return operand !== undefined && operand >= 1 && operand <= REGISTER_COUNT;
 }
 
-function checkInstruction(code: Uint8Array, address: number): VmFault | null {
-  const length = instructionLength(code[address] ?? 0xff);
-  if (length === 0) {
+/** Checks the instruction at `address` without running it. */
+function checkInstruction(code: Uint8Array, address: number): ProgramDefect | null {
+  const instruction = INSTRUCTION_BY_OPCODE.get(code[address] ?? 0xff);
+  if (instruction === undefined) {
     return "invalid_opcode";
   }
-  if (address + length > code.length) {
+  if (address + instructionLength(instruction.opcode) > code.length) {
     return "truncated_instruction";
   }
-  if (length >= 2 && !isRegisterOperand(code[address + 1])) {
-    return "invalid_register";
-  }
-  if (length === 3 && !isRegisterOperand(code[address + 2])) {
-    return "invalid_register";
+  for (let operand = 1; operand <= registerCountOfForm(instruction.form); ++operand) {
+    if (!isRegisterOperand(code[address + operand])) {
+      return "invalid_register";
+    }
   }
   return null;
 }
 
-/** Checks a whole program as the node does before accepting it. */
+/** Target address of the jump or call at `address`, or null for other instructions. */
+function targetOf(code: Uint8Array, address: number): number | null {
+  const instruction = INSTRUCTION_BY_OPCODE.get(code[address] ?? 0xff);
+  const offset = instruction === undefined ? null : addressOffsetOfForm(instruction.form);
+  if (offset === null) {
+    return null;
+  }
+  return (code[address + offset] ?? 0) | ((code[address + offset + 1] ?? 0) << 8);
+}
+
+/**
+ * Checks a whole program as the node does before accepting it: every instruction well formed and
+ * every jump or call aimed at the start of an instruction.
+ */
 export function checkProgram(code: Uint8Array): ProgramCheck {
+  const starts = new Set<number>();
   for (let address = 0; address < code.length;) {
-    const fault = checkInstruction(code, address);
-    if (fault !== null) {
-      return { valid: false, address, fault };
+    const defect = checkInstruction(code, address);
+    if (defect !== null) {
+      return { valid: false, address, defect };
     }
+    starts.add(address);
     address += instructionLength(code[address] ?? 0);
+  }
+  for (const address of starts) {
+    const target = targetOf(code, address);
+    if (target !== null && !starts.has(target)) {
+      return { valid: false, address, defect: "invalid_jump_target" };
+    }
   }
   return { valid: true };
 }
 
 export class VirtualMachine {
-  readonly #instructionLimit: number;
   #program = new Uint8Array(0);
   readonly #registers = new Int32Array(REGISTER_COUNT);
   #programCounter = 0;
-  #tickNumber = 0;
-  #instructionCount = 0;
+  readonly #returnStack: number[] = [];
+  #startCount = 0;
+  #printCount = 0;
   #running = false;
   #printedRegister = 0;
+  #sleepMilliseconds = 0;
   #fault: VmFault | null = null;
   #faultAddress = 0;
 
-  constructor(instructionLimit = VM_MAXIMUM_INSTRUCTIONS_PER_TICK) {
-    this.#instructionLimit = instructionLimit;
-  }
-
-  /** Replaces the program, stops the tick in progress and restarts the tick count. */
+  /** Replaces the program, stops it and restarts the start and output counts. */
   load(code: Uint8Array): ProgramCheck {
     const check = checkProgram(code);
     if (check.valid) {
       this.#program = code.slice();
       this.#programCounter = 0;
-      this.#tickNumber = 0;
+      this.#returnStack.length = 0;
+      this.#startCount = 0;
+      this.#printCount = 0;
       this.#running = false;
       this.#fault = null;
     }
@@ -153,8 +188,18 @@ export class VirtualMachine {
     return this.#programCounter;
   }
 
-  get tickNumber(): number {
-    return this.#tickNumber;
+  get stackDepth(): number {
+    return this.#returnStack.length;
+  }
+
+  /** Times the program started from address 0 since it was loaded. */
+  get startCount(): number {
+    return this.#startCount;
+  }
+
+  /** Outputs since the program was loaded; after a PRINT, the number of that output. */
+  get printCount(): number {
+    return this.#printCount;
   }
 
   get isRunning(): boolean {
@@ -166,6 +211,11 @@ export class VirtualMachine {
     return this.#printedRegister;
   }
 
+  /** Milliseconds that the last SLEEP asks to wait. */
+  get sleepMilliseconds(): number {
+    return this.#sleepMilliseconds;
+  }
+
   get fault(): VmFault | null {
     return this.#fault;
   }
@@ -174,41 +224,38 @@ export class VirtualMachine {
     return this.#faultAddress;
   }
 
-  startTick(): void {
+  /** Starts the program from address 0 with an empty return stack. */
+  startVM(): void {
     if (this.#program.length === 0) {
       return;
     }
     this.#programCounter = 0;
-    this.#instructionCount = 0;
+    this.#returnStack.length = 0;
     this.#fault = null;
-    this.#tickNumber += 1;
+    this.#startCount += 1;
     this.#running = true;
   }
 
-  /** Runs at most `budget` instructions and stops early after a PRINT, at HALT or on a fault. */
+  /**
+   * Runs at most `budget` instructions and stops early after a PRINT or a SLEEP, at HALT or on a
+   * fault. After a SLEEP the caller waits `sleepMilliseconds` before it calls execute() again.
+   */
   execute(budget: number): VmStep {
     if (!this.#running) {
       return "idle";
     }
     for (let step = 0; step < budget; ++step) {
-      if (this.#instructionCount >= this.#instructionLimit) {
-        return this.#stop("instruction_limit");
-      }
       if (this.#programCounter >= this.#program.length) {
         return this.#stop("end_of_program");
       }
-      const check = checkInstruction(this.#program, this.#programCounter);
-      if (check !== null) {
-        return this.#stop(check);
-      }
-      this.#instructionCount += 1;
       const address = this.#programCounter;
-      // checkInstruction() has accepted the opcode.
+      // load() has accepted every instruction of the program.
       const instruction = INSTRUCTION_BY_OPCODE.get(this.#program[address] ?? 0);
       if (instruction === undefined) {
-        return this.#stop("invalid_opcode");
+        return this.#stop("end_of_program");
       }
       const target = (this.#program[address + 1] ?? 1) - 1;
+      const next = address + instructionLength(instruction.opcode);
       const view = new DataView(this.#program.buffer, this.#program.byteOffset);
       switch (instruction.mnemonic) {
         case "HALT":
@@ -216,14 +263,50 @@ export class VirtualMachine {
           return "halted";
         case "PRINT":
           this.#printedRegister = target + 1;
-          this.#programCounter += instructionLength(instruction.opcode);
+          this.#printCount += 1;
+          this.#programCounter = next;
           return "printed";
+        case "SLEEP":
+          this.#sleepMilliseconds = view.getUint32(address + 1, true);
+          this.#programCounter = next;
+          return "sleeping";
         case "LOAD":
           this.#registers[target] = view.getInt32(address + 2, true);
           break;
         case "NOT":
           this.#registers[target] = ~(this.#registers[target] ?? 0);
           break;
+        case "JMP":
+          this.#programCounter = view.getUint16(address + 1, true);
+          continue;
+        case "JZ":
+        case "JNZ":
+        case "JNEG": {
+          const value = this.#registers[target] ?? 0;
+          const taken =
+            instruction.mnemonic === "JZ"
+              ? value === 0
+              : instruction.mnemonic === "JNZ"
+                ? value !== 0
+                : value < 0;
+          this.#programCounter = taken ? view.getUint16(address + 2, true) : next;
+          continue;
+        }
+        case "CALL":
+          if (this.#returnStack.length >= RETURN_STACK_DEPTH) {
+            return this.#stop("stack_overflow");
+          }
+          this.#returnStack.push(next);
+          this.#programCounter = view.getUint16(address + 1, true);
+          continue;
+        case "RET": {
+          const returnAddress = this.#returnStack.pop();
+          if (returnAddress === undefined) {
+            return this.#stop("stack_underflow");
+          }
+          this.#programCounter = returnAddress;
+          continue;
+        }
         default: {
           const operation = BINARY_OPERATIONS[instruction.mnemonic];
           const source =
@@ -236,7 +319,7 @@ export class VirtualMachine {
           this.#registers[target] = operation(this.#registers[target] ?? 0, source);
         }
       }
-      this.#programCounter += instructionLength(instruction.opcode);
+      this.#programCounter = next;
     }
     return "running";
   }
@@ -264,29 +347,35 @@ export function advance(machine: VirtualMachine, budget: number): StepOutcome {
   const register = machine.printedRegister;
   return {
     step,
-    print: { tick: machine.tickNumber, register, value: machine.registers[register - 1] ?? 0 },
+    print: {
+      number: machine.printCount,
+      register,
+      value: machine.registers[register - 1] ?? 0,
+    },
   };
 }
 
-/** Runs one instruction, starting a new tick when none is in progress. */
+/** Runs one instruction, starting the program when it is stopped. */
 export function stepInstruction(machine: VirtualMachine): StepOutcome {
   if (!machine.isRunning) {
-    machine.startTick();
+    machine.startVM();
   }
   return advance(machine, 1);
 }
 
-/** Runs a whole tick, from a new start, and collects what it printed. */
-export function runTick(machine: VirtualMachine): TickOutcome {
-  machine.startTick();
-  return finishTick(machine);
-}
-
-/** Runs the tick in progress to its end. */
-export function finishTick(machine: VirtualMachine): TickOutcome {
+/**
+ * Runs the program until HALT or a fault, starting it first when it is stopped, and collects what
+ * it printed; the waits of SLEEP pass at once. A program that runs on forever is cut after
+ * `maximumInstructions`, so that a test or a simulated node never hangs; the node itself has no
+ * such limit.
+ */
+export function runUntilStop(machine: VirtualMachine, maximumInstructions: number): RunOutcome {
+  if (!machine.isRunning) {
+    machine.startVM();
+  }
   const prints: PrintedValue[] = [];
-  for (;;) {
-    const { step, print } = advance(machine, VM_MAXIMUM_INSTRUCTIONS_PER_TICK + 1);
+  for (let executed = 0; executed < maximumInstructions; ++executed) {
+    const { step, print } = advance(machine, 1);
     if (print !== null) {
       prints.push(print);
     } else if (step === "halted" || step === "faulted") {
@@ -295,4 +384,5 @@ export function finishTick(machine: VirtualMachine): TickOutcome {
       return { step: "halted", prints };
     }
   }
+  return { step: "running", prints };
 }

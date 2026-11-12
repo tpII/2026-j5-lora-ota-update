@@ -215,7 +215,7 @@ const neighborEventSchema = z.extend(eventHeaderSchema, {
   available: numberSchema,
   /** Last VM fault of the neighbor since its activation; null when there was none. */
   vm_fault: vmFaultOrNullSchema,
-  /** True when the last tick of the neighbor ended in a fault. */
+  /** True when the program of the neighbor faulted between its last two HELLO messages. */
   vm_failing: booleanSchema,
   tx: numberSchema,
   rssi: numberSchema,
@@ -389,8 +389,8 @@ const virtualMachineEventSchema = z.extend(eventHeaderSchema, {
   version: numberSchema,
   /** Program length in bytes. */
   size: numberSchema,
-  /** Ticks of the active program so far. */
-  tick: numberSchema,
+  /** Times the active program started from address 0 since its activation. */
+  starts: numberSchema,
   /** R1 to R(REGISTER_COUNT), as signed 32-bit integers. */
   registers: z
     .array(numberSchema, { error: `un arreglo de ${REGISTER_COUNT} números` })
@@ -399,7 +399,8 @@ const virtualMachineEventSchema = z.extend(eventHeaderSchema, {
 
 const virtualMachinePrintEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("vm_print"),
-  tick: numberSchema,
+  /** Number of the output since the activation, from 1: the n-th output of the program. */
+  n: numberSchema,
   /** Register from 1 to REGISTER_COUNT. */
   reg: numberSchema,
   /** Signed 32-bit value of the register. */
@@ -408,7 +409,8 @@ const virtualMachinePrintEventSchema = z.extend(eventHeaderSchema, {
 
 const virtualMachineFaultEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("vm_fault"),
-  tick: numberSchema,
+  /** Start of the program that ended in the fault, counted since the activation. */
+  starts: numberSchema,
   /** Address of the instruction that failed. */
   pc: numberSchema,
   reason: vmFaultSchema,

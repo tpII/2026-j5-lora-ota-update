@@ -570,7 +570,8 @@ constexpr size_t HELLO_NEIGHBOR_SNR_OFFSET = 3;
 // Bits of the byte vm of the HELLO with the code of the last VmFault since the activation.
 constexpr uint8_t VM_STATUS_FAULT_MASK = 0x07;
 
-// Bit of the byte vm set when the last tick ended in a fault; the bits above it are reserved.
+// Bit of the byte vm set when the program faulted since the previous HELLO; the bits above it are
+// reserved.
 constexpr uint8_t VM_STATUS_FAILING_BIT = 0x08;
 
 // -------------------------------------------------------------------------------------------------
@@ -733,22 +734,28 @@ constexpr uint8_t REGISTER_COUNT = 4;
 // Detail of the out_of_range error for a register value.
 constexpr const char *REGISTER_VALUE_DETAIL = "-2147483648..4294967295 or 0x hexadecimal";
 
-// Time between the starts of two ticks.
-constexpr uint32_t VM_TICK_PERIOD_MS = 10000;
-
-// Instructions that one pass of the main loop runs at most, between radio services.
+// Instructions that one pass of the main loop runs at most, between radio services: the program
+// runs without end, in blocks of this size.
 constexpr uint32_t VM_INSTRUCTIONS_PER_POLL = 64;
 
-// A tick that reaches this many instructions ends with the fault instruction_limit.
-constexpr uint32_t VM_MAXIMUM_INSTRUCTIONS_PER_TICK = 10000;
+// After HALT or a fault, the program starts again from address 0 once this time passes.
+constexpr uint32_t VM_RESTART_DELAY_MS = 10000;
 
-// Group 0x0n holds the configuration instructions, 0x1n the arithmetic ones and 0x2n the logic
-// ones; 0x3n is reserved for control. In groups 0x1n and 0x2n an even opcode takes a 32-bit
-// immediate and the next odd one a source register.
+// The VM does not run for this time after each PRINT, so that a loop cannot flood the console.
+constexpr uint32_t VM_MINIMUM_PRINT_INTERVAL_MS = 100;
+
+// Levels of the return stack of CALL and RET.
+constexpr uint8_t RETURN_STACK_DEPTH = 8;
+
+// Group 0x0n holds the configuration instructions and SLEEP, 0x1n the arithmetic ones, 0x2n the
+// logic ones and 0x3n the control ones. In groups 0x1n and 0x2n an even opcode takes a 32-bit
+// immediate and the next odd one a source register. Jumps and calls take an absolute 16-bit
+// address.
 enum class Opcode : uint8_t {
   Halt = 0x00,
   Print = 0x01,
   Load = 0x02,
+  Sleep = 0x03,
   AddImmediate = 0x10,
   AddRegister = 0x11,
   SubtractImmediate = 0x12,
@@ -770,24 +777,40 @@ enum class Opcode : uint8_t {
   ShiftRightImmediate = 0x28,
   ShiftRightRegister = 0x29,
   Not = 0x2A,
+  Jump = 0x30,
+  JumpIfZero = 0x31,
+  JumpIfNotZero = 0x32,
+  JumpIfNegative = 0x33,
+  Call = 0x34,
+  Return = 0x35,
 };
 
-// Operands of an instruction: none, one register, a register and an immediate or two registers.
+// Operands of an instruction: none, one register, a register and an immediate, two registers, an
+// unsigned immediate, an address or a register and an address.
 enum class OperandForm : uint8_t {
   None,
   Register,
   RegisterImmediate,
   RegisterRegister,
+  Immediate,
+  Address,
+  RegisterAddress,
 };
 
-// What an instruction does: stop the tick, print a register, write its first register or write it
-// after a division, which faults on a zero divisor. Each effect admits the operand forms of the
-// contract that give it the registers it reads.
+// What an instruction does: stop the program, print a register, write its first register, write it
+// after a division, which faults on a zero divisor, wait, jump, jump when a register meets the
+// condition of the opcode, call a subroutine or return from it. Each effect admits the operand
+// forms of the contract that give it the operands it reads.
 enum class InstructionEffect : uint8_t {
   Halt,
   Print,
   Write,
   Divide,
+  Sleep,
+  Jump,
+  Branch,
+  Call,
+  Return,
 };
 
 // Length in bytes of an instruction of the form, opcode included.
@@ -801,6 +824,12 @@ constexpr size_t operandFormLength(OperandForm form) {
     return 6;
   case OperandForm::RegisterRegister:
     return 3;
+  case OperandForm::Immediate:
+    return 5;
+  case OperandForm::Address:
+    return 3;
+  case OperandForm::RegisterAddress:
+    return 4;
   }
   return 0;
 }
@@ -816,6 +845,7 @@ constexpr InstructionEncoding INSTRUCTION_ENCODINGS[] = {
     {Opcode::Halt, OperandForm::None, InstructionEffect::Halt},
     {Opcode::Print, OperandForm::Register, InstructionEffect::Print},
     {Opcode::Load, OperandForm::RegisterImmediate, InstructionEffect::Write},
+    {Opcode::Sleep, OperandForm::Immediate, InstructionEffect::Sleep},
     {Opcode::AddImmediate, OperandForm::RegisterImmediate, InstructionEffect::Write},
     {Opcode::AddRegister, OperandForm::RegisterRegister, InstructionEffect::Write},
     {Opcode::SubtractImmediate, OperandForm::RegisterImmediate, InstructionEffect::Write},
@@ -837,20 +867,25 @@ constexpr InstructionEncoding INSTRUCTION_ENCODINGS[] = {
     {Opcode::ShiftRightImmediate, OperandForm::RegisterImmediate, InstructionEffect::Write},
     {Opcode::ShiftRightRegister, OperandForm::RegisterRegister, InstructionEffect::Write},
     {Opcode::Not, OperandForm::Register, InstructionEffect::Write},
+    {Opcode::Jump, OperandForm::Address, InstructionEffect::Jump},
+    {Opcode::JumpIfZero, OperandForm::RegisterAddress, InstructionEffect::Branch},
+    {Opcode::JumpIfNotZero, OperandForm::RegisterAddress, InstructionEffect::Branch},
+    {Opcode::JumpIfNegative, OperandForm::RegisterAddress, InstructionEffect::Branch},
+    {Opcode::Call, OperandForm::Address, InstructionEffect::Call},
+    {Opcode::Return, OperandForm::None, InstructionEffect::Return},
 };
 
-// Fault that ends a tick, with the names of the vm_fault event. The code travels in the byte vm of
-// the HELLO; None is code 0 and never appears on the console, which writes null instead.
+// Fault that stops the program, with the names of the vm_fault event. The code travels in the byte
+// vm of the HELLO; None is code 0 and never appears on the console, which writes null instead. A
+// valid program can raise only these: what validateProgram() rejects is a ProgramDefectReason.
 enum class VmFault : uint8_t {
   None = 0,
   DivisionByZero = 1,
-  InstructionLimit = 2,
-  EndOfProgram = 3,
-  InvalidOpcode = 4,
-  InvalidRegister = 5,
-  TruncatedInstruction = 6,
+  EndOfProgram = 2,
+  StackOverflow = 3,
+  StackUnderflow = 4,
 };
-constexpr size_t VM_FAULT_COUNT = 7;
+constexpr size_t VM_FAULT_COUNT = 5;
 
 // Name as the console writes it, or nullptr for a value outside the enumeration.
 constexpr const char *vmFaultName(VmFault fault) {
@@ -859,16 +894,12 @@ constexpr const char *vmFaultName(VmFault fault) {
     return "none";
   case VmFault::DivisionByZero:
     return "division_by_zero";
-  case VmFault::InstructionLimit:
-    return "instruction_limit";
   case VmFault::EndOfProgram:
     return "end_of_program";
-  case VmFault::InvalidOpcode:
-    return "invalid_opcode";
-  case VmFault::InvalidRegister:
-    return "invalid_register";
-  case VmFault::TruncatedInstruction:
-    return "truncated_instruction";
+  case VmFault::StackOverflow:
+    return "stack_overflow";
+  case VmFault::StackUnderflow:
+    return "stack_underflow";
   }
   return nullptr;
 }
@@ -876,6 +907,30 @@ constexpr const char *vmFaultName(VmFault fault) {
 // Whether a byte received on the air is the code of a VmFault.
 constexpr bool isKnownVmFault(uint8_t code) {
   return vmFaultName(static_cast<VmFault>(code)) != nullptr;
+}
+
+// Why the load rejects a program: an unknown opcode, a register out of range, an instruction cut by
+// the end or a jump or call to an address that does not start an instruction.
+enum class ProgramDefectReason : uint8_t {
+  InvalidOpcode,
+  InvalidRegister,
+  TruncatedInstruction,
+  InvalidJumpTarget,
+};
+
+// Name as the console writes it, or nullptr for a value outside the enumeration.
+constexpr const char *programDefectReasonName(ProgramDefectReason reason) {
+  switch (reason) {
+  case ProgramDefectReason::InvalidOpcode:
+    return "invalid_opcode";
+  case ProgramDefectReason::InvalidRegister:
+    return "invalid_register";
+  case ProgramDefectReason::TruncatedInstruction:
+    return "truncated_instruction";
+  case ProgramDefectReason::InvalidJumpTarget:
+    return "invalid_jump_target";
+  }
+  return nullptr;
 }
 
 // -------------------------------------------------------------------------------------------------

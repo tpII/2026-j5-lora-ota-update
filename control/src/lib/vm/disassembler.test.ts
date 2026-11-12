@@ -24,6 +24,7 @@ describe("disassemble", () => {
   it("gives back the same bytes when the source is assembled again", () => {
     for (const code of [
       codeOf("LOAD R4, -2147483648\nSHRR R4, R1\nMODI R2, 7"),
+      codeOf("SLEEP 4294967295\nSLEEP 0\nPRINT R1"),
       parseHex(signedImageVector.program) ?? new Uint8Array(),
     ]) {
       const result = disassemble(code);
@@ -34,15 +35,30 @@ describe("disassemble", () => {
     }
   });
 
+  it("names each jump and call target with a label", () => {
+    const code = codeOf(
+      "LOAD R2, 3\nloop: SUBI R2, 1\nCALL show\nJNZ R2, loop\nHALT\nshow: PRINT R2\nRET",
+    );
+    const result = disassemble(code);
+    expect(result).toEqual({
+      valid: true,
+      source:
+        "    LOAD R2, 3\nL6:\n    SUBI R2, 1\n    CALL L20\n    JNZ R2, L6\n    HALT\nL20:\n    PRINT R2\n    RET\n",
+    });
+    if (result.valid) {
+      expect(codeOf(result.source)).toEqual(code);
+    }
+  });
+
   it("rejects a program the node would reject", () => {
     expect(disassemble(new Uint8Array([0x02, 0x01, 0x05]))).toEqual({
       valid: false,
       address: 0,
-      fault: "truncated_instruction",
+      defect: "truncated_instruction",
     });
     expect(disassemble(new Uint8Array([0x01, 0x05]))).toMatchObject({
       valid: false,
-      fault: "invalid_register",
+      defect: "invalid_register",
     });
   });
 });

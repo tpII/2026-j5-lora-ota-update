@@ -645,7 +645,7 @@ J5_HOST_TEST(testActivationRule) {
   CHECK(console.output.text() ==
         R"({"t":1000,"ev":"activation","version":5,"previous":0,"cause":"hello","src":"3A7F"})"
         "\n"
-        R"({"t":1000,"ev":"vm","version":5,"size":3,"tick":0,"registers":[0,0,0,0]})"
+        R"({"t":1000,"ev":"vm","version":5,"size":3,"starts":0,"registers":[0,0,0,0]})"
         "\nVM: program v5");
   // The HELLO announces the new active version at once.
   CHECK(activation.activeVersion() == 5 && services.presence.isImmediateRequested());
@@ -653,27 +653,35 @@ J5_HOST_TEST(testActivationRule) {
   CHECK(!activation.activateAvailable(ActivationCause::Neighbor, 0x3A7F, 1000));
   CHECK(console.output.lines.empty() && activation.activeVersion() == 5);
 
-  // The first tick runs at once, the next ones every VM_TICK_PERIOD_MS.
+  // The program starts at once. After a PRINT the VM waits VM_MINIMUM_PRINT_INTERVAL_MS; after
+  // HALT it starts again from address 0 once VM_RESTART_DELAY_MS have passed.
   activation.poll(1000);
-  CHECK(console.output.text() == R"({"t":1000,"ev":"vm_print","tick":1,"reg":1,"value":0})"
+  CHECK(console.output.text() == R"({"t":1000,"ev":"vm_print","n":1,"reg":1,"value":0})"
                                  "\nVM: R1 - 0x00000000");
   console.clear();
   activation.poll(1000);
-  activation.poll(1000 + VM_TICK_PERIOD_MS - 1);
+  activation.poll(1000 + VM_MINIMUM_PRINT_INTERVAL_MS - 1);
+  CHECK(console.output.lines.empty());
+  const uint32_t halted = 1000 + VM_MINIMUM_PRINT_INTERVAL_MS;
+  activation.poll(halted);
+  CHECK(console.output.text() == "VM: HALT stop-reset");
+  console.clear();
+  activation.poll(halted + VM_RESTART_DELAY_MS - 1);
   CHECK(console.output.lines.empty());
   const int32_t registers[REGISTER_COUNT] = {-1, -2, 3, 2147483647};
   console.output.millis = 2000;
   activation.loadRegisters(registers);
   CHECK(console.output.text() ==
-        R"({"t":2000,"ev":"vm","version":5,"size":3,"tick":1,"registers":[-1,-2,3,2147483647]})"
+        R"({"t":2000,"ev":"vm","version":5,"size":3,"starts":1,"registers":[-1,-2,3,2147483647]})"
         "\nVM: registers loaded");
   console.clear();
-  console.output.millis = 11000;
-  activation.poll(1000 + VM_TICK_PERIOD_MS);
-  CHECK(console.output.text() == R"({"t":11000,"ev":"vm_print","tick":2,"reg":1,"value":-1})"
+  console.output.millis = 11100;
+  activation.poll(halted + VM_RESTART_DELAY_MS);
+  CHECK(console.output.text() == R"({"t":11100,"ev":"vm_print","n":2,"reg":1,"value":-1})"
                                  "\nVM: R1 - 0xFFFFFFFF");
 
-  // A console activation has no source. DIVI R1, 0; HALT: every tick faults.
+  // A console activation has no source, and starts the program at once even during the wait
+  // that follows a PRINT. DIVI R1, 0; HALT: every start faults.
   makeAvailable(services, 6, "16010000000000");
   console.clear();
   console.output.millis = 20000;
@@ -682,11 +690,11 @@ J5_HOST_TEST(testActivationRule) {
   CHECK(console.output.text() ==
         R"({"t":20000,"ev":"activation","version":6,"previous":5,"cause":"console","src":null})"
         "\n"
-        R"({"t":20000,"ev":"vm","version":6,"size":7,"tick":0,"registers":[-1,-2,3,2147483647]})"
+        R"({"t":20000,"ev":"vm","version":6,"size":7,"starts":0,"registers":[-1,-2,3,2147483647]})"
         "\nVM: program v6\n"
-        R"({"t":20000,"ev":"vm_fault","tick":1,"pc":0,"reason":"division_by_zero"})"
+        R"({"t":20000,"ev":"vm_fault","starts":1,"pc":0,"reason":"division_by_zero"})"
         "\nVM: division_by_zero");
-  CHECK(activation.lastFault() == VmFault::DivisionByZero && activation.lastTickFaulted());
+  CHECK(activation.lastFault() == VmFault::DivisionByZero && activation.hasFaultedSinceReport());
 
   // A neighbor activation names the neighbor; the load clears the faults.
   makeAvailable(services, 7, print);
@@ -696,11 +704,25 @@ J5_HOST_TEST(testActivationRule) {
   CHECK(
       console.output.lines[0] ==
       R"({"t":30000,"ev":"activation","version":7,"previous":6,"cause":"neighbor","src":"00F4"})");
-  CHECK(activation.lastFault() == VmFault::None && !activation.lastTickFaulted());
+  CHECK(activation.lastFault() == VmFault::None && !activation.hasFaultedSinceReport());
   console.clear();
   activation.reportProgram();
   CHECK(console.output.text() == R"({"t":30000,"ev":"program","version":7,"size":3,)"
                                  R"("code":"010100"})");
+
+  // SLEEP 50; PRINT R1; HALT: the VM runs nothing until the wait of SLEEP has passed.
+  makeAvailable(services, 8,
+                "03320000000101"
+                "00");
+  CHECK(activation.activateAvailable(ActivationCause::Console, NO_NODE_ID, 40000));
+  console.clear();
+  activation.poll(40000);
+  activation.poll(40049);
+  CHECK(console.output.lines.empty());
+  console.output.millis = 40050;
+  activation.poll(40050);
+  CHECK(console.output.text() == R"({"t":40050,"ev":"vm_print","n":1,"reg":1,"value":-1})"
+                                 "\nVM: R1 - 0xFFFFFFFF");
 }
 
 // The chain that runs across the services, connected as on the node: an image loaded by the

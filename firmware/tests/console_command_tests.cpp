@@ -416,9 +416,9 @@ J5_HOST_TEST(testCommandServiceActions) {
   CHECK(node.execute("presence off 3600") ==
         event(R"("ev":"presence","state":"off","remaining":3600)"));
   CHECK(node.execute("load_registers -1 0x10 2147483647 4294967295") ==
-        event(R"("ev":"vm","version":0,"size":0,"tick":0,"registers":[-1,16,2147483647,-1])"));
+        event(R"("ev":"vm","version":0,"size":0,"starts":0,"registers":[-1,16,2147483647,-1])"));
   CHECK(node.execute("load_registers -2147483648 0 -0x10 0XfF") ==
-        event(R"("ev":"vm","version":0,"size":0,"tick":0,"registers":[-2147483648,0,-16,255])"));
+        event(R"("ev":"vm","version":0,"size":0,"starts":0,"registers":[-2147483648,0,-16,255])"));
   const std::string transfer =
       R"("ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,)";
   CHECK(node.execute("fragment_size") == event(transfer + R"("fragment_size":231)"));

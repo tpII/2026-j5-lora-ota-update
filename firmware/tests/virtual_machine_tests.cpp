@@ -11,9 +11,9 @@
 
 using namespace firmware;
 
-// Runs a whole tick and returns how it ended.
-static VmStep runTick(VirtualMachine &machine) {
-  machine.startTick();
+// Starts the program and runs it to HALT or to a fault, three instructions at a time.
+static VmStep runToStop(VirtualMachine &machine) {
+  machine.startVM();
   for (;;) {
     const VmStep step = machine.execute(3);
     if (step == VmStep::Halted || step == VmStep::Faulted || step == VmStep::Idle) {
@@ -35,32 +35,58 @@ static bool loadHex(VirtualMachine &machine, uint32_t version, const char *hex) 
   return true;
 }
 
+static const char *stepName(VmStep step) {
+  switch (step) {
+  case VmStep::Halted:
+    return "halted";
+  case VmStep::Faulted:
+    return "faulted";
+  case VmStep::Idle:
+  case VmStep::Running:
+  case VmStep::Printed:
+  case VmStep::Sleeping:
+    return "running";
+  }
+  return "running";
+}
+
 // Runs a run vector of firmware/protocol/test-vectors/virtual-machine.json and checks every result.
+// Each start runs to HALT, to a fault or to the instruction limit of the vector, one instruction
+// at a time so that the limit is exact.
 static void checkRunVector(const VirtualMachineRunVector &vector) {
   VirtualMachine machine;
-  machine.begin(vector.instructionLimit);
+  machine.begin();
   CHECK(loadHex(machine, 1, vector.program));
   machine.setRegisters(vector.registers);
   int32_t printed[MAXIMUM_VECTOR_PRINTS + 1] = {};
   uint8_t printedRegisters[MAXIMUM_VECTOR_PRINTS + 1] = {};
   size_t printedCount = 0;
+  uint32_t sleeps[MAXIMUM_VECTOR_SLEEPS + 1] = {};
+  size_t sleepCount = 0;
   VmStep step = VmStep::Idle;
-  for (uint32_t tick = 0; tick < vector.ticks; ++tick) {
-    machine.startTick();
-    do {
-      step = machine.execute(3);
+  for (uint32_t start = 0; start < vector.starts; ++start) {
+    machine.startVM();
+    for (uint32_t executed = 0; executed < vector.maximumInstructions; ++executed) {
+      step = machine.execute(1);
       if (step == VmStep::Printed && printedCount <= MAXIMUM_VECTOR_PRINTS) {
         printedRegisters[printedCount] = machine.printedRegister();
         printed[printedCount++] = machine.registerValue(machine.printedRegister() - 1);
+      } else if (step == VmStep::Sleeping && sleepCount <= MAXIMUM_VECTOR_SLEEPS) {
+        sleeps[sleepCount++] = machine.sleepMillis();
+      } else if (step == VmStep::Halted || step == VmStep::Faulted) {
+        break;
       }
-    } while (step != VmStep::Halted && step != VmStep::Faulted && step != VmStep::Idle);
+    }
   }
-  const bool halted = std::strcmp(vector.step, "halted") == 0;
-  CHECK(step == (halted ? VmStep::Halted : VmStep::Faulted));
-  CHECK(printedCount == vector.printCount);
+  CHECK(std::strcmp(stepName(step), vector.step) == 0);
+  CHECK(printedCount == vector.printCount && machine.printCount() == vector.printCount);
   for (size_t index = 0; index < vector.printCount && index < printedCount; ++index) {
     CHECK(printedRegisters[index] == vector.prints[index].registerNumber);
     CHECK(printed[index] == vector.prints[index].value);
+  }
+  CHECK(sleepCount == vector.sleepCount);
+  for (size_t index = 0; index < vector.sleepCount && index < sleepCount; ++index) {
+    CHECK(sleeps[index] == vector.sleeps[index]);
   }
   for (uint8_t index = 0; index < REGISTER_COUNT; ++index) {
     CHECK(machine.registerValue(index) == vector.expectedRegisters[index]);
@@ -71,7 +97,8 @@ static void checkRunVector(const VirtualMachineRunVector &vector) {
     CHECK(std::strcmp(vmFaultName(machine.fault()), vector.fault) == 0);
     CHECK(machine.faultAddress() == vector.faultAddress);
   }
-  CHECK(machine.tickNumber() == vector.tickNumber);
+  CHECK(machine.startCount() == vector.startCount);
+  CHECK(machine.stackDepth() == vector.stackDepth);
 }
 
 J5_HOST_TEST(testVirtualMachine) {
@@ -79,8 +106,8 @@ J5_HOST_TEST(testVirtualMachine) {
     checkRunVector(vector);
   }
 
-  // The validation checks the whole program and tells where the first bad instruction is and
-  // which fault it would raise.
+  // The validation checks the whole program, the targets of jumps and calls included, and tells
+  // where the first bad instruction is and why.
   for (const ProgramCheckVector &vector : PROGRAM_CHECK_VECTORS) {
     uint8_t code[PROGRAM_CAPACITY];
     size_t length = 0;
@@ -88,45 +115,66 @@ J5_HOST_TEST(testVirtualMachine) {
     ProgramDefect defect{};
     ValidProgram program;
     CHECK(validateProgram(code, length, program, defect) == vector.valid);
-    CHECK(defect.address == vector.address && program.length() == 0);
-    CHECK(std::strcmp(vmFaultName(defect.fault), vector.fault) == 0);
+    if (vector.valid) {
+      CHECK(program.length() == length);
+    } else {
+      CHECK(defect.address == vector.address && program.length() == 0);
+      CHECK(std::strcmp(programDefectReasonName(defect.reason), vector.reason) == 0);
+    }
   }
 
   VirtualMachine machine;
-  machine.begin(100);
+  machine.begin();
   CHECK(machine.version() == 0 && !machine.hasProgram());
   CHECK(loadHex(machine, 2, "00"));
   CHECK(machine.version() == 2 && machine.programLength() == 1);
+
+  // A program without end returns after each block, and starting again empties the return stack.
+  CHECK(loadHex(machine, 3,
+                "340600"
+                "300000"
+                "100101000000"
+                "300600"));
+  machine.startVM();
+  for (int block = 0; block < 3; ++block) {
+    CHECK(machine.execute(64) == VmStep::Running);
+  }
+  CHECK(machine.stackDepth() == 1);
+  machine.startVM();
+  CHECK(machine.stackDepth() == 0 && machine.isRunning() && machine.startCount() == 2);
 }
 
 J5_HOST_TEST(testVirtualMachineStatus) {
   VirtualMachine machine;
-  machine.begin(100);
-  CHECK(machine.lastFault() == VmFault::None && !machine.lastTickFaulted());
-  // PRINT R1; DIVI R1, 0; HALT: every tick faults.
+  machine.begin();
+  CHECK(machine.lastFault() == VmFault::None && !machine.hasFaultedSinceReport());
+  // PRINT R1; DIVI R1, 0; HALT: every start faults.
   CHECK(loadHex(machine, 1,
                 "0101"
                 "160100000000"
                 "00"));
-  runTick(machine);
-  CHECK(machine.lastFault() == VmFault::DivisionByZero && machine.lastTickFaulted());
-  // ADDI R2, 1; DIVR R1, R2; HALT with R2 = -1: the first tick faults and the second halts. A tick
-  // that ends in HALT clears the failing mark but keeps the last fault.
+  runToStop(machine);
+  CHECK(machine.lastFault() == VmFault::DivisionByZero && machine.hasFaultedSinceReport());
+  // A HELLO announces the fault and clears the failing mark; the last fault stays.
+  machine.clearFaultReport();
+  CHECK(machine.lastFault() == VmFault::DivisionByZero && !machine.hasFaultedSinceReport());
+  // ADDI R2, 1; DIVR R1, R2; HALT with R2 = -1: the first start faults and the second halts. A
+  // start that ends in HALT leaves the failing mark until the next HELLO.
   CHECK(loadHex(machine, 2,
                 "100201000000"
                 "170102"
                 "00"));
   const int32_t registers[REGISTER_COUNT] = {1, -1, 3, 4};
   machine.setRegisters(registers);
-  CHECK(runTick(machine) == VmStep::Faulted && machine.lastTickFaulted());
-  CHECK(runTick(machine) == VmStep::Halted);
-  CHECK(machine.lastFault() == VmFault::DivisionByZero && !machine.lastTickFaulted());
-  // A load clears the faults, keeps the registers and restarts the tick count.
+  CHECK(runToStop(machine) == VmStep::Faulted && machine.hasFaultedSinceReport());
+  CHECK(runToStop(machine) == VmStep::Halted && machine.hasFaultedSinceReport());
+  CHECK(machine.lastFault() == VmFault::DivisionByZero);
+  // A load clears the faults, keeps the registers and restarts the counts.
   CHECK(loadHex(machine, 3, "00"));
-  CHECK(machine.lastFault() == VmFault::None && !machine.lastTickFaulted());
-  CHECK(machine.registerValue(3) == 4 && machine.tickNumber() == 0);
-  runTick(machine);
-  CHECK(machine.tickNumber() == 1 && !machine.lastTickFaulted());
+  CHECK(machine.lastFault() == VmFault::None && !machine.hasFaultedSinceReport());
+  CHECK(machine.registerValue(3) == 4 && machine.startCount() == 0 && machine.printCount() == 0);
+  runToStop(machine);
+  CHECK(machine.startCount() == 1 && !machine.hasFaultedSinceReport());
 
   ProgramDefect defect{};
   ValidProgram program;
@@ -135,13 +183,12 @@ J5_HOST_TEST(testVirtualMachineStatus) {
   CHECK(validateProgram(valid, sizeof(valid), program, defect));
   CHECK(program.code() == valid && program.length() == sizeof(valid));
   CHECK(!validateProgram(cut, sizeof(cut), program, defect) && defect.address == 2);
-  CHECK(defect.fault == VmFault::TruncatedInstruction);
-  // Neither an empty program nor one over the capacity, which no fault describes.
+  CHECK(defect.reason == ProgramDefectReason::TruncatedInstruction);
+  // Neither an empty program nor one over the capacity; the image verifier rejects their length
+  // before, so the defect only says address 0.
   uint8_t halts[MAXIMUM_PROGRAM_SIZE + 1] = {};
-  CHECK(!validateProgram(halts, 0, program, defect));
-  CHECK(defect.address == 0 && defect.fault == VmFault::None);
-  CHECK(!validateProgram(halts, sizeof(halts), program, defect));
-  CHECK(defect.address == 0 && defect.fault == VmFault::None);
+  CHECK(!validateProgram(halts, 0, program, defect) && defect.address == 0);
+  CHECK(!validateProgram(halts, sizeof(halts), program, defect) && defect.address == 0);
   CHECK(validateProgram(halts, MAXIMUM_PROGRAM_SIZE, program, defect));
   // A copy of a valid program is valid and refers to its own bytes.
   uint8_t copy[sizeof(valid)] = {};

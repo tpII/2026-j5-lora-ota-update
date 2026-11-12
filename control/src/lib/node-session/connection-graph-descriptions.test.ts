@@ -20,10 +20,10 @@ const HEARD: GraphNode = {
 };
 
 describe("describeVirtualMachine", () => {
-  it("tells the last fault since the activation and a failing last tick", () => {
+  it("tells the last fault since the activation and a fault since the last HELLO", () => {
     expect(describeVirtualMachine(HEARD)).toBe("sin fallas");
     expect(describeVirtualMachine({ ...HEARD, vmFault: "division_by_zero", vmFailing: true })).toBe(
-      "última falla: división por cero; el último tick falló",
+      "última falla: división por cero; falló desde su HELLO anterior",
     );
   });
 
@@ -35,9 +35,9 @@ describe("describeVirtualMachine", () => {
 });
 
 describe("hasVirtualMachineTrouble", () => {
-  it("flags a fault since the activation or a failing last tick", () => {
+  it("flags a fault since the activation or since the last HELLO", () => {
     expect(hasVirtualMachineTrouble(HEARD)).toBe(false);
-    expect(hasVirtualMachineTrouble({ vmFault: "invalid_opcode", vmFailing: false })).toBe(true);
+    expect(hasVirtualMachineTrouble({ vmFault: "stack_overflow", vmFailing: false })).toBe(true);
     expect(hasVirtualMachineTrouble({ vmFault: null, vmFailing: true })).toBe(true);
     expect(hasVirtualMachineTrouble({ vmFault: null, vmFailing: null })).toBe(false);
   });

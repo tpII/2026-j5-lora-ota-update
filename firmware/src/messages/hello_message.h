@@ -12,8 +12,8 @@ namespace firmware {
 struct AnnouncedState {
   bool modelKnown; // false for a model code outside the contract, or before the first HELLO
   BoardModel model;
-  VmFault lastFault; // None as well for a fault code outside the contract
-  bool vmFailing;
+  VmFault lastFault;  // None as well for a fault code outside the contract
+  bool vmFailing;     // the program faulted since the previous HELLO
   uint32_t version;   // active version
   uint32_t available; // available version
   uint32_t transmitted;

@@ -1,112 +1,209 @@
 {
+  "defaultMaximumInstructions": 100000,
   "runs": [
     {
       "name": "example program",
       "program": "020105000000020203000000110102010112010a000000150102010100",
       "registers": [0, 0, 0, 0],
-      "ticks": 1,
+      "starts": 1,
       "expected": {
         "step": "halted",
         "prints": [{ "register": 1, "value": 8 }, { "register": 1, "value": -6 }],
         "registers": [-6, 3, 0, 0],
         "fault": null,
         "faultAddress": null,
-        "tickNumber": 1
+        "startCount": 1
       }
     },
     {
-      "name": "registers persist between ticks",
+      "name": "registers persist when the program starts again",
       "program": "10010100000000",
       "registers": [0, 0, 0, 0],
-      "ticks": 2,
+      "starts": 2,
       "expected": {
         "step": "halted",
         "prints": [],
         "registers": [2, 0, 0, 0],
         "fault": null,
         "faultAddress": null,
-        "tickNumber": 2
+        "startCount": 2
       }
     },
     {
       "name": "wrapping arithmetic, logic and shifts",
       "program": "1001010000001702031903032004ffffffff2a0428040100000026032100000000",
       "registers": [2147483647, -7, 2, 0],
-      "ticks": 1,
+      "starts": 1,
       "expected": {
         "step": "halted",
         "prints": [],
         "registers": [-2147483648, -3, 0, -1],
         "fault": null,
         "faultAddress": null,
-        "tickNumber": 1
+        "startCount": 1
       }
     },
     {
       "name": "INT32_MIN divided by and modulo -1",
       "program": "1601ffffffff01011801ffffffff00",
       "registers": [-2147483648, 0, 0, 0],
-      "ticks": 1,
+      "starts": 1,
       "expected": {
         "step": "halted",
         "prints": [{ "register": 1, "value": -2147483648 }],
         "registers": [0, 0, 0, 0],
         "fault": null,
         "faultAddress": null,
-        "tickNumber": 1
+        "startCount": 1
       }
     },
     {
       "name": "division by zero",
       "program": "010116010000000000",
       "registers": [0, 0, 0, 0],
-      "ticks": 1,
+      "starts": 1,
       "expected": {
         "step": "faulted",
         "prints": [{ "register": 1, "value": 0 }],
         "registers": [0, 0, 0, 0],
         "fault": "division_by_zero",
         "faultAddress": 2,
-        "tickNumber": 1
+        "startCount": 1
       }
     },
     {
       "name": "end of program without HALT",
       "program": "0101",
       "registers": [0, 0, 0, 0],
-      "ticks": 1,
+      "starts": 1,
       "expected": {
         "step": "faulted",
         "prints": [{ "register": 1, "value": 0 }],
         "registers": [0, 0, 0, 0],
         "fault": "end_of_program",
         "faultAddress": 2,
-        "tickNumber": 1
+        "startCount": 1
       }
     },
     {
-      "name": "instruction limit",
-      "program": "010101010101010100",
+      "name": "count down in a loop closed by JNZ",
+      "program": "02020500000010010100000001011202010000003202060000",
       "registers": [0, 0, 0, 0],
-      "instructionLimit": 3,
-      "ticks": 1,
+      "starts": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [
+          { "register": 1, "value": 1 },
+          { "register": 1, "value": 2 },
+          { "register": 1, "value": 3 },
+          { "register": 1, "value": 4 },
+          { "register": 1, "value": 5 }
+        ],
+        "registers": [5, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "JNEG and JZ jump",
+      "program": "0201fdffffff3301100002046300000031021a0002046200000000",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [],
+        "registers": [-3, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "nested subroutines",
+      "program": "3406000101001001010000003410003514010a00000035",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [{ "register": 1, "value": 10 }],
+        "registers": [10, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1,
+        "stackDepth": 0
+      }
+    },
+    {
+      "name": "CALL with the return stack full",
+      "program": "340000",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
       "expected": {
         "step": "faulted",
-        "prints": [
-          { "register": 1, "value": 0 },
-          { "register": 1, "value": 0 },
-          { "register": 1, "value": 0 }
-        ],
+        "prints": [],
         "registers": [0, 0, 0, 0],
-        "fault": "instruction_limit",
-        "faultAddress": 6,
-        "tickNumber": 1
+        "fault": "stack_overflow",
+        "faultAddress": 0,
+        "startCount": 1,
+        "stackDepth": 8
+      }
+    },
+    {
+      "name": "RET with the return stack empty",
+      "program": "35",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [],
+        "registers": [0, 0, 0, 0],
+        "fault": "stack_underflow",
+        "faultAddress": 0,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "SLEEP",
+      "program": "030a000000010103ffffffff00",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [{ "register": 1, "value": 0 }],
+        "sleeps": [10, 4294967295],
+        "registers": [0, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "loop without end",
+      "program": "100101000000300000",
+      "registers": [0, 0, 0, 0],
+      "maximumInstructions": 1000,
+      "starts": 1,
+      "expected": {
+        "step": "running",
+        "prints": [],
+        "registers": [500, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1
       }
     }
   ],
   "checks": [
-    { "name": "unknown opcode", "program": "01013f", "valid": false, "address": 2, "fault": "invalid_opcode" },
-    { "name": "register out of range", "program": "110105", "valid": false, "address": 0, "fault": "invalid_register" },
-    { "name": "instruction cut by the end", "program": "020100", "valid": false, "address": 0, "fault": "truncated_instruction" }
+    { "name": "unknown opcode", "program": "01013f", "valid": false, "address": 2, "reason": "invalid_opcode" },
+    { "name": "register out of range", "program": "110105", "valid": false, "address": 0, "reason": "invalid_register" },
+    { "name": "instruction cut by the end", "program": "020100", "valid": false, "address": 0, "reason": "truncated_instruction" },
+    { "name": "jump to the start of an instruction", "program": "30030000", "valid": true, "address": 0, "reason": null },
+    { "name": "jump into an instruction", "program": "020100000000300200", "valid": false, "address": 6, "reason": "invalid_jump_target" },
+    { "name": "jump past the end", "program": "30100000", "valid": false, "address": 0, "reason": "invalid_jump_target" },
+    { "name": "call past the end", "program": "34050000", "valid": false, "address": 0, "reason": "invalid_jump_target" },
+    { "name": "branch into an instruction", "program": "010131010100", "valid": false, "address": 2, "reason": "invalid_jump_target" },
+    { "name": "branch on a register out of range", "program": "31050000", "valid": false, "address": 0, "reason": "invalid_register" },
+    { "name": "jump cut by the end", "program": "3001", "valid": false, "address": 0, "reason": "truncated_instruction" }
   ]
 }

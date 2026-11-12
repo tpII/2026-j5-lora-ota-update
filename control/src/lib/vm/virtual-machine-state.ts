@@ -13,7 +13,8 @@ const MAXIMUM_VM_PRINTS = 100;
 /** The node's virtual machine, from its `vm` events and the values printed since. */
 export interface VirtualMachineStatus {
   readonly size: number;
-  readonly tick: number;
+  /** Times the program started from address 0 since its activation. */
+  readonly starts: number;
   /** R1 to R(REGISTER_COUNT). A PRINT updates the register it shows. */
   readonly registers: readonly number[];
   readonly hostTime: number;
@@ -21,14 +22,16 @@ export interface VirtualMachineStatus {
 
 export interface VirtualMachinePrintRecord {
   readonly hostTime: number;
-  readonly tick: number;
+  /** Number of the output since the activation, from 1. */
+  readonly number: number;
   readonly register: number;
   readonly value: number;
 }
 
 export interface VirtualMachineFaultRecord {
   readonly hostTime: number;
-  readonly tick: number;
+  /** Start of the program that ended in the fault. */
+  readonly starts: number;
   readonly address: number;
   readonly reason: VmFault;
 }
@@ -74,7 +77,7 @@ export function reduceVirtualMachine<State extends VirtualMachineState>(
         ...state,
         virtualMachine: {
           size: 0,
-          tick: 0,
+          starts: 0,
           registers: Array.from({ length: REGISTER_COUNT }, () => 0),
           hostTime,
         },
@@ -87,7 +90,7 @@ export function reduceVirtualMachine<State extends VirtualMachineState>(
         ...state,
         virtualMachine: {
           size: event.size,
-          tick: event.tick,
+          starts: event.starts,
           registers: [...event.registers],
           hostTime,
         },
@@ -95,7 +98,7 @@ export function reduceVirtualMachine<State extends VirtualMachineState>(
     case "vm_print": {
       const record: VirtualMachinePrintRecord = {
         hostTime,
-        tick: event.tick,
+        number: event.n,
         register: event.reg,
         value: event.value,
       };
@@ -107,7 +110,6 @@ export function reduceVirtualMachine<State extends VirtualMachineState>(
             ? null
             : {
                 ...previous,
-                tick: event.tick,
                 registers: previous.registers.map((value, index) =>
                   index === event.reg - 1 ? event.value : value,
                 ),
@@ -121,7 +123,7 @@ export function reduceVirtualMachine<State extends VirtualMachineState>(
         ...state,
         lastVirtualMachineFault: {
           hostTime,
-          tick: event.tick,
+          starts: event.starts,
           address: event.pc,
           reason: event.reason,
         },

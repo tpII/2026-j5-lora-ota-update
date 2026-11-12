@@ -23,7 +23,7 @@ export interface NeighborRecord {
   readonly availableVersion: number;
   /** Last VM fault of the neighbor since its activation; null when there was none. */
   readonly vmFault: VmFault | null;
-  /** True when the last tick of the neighbor ended in a fault. */
+  /** True when the program of the neighbor faulted between its last two HELLO messages. */
   readonly vmFailing: boolean;
   /** Packets the neighbor reported as transmitted in its last HELLO. */
   readonly transmitted: number;

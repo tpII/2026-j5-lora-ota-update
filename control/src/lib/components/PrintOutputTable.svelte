@@ -7,7 +7,9 @@
 
   /**
    * The PRINT outputs of a VM and its last fault, drawn the same way for the reference interpreter
-   * and for a node so that the expected and the reported outputs compare row by row (metric M5).
+   * and for a node so that the expected and the reported outputs compare row by row (metric M5):
+   * each output carries its number since the activation, so the n-th output of the node meets the
+   * n-th output of the interpreter.
    * `prints` is in the order they happened; the table shows the newest first. The outputs of a node
    * also carry the hour at which the panel received them, which the table adds as a column.
    */
@@ -16,7 +18,7 @@
     fault,
   }: {
     prints: readonly (PrintedValue & { readonly hostTime?: number })[];
-    fault: Pick<VirtualMachineFaultRecord, "tick" | "address" | "reason"> | null;
+    fault: Pick<VirtualMachineFaultRecord, "starts" | "address" | "reason"> | null;
   } = $props();
 
   const MAXIMUM_VISIBLE_PRINTS = 100;
@@ -28,7 +30,7 @@
 <div class="flex flex-col gap-2">
   {#if fault !== null}
     <p class="panel-error-text">
-      Última falla, en el tick {fault.tick} y la dirección {fault.address}: {VM_FAULT_LABELS[fault.reason]}.
+      Última falla, en el arranque {fault.starts} y la dirección {fault.address}: {VM_FAULT_LABELS[fault.reason]}.
     </p>
   {/if}
   {#if visiblePrints.length === 0}
@@ -38,7 +40,7 @@
       <table class="panel-table">
         <thead>
           <tr>
-            <th>Tick</th>
+            <th>Salida</th>
             <th>Pantalla del nodo</th>
             <th>Decimal</th>
             {#if showHostTime}
@@ -49,7 +51,7 @@
         <tbody>
           {#each visiblePrints as print, index (index)}
             <tr>
-              <td>{print.tick}</td>
+              <td>{print.number}</td>
               <td class="font-mono">{formatPrintLine(print.register, print.value)}</td>
               <td class="text-right font-mono" title={formatRegisterHex(print.value)}>{print.value}</td>
               {#if showHostTime}

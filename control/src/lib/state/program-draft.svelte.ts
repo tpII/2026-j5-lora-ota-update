@@ -4,15 +4,17 @@
  */
 import { assemble, type AssemblyResult } from "$lib/vm/assembler.ts";
 
-export const EXAMPLE_PROGRAM = `;; Example: R1 = 5 + 3, then (R1 - 10) x R2
-    LOAD R1, 5          ;; R1 = 5
-    LOAD R2, 3          ;; R2 = 3
-    ADDR R1, R2         ;; R1 = R1 + R2 = 8
-    PRINT R1
-    SUBI R1, 10         ;; R1 = -2
-    MULR R1, R2         ;; R1 = -6
-    PRINT R1
-    HALT
+export const EXAMPLE_PROGRAM = `;; Example: counts down from 8 to 0 in R1 and prints each value with the subroutine show
+        LOAD R1, 8          ;; R1 = 8, the counter
+        LOAD R2, 1          ;; R2 = 1, what each step subtracts
+loop:   CALL show           ;; print R1
+        JZ R1, end          ;; after printing 0, stop
+        SUBR R1, R2         ;; R1 = R1 - R2
+        SLEEP 1000          ;; wait 1 s between two values
+        JMP loop
+end:    HALT                ;; the node starts the program again after the restart delay
+show:   PRINT R1
+        RET
 `;
 
 export class ProgramDraft {

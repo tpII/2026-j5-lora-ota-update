@@ -90,7 +90,7 @@ describe("image format", () => {
     expect(decodeImage(image)).toMatchObject({
       valid: false,
       reason: "program",
-      fault: "invalid_opcode",
+      defect: "invalid_opcode",
       address: 0,
     });
   });

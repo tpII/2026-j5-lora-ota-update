@@ -36,38 +36,94 @@ static bool isRegisterOperand(uint8_t operand) { return operand >= 1 && operand 
 // Length in bytes of the instruction that starts with the opcode, or 0 for an unknown opcode.
 static size_t instructionLength(uint8_t opcode) { return INSTRUCTION_DECODING.lengths[opcode]; }
 
-static VmFault checkInstruction(const uint8_t *code, size_t length, size_t address) {
+// Registers that follow the opcode in each operand form.
+static size_t registerOperandCount(OperandForm form) {
+  switch (form) {
+  case OperandForm::None:
+  case OperandForm::Immediate:
+  case OperandForm::Address:
+    return 0;
+  case OperandForm::Register:
+  case OperandForm::RegisterImmediate:
+  case OperandForm::RegisterAddress:
+    return 1;
+  case OperandForm::RegisterRegister:
+    return 2;
+  }
+  return 0;
+}
+
+// Position of the 16-bit target of a jump or a call within its instruction, or 0 for the forms
+// that carry no address.
+static size_t addressOperandOffset(OperandForm form) {
+  switch (form) {
+  case OperandForm::Address:
+    return 1;
+  case OperandForm::RegisterAddress:
+    return 2;
+  case OperandForm::None:
+  case OperandForm::Register:
+  case OperandForm::RegisterImmediate:
+  case OperandForm::RegisterRegister:
+  case OperandForm::Immediate:
+    return 0;
+  }
+  return 0;
+}
+
+// Checks the instruction at the address without running it; returns true when it is well formed.
+static bool checkInstruction(const uint8_t *code, size_t length, size_t address,
+                             ProgramDefectReason &reason) {
   const uint8_t opcode = code[address];
   const size_t instruction = instructionLength(opcode);
   if (instruction == 0) {
-    return VmFault::InvalidOpcode;
+    reason = ProgramDefectReason::InvalidOpcode;
+    return false;
   }
   if (address + instruction > length) {
-    return VmFault::TruncatedInstruction;
+    reason = ProgramDefectReason::TruncatedInstruction;
+    return false;
   }
-  const OperandForm form = INSTRUCTION_DECODING.forms[opcode];
-  if (form == OperandForm::None) {
-    return VmFault::None;
+  const size_t registers = registerOperandCount(INSTRUCTION_DECODING.forms[opcode]);
+  for (size_t operand = 1; operand <= registers; ++operand) {
+    if (!isRegisterOperand(code[address + operand])) {
+      reason = ProgramDefectReason::InvalidRegister;
+      return false;
+    }
   }
-  if (!isRegisterOperand(code[address + 1])) {
-    return VmFault::InvalidRegister;
-  }
-  if (form == OperandForm::RegisterRegister && !isRegisterOperand(code[address + 2])) {
-    return VmFault::InvalidRegister;
-  }
-  return VmFault::None;
+  return true;
+}
+
+static bool isMarked(const uint8_t *marks, size_t address) {
+  return (marks[address / 8] & (1U << (address % 8))) != 0;
 }
 
 bool validateProgram(const uint8_t *code, size_t length, ValidProgram &program,
                      ProgramDefect &defect) {
-  defect = ProgramDefect{0, VmFault::None};
+  defect = ProgramDefect{0, ProgramDefectReason::InvalidOpcode};
   if (length < MINIMUM_PROGRAM_SIZE || length > MAXIMUM_PROGRAM_SIZE) {
     return false;
   }
+  // First pass: every instruction is well formed; mark where each one starts.
+  uint8_t instructionStarts[(PROGRAM_CAPACITY + 7) / 8] = {};
   for (size_t address = 0; address < length; address += instructionLength(code[address])) {
-    const VmFault fault = checkInstruction(code, length, address);
-    if (fault != VmFault::None) {
-      defect = ProgramDefect{address, fault};
+    ProgramDefectReason reason{};
+    if (!checkInstruction(code, length, address, reason)) {
+      defect = ProgramDefect{address, reason};
+      return false;
+    }
+    instructionStarts[address / 8] |= static_cast<uint8_t>(1U << (address % 8));
+  }
+  // Second pass: every jump and call lands on the start of an instruction, so that the VM never
+  // decodes the operands of an instruction as an opcode.
+  for (size_t address = 0; address < length; address += instructionLength(code[address])) {
+    const size_t offset = addressOperandOffset(INSTRUCTION_DECODING.forms[code[address]]);
+    if (offset == 0) {
+      continue;
+    }
+    const uint16_t target = readUint16(code + address + offset);
+    if (target >= length || !isMarked(instructionStarts, target)) {
+      defect = ProgramDefect{address, ProgramDefectReason::InvalidJumpTarget};
       return false;
     }
   }
@@ -130,10 +186,31 @@ static int32_t applyOperation(Opcode opcode, int32_t target, int32_t source) {
     return static_cast<int32_t>(~targetBits);
   case Opcode::Halt:
   case Opcode::Print:
+  case Opcode::Sleep:
+  case Opcode::Jump:
+  case Opcode::JumpIfZero:
+  case Opcode::JumpIfNotZero:
+  case Opcode::JumpIfNegative:
+  case Opcode::Call:
+  case Opcode::Return:
     // Their effects write no register; execute() handles them before.
     return target;
   }
   return target;
+}
+
+// Whether the register meets the condition of a branch opcode.
+static bool isBranchTaken(Opcode opcode, int32_t value) {
+  switch (opcode) {
+  case Opcode::JumpIfZero:
+    return value == 0;
+  case Opcode::JumpIfNotZero:
+    return value != 0;
+  case Opcode::JumpIfNegative:
+    return value < 0;
+  default:
+    return false;
+  }
 }
 
 static int32_t readSource(OperandForm form, const uint8_t *operands,
@@ -145,22 +222,26 @@ static int32_t readSource(OperandForm form, const uint8_t *operands,
     return registers[operands[1] - 1];
   case OperandForm::None:
   case OperandForm::Register:
+  case OperandForm::Immediate:
+  case OperandForm::Address:
+  case OperandForm::RegisterAddress:
     return 0;
   }
   return 0;
 }
 
-void VirtualMachine::begin(uint32_t instructionLimit) {
-  instructionLimit_ = instructionLimit;
+void VirtualMachine::begin() {
   programLength_ = 0;
   version_ = 0;
   memset(registers_, 0, sizeof(registers_));
   programCounter_ = 0;
-  tickNumber_ = 0;
+  stackDepth_ = 0;
+  startCount_ = 0;
+  printCount_ = 0;
   running_ = false;
   fault_ = VmFault::None;
   lastFault_ = VmFault::None;
-  lastTickFaulted_ = false;
+  faultedSinceReport_ = false;
 }
 
 void VirtualMachine::loadProgram(uint32_t version, const ValidProgram &program) {
@@ -168,25 +249,27 @@ void VirtualMachine::loadProgram(uint32_t version, const ValidProgram &program) 
   programLength_ = program.length();
   version_ = version;
   programCounter_ = 0;
-  tickNumber_ = 0;
+  stackDepth_ = 0;
+  startCount_ = 0;
+  printCount_ = 0;
   running_ = false;
   fault_ = VmFault::None;
   lastFault_ = VmFault::None;
-  lastTickFaulted_ = false;
+  faultedSinceReport_ = false;
 }
 
 void VirtualMachine::setRegisters(const int32_t values[REGISTER_COUNT]) {
   memcpy(registers_, values, sizeof(registers_));
 }
 
-void VirtualMachine::startTick() {
+void VirtualMachine::startVM() {
   if (programLength_ == 0) {
     return;
   }
   programCounter_ = 0;
-  instructionCount_ = 0;
+  stackDepth_ = 0;
   fault_ = VmFault::None;
-  ++tickNumber_;
+  ++startCount_;
   running_ = true;
 }
 
@@ -195,7 +278,7 @@ VmStep VirtualMachine::stop(VmFault fault) {
   fault_ = fault;
   faultAddress_ = programCounter_;
   lastFault_ = fault;
-  lastTickFaulted_ = true;
+  faultedSinceReport_ = true;
   return VmStep::Faulted;
 }
 
@@ -204,28 +287,48 @@ VmStep VirtualMachine::execute(uint32_t budget) {
     return VmStep::Idle;
   }
   for (uint32_t step = 0; step < budget; ++step) {
-    if (instructionCount_ >= instructionLimit_) {
-      return stop(VmFault::InstructionLimit);
-    }
     if (programCounter_ >= programLength_) {
       return stop(VmFault::EndOfProgram);
     }
-    ++instructionCount_;
     const uint8_t code = program_[programCounter_];
     const Opcode opcode = static_cast<Opcode>(code);
     const uint8_t *operands = program_ + programCounter_ + 1;
-    const size_t length = instructionLength(code);
+    const uint16_t next = static_cast<uint16_t>(programCounter_ + instructionLength(code));
 
     const InstructionEffect effect = INSTRUCTION_DECODING.effects[code];
     switch (effect) {
     case InstructionEffect::Halt:
       running_ = false;
-      lastTickFaulted_ = false;
       return VmStep::Halted;
     case InstructionEffect::Print:
       printedRegister_ = operands[0];
-      programCounter_ += length;
+      ++printCount_;
+      programCounter_ = next;
       return VmStep::Printed;
+    case InstructionEffect::Sleep:
+      sleepMillis_ = readUint32(operands);
+      programCounter_ = next;
+      return VmStep::Sleeping;
+    case InstructionEffect::Jump:
+      programCounter_ = readUint16(operands);
+      continue;
+    case InstructionEffect::Branch:
+      programCounter_ =
+          isBranchTaken(opcode, registers_[operands[0] - 1]) ? readUint16(operands + 1) : next;
+      continue;
+    case InstructionEffect::Call:
+      if (stackDepth_ >= RETURN_STACK_DEPTH) {
+        return stop(VmFault::StackOverflow);
+      }
+      returnStack_[stackDepth_++] = next;
+      programCounter_ = readUint16(operands);
+      continue;
+    case InstructionEffect::Return:
+      if (stackDepth_ == 0) {
+        return stop(VmFault::StackUnderflow);
+      }
+      programCounter_ = returnStack_[--stackDepth_];
+      continue;
     case InstructionEffect::Write:
     case InstructionEffect::Divide:
       break;
@@ -237,7 +340,7 @@ VmStep VirtualMachine::execute(uint32_t budget) {
       return stop(VmFault::DivisionByZero);
     }
     target = applyOperation(opcode, target, source);
-    programCounter_ += length;
+    programCounter_ = next;
   }
   return VmStep::Running;
 }

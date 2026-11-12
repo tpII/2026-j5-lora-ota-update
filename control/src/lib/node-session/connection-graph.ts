@@ -65,7 +65,7 @@ export interface ConnectionGraph {
 }
 
 /**
- * True when the VM of a node failed since its activation or in its last tick, as a graph node or a
+ * True when the VM of a node failed since its activation or since its last HELLO, as a graph node or a
  * neighbor record tells it.
  */
 export function hasVirtualMachineTrouble(node: {
@@ -187,7 +187,7 @@ export function buildConnectionGraph(
       activeVersion: state.activeVersion,
       availableVersion: state.availableVersion,
       vmFault: state.faultSinceActivation,
-      // The node does not report on its console whether its last tick failed.
+      // The node does not report on its console whether it faulted since its last HELLO.
       vmFailing: null,
       lastHeardHostTime: null,
     });

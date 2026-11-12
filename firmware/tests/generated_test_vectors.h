@@ -121,10 +121,12 @@ constexpr RunReceptionDeadlineVector RUN_RECEPTION_DEADLINE_VECTORS[] = {
 };
 
 // Programs run on the virtual machine (firmware/protocol/test-vectors/virtual-machine.json). Each
-// run loads the program, sets the registers and runs whole ticks; the prints of every tick are kept
-// in order.
+// run loads the program, sets the registers and starts it the given number of times; each start
+// runs to HALT, to a fault or to the instruction limit of the vector. The prints and the waits of
+// SLEEP are kept in order.
 constexpr size_t VECTOR_REGISTER_COUNT = 4;
-constexpr size_t MAXIMUM_VECTOR_PRINTS = 3;
+constexpr size_t MAXIMUM_VECTOR_PRINTS = 5;
+constexpr size_t MAXIMUM_VECTOR_SLEEPS = 2;
 
 struct PrintVector {
   uint8_t registerNumber; // 1 to 4
@@ -135,15 +137,18 @@ struct VirtualMachineRunVector {
   const char *name;
   const char *program;
   int32_t registers[VECTOR_REGISTER_COUNT];
-  uint32_t instructionLimit;
-  uint32_t ticks;
-  const char *step; // "halted" or "faulted", for the last tick
+  uint32_t maximumInstructions; // of each start, so that a program without end stops
+  uint32_t starts;
+  const char *step; // "halted", "faulted" or "running", for the last start
   size_t printCount;
   PrintVector prints[MAXIMUM_VECTOR_PRINTS];
+  size_t sleepCount;
+  uint32_t sleeps[MAXIMUM_VECTOR_SLEEPS]; // milliseconds of each SLEEP, in order
   int32_t expectedRegisters[VECTOR_REGISTER_COUNT];
   const char *fault; // name of the vm_fault event, or nullptr
   uint16_t faultAddress;
-  uint32_t tickNumber;
+  uint32_t startCount;
+  uint8_t stackDepth;
 };
 
 constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
@@ -151,118 +156,249 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         "example program",
         "020105000000020203000000110102010112010a000000150102010100",
         {0, 0, 0, 0},
-        10000,
+        100000,
         1,
         "halted",
         2,
         {{1, 8}, {1, -6}},
+        0,
+        {},
         {-6, 3, 0, 0},
         nullptr,
         0,
         1,
+        0,
     },
     {
-        "registers persist between ticks",
+        "registers persist when the program starts again",
         "10010100000000",
         {0, 0, 0, 0},
-        10000,
+        100000,
         2,
         "halted",
+        0,
+        {},
         0,
         {},
         {2, 0, 0, 0},
         nullptr,
         0,
         2,
+        0,
     },
     {
         "wrapping arithmetic, logic and shifts",
         "1001010000001702031903032004ffffffff2a0428040100000026032100000000",
         {2147483647, -7, 2, 0},
-        10000,
+        100000,
         1,
         "halted",
+        0,
+        {},
         0,
         {},
         {-2147483647 - 1, -3, 0, -1},
         nullptr,
         0,
         1,
+        0,
     },
     {
         "INT32_MIN divided by and modulo -1",
         "1601ffffffff01011801ffffffff00",
         {-2147483647 - 1, 0, 0, 0},
-        10000,
+        100000,
         1,
         "halted",
         1,
         {{1, -2147483647 - 1}},
+        0,
+        {},
         {0, 0, 0, 0},
         nullptr,
         0,
         1,
+        0,
     },
     {
         "division by zero",
         "010116010000000000",
         {0, 0, 0, 0},
-        10000,
+        100000,
         1,
         "faulted",
         1,
         {{1, 0}},
+        0,
+        {},
         {0, 0, 0, 0},
         "division_by_zero",
         2,
         1,
+        0,
     },
     {
         "end of program without HALT",
         "0101",
         {0, 0, 0, 0},
-        10000,
+        100000,
         1,
         "faulted",
         1,
         {{1, 0}},
+        0,
+        {},
         {0, 0, 0, 0},
         "end_of_program",
         2,
         1,
+        0,
     },
     {
-        "instruction limit",
-        "010101010101010100",
+        "count down in a loop closed by JNZ",
+        "02020500000010010100000001011202010000003202060000",
         {0, 0, 0, 0},
-        3,
+        100000,
+        1,
+        "halted",
+        5,
+        {{1, 1}, {1, 2}, {1, 3}, {1, 4}, {1, 5}},
+        0,
+        {},
+        {5, 0, 0, 0},
+        nullptr,
+        0,
+        1,
+        0,
+    },
+    {
+        "JNEG and JZ jump",
+        "0201fdffffff3301100002046300000031021a0002046200000000",
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "halted",
+        0,
+        {},
+        0,
+        {},
+        {-3, 0, 0, 0},
+        nullptr,
+        0,
+        1,
+        0,
+    },
+    {
+        "nested subroutines",
+        "3406000101001001010000003410003514010a00000035",
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "halted",
+        1,
+        {{1, 10}},
+        0,
+        {},
+        {10, 0, 0, 0},
+        nullptr,
+        0,
+        1,
+        0,
+    },
+    {
+        "CALL with the return stack full",
+        "340000",
+        {0, 0, 0, 0},
+        100000,
         1,
         "faulted",
-        3,
-        {{1, 0}, {1, 0}, {1, 0}},
+        0,
+        {},
+        0,
+        {},
         {0, 0, 0, 0},
-        "instruction_limit",
-        6,
+        "stack_overflow",
+        0,
         1,
+        8,
+    },
+    {
+        "RET with the return stack empty",
+        "35",
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "faulted",
+        0,
+        {},
+        0,
+        {},
+        {0, 0, 0, 0},
+        "stack_underflow",
+        0,
+        1,
+        0,
+    },
+    {
+        "SLEEP",
+        "030a000000010103ffffffff00",
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "halted",
+        1,
+        {{1, 0}},
+        2,
+        {10U, 4294967295U},
+        {0, 0, 0, 0},
+        nullptr,
+        0,
+        1,
+        0,
+    },
+    {
+        "loop without end",
+        "100101000000300000",
+        {0, 0, 0, 0},
+        1000,
+        1,
+        "running",
+        0,
+        {},
+        0,
+        {},
+        {500, 0, 0, 0},
+        nullptr,
+        0,
+        1,
+        0,
     },
 };
-constexpr size_t VIRTUAL_MACHINE_RUN_VECTOR_COUNT = 7;
+constexpr size_t VIRTUAL_MACHINE_RUN_VECTOR_COUNT = 13;
 
-// Programs that the load rejects, with the address and the fault of the first bad instruction.
+// Programs that the load rejects, with the address and the ProgramDefectReason of the first bad
+// instruction.
 struct ProgramCheckVector {
   const char *name;
   const char *program;
   bool valid;
   size_t address;
-  const char *fault;
+  const char *reason; // name of the ProgramDefectReason, or nullptr for a valid program
 };
 
 constexpr ProgramCheckVector PROGRAM_CHECK_VECTORS[] = {
     {"unknown opcode", "01013f", false, 2, "invalid_opcode"},
     {"register out of range", "110105", false, 0, "invalid_register"},
     {"instruction cut by the end", "020100", false, 0, "truncated_instruction"},
+    {"jump to the start of an instruction", "30030000", true, 0, nullptr},
+    {"jump into an instruction", "020100000000300200", false, 6, "invalid_jump_target"},
+    {"jump past the end", "30100000", false, 0, "invalid_jump_target"},
+    {"call past the end", "34050000", false, 0, "invalid_jump_target"},
+    {"branch into an instruction", "010131010100", false, 2, "invalid_jump_target"},
+    {"branch on a register out of range", "31050000", false, 0, "invalid_register"},
+    {"jump cut by the end", "3001", false, 0, "truncated_instruction"},
 };
-constexpr size_t PROGRAM_CHECK_VECTOR_COUNT = 3;
+constexpr size_t PROGRAM_CHECK_VECTOR_COUNT = 10;
 
 // Command lines that the builders of the control panel produce
 // (firmware/protocol/test-vectors/console-command-lines.jsonl), each with the board model it is

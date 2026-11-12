@@ -95,8 +95,9 @@ bool ImageVerifier::checkSignatureAndProgram(const uint8_t *image, const ImageHe
 
   ProgramDefect defect{};
   if (!validateProgram(code, header.programLength, program, defect)) {
-    // The fault with the names of vm_fault, as the program of the image would raise it.
-    return rejection.reject(ImageRejectionReason::Program, "%s at %u", vmFaultName(defect.fault),
+    // Why the VM rejects the program, with the names of the program defects of the contract.
+    return rejection.reject(ImageRejectionReason::Program, "%s at %u",
+                            programDefectReasonName(defect.reason),
                             static_cast<unsigned>(defect.address));
   }
   return true;

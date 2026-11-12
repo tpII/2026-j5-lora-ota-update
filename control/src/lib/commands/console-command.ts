@@ -68,7 +68,7 @@ import {
   formatLimit,
 } from "$lib/utils/format.ts";
 import { formatHex } from "$lib/utils/hex.ts";
-import { describeProgramFault } from "$lib/vm/fault-descriptions.ts";
+import { describeProgramDefect } from "$lib/vm/fault-descriptions.ts";
 
 export const HELP_COMMAND = bareCommandLineOf("listCommands");
 export const STATUS_COMMAND = bareCommandLineOf("reportStatus");
@@ -348,7 +348,7 @@ export function buildLoadImageCommand(image: Uint8Array): CommandResult {
         message:
           decoding.reason === "format"
             ? decoding.message
-            : `El programa no pasa la validación de la VM: ${describeProgramFault(decoding.fault, decoding.address)}.`,
+            : `El programa no pasa la validación de la VM: ${describeProgramDefect(decoding.defect, decoding.address)}.`,
       },
     ]);
   }

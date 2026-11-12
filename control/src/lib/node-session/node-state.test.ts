@@ -320,7 +320,7 @@ describe("applyConsoleEvent with the virtual machine", () => {
   const HOST_TIME = 1_759_840_000_000;
   const loaded = applyConsoleEvent(
     INITIAL_NODE_STATE,
-    { t: 10, ev: "vm", version: 3, size: 21, tick: 0, registers: [1, 2, 3, 4] },
+    { t: 10, ev: "vm", version: 3, size: 21, starts: 0, registers: [1, 2, 3, 4] },
     HOST_TIME,
   );
 
@@ -328,7 +328,7 @@ describe("applyConsoleEvent with the virtual machine", () => {
     expect(loaded.activeVersion).toBe(3);
     expect(loaded.virtualMachine).toMatchObject({
       size: 21,
-      tick: 0,
+      starts: 0,
       registers: [1, 2, 3, 4],
     });
   });
@@ -336,20 +336,19 @@ describe("applyConsoleEvent with the virtual machine", () => {
   it("updates the printed register and keeps the output", () => {
     const printed = applyConsoleEvent(
       loaded,
-      { t: 20, ev: "vm_print", tick: 1, reg: 2, value: -6 },
+      { t: 20, ev: "vm_print", n: 1, reg: 2, value: -6 },
       HOST_TIME + 10,
     );
     expect(printed.virtualMachine?.registers).toEqual([1, -6, 3, 4]);
-    expect(printed.virtualMachine?.tick).toBe(1);
     expect(printed.virtualMachinePrints).toEqual([
-      { hostTime: HOST_TIME + 10, tick: 1, register: 2, value: -6 },
+      { hostTime: HOST_TIME + 10, number: 1, register: 2, value: -6 },
     ]);
   });
 
   it("records the last fault", () => {
     const faulted = applyConsoleEvent(
       loaded,
-      { t: 30, ev: "vm_fault", tick: 1, pc: 6, reason: "division_by_zero" },
+      { t: 30, ev: "vm_fault", starts: 1, pc: 6, reason: "division_by_zero" },
       HOST_TIME + 20,
     );
     expect(faulted.lastVirtualMachineFault).toMatchObject({
@@ -623,7 +622,7 @@ describe("applyConsoleEvent with an update", () => {
   it("records the faults since the last activation", () => {
     const faulted = applyConsoleEvent(
       receiver,
-      { t: 100000, ev: "vm_fault", tick: 3, pc: 6, reason: "division_by_zero" },
+      { t: 100000, ev: "vm_fault", starts: 3, pc: 6, reason: "division_by_zero" },
       RECEIVER_BOOT_HOST_TIME + 100000,
     );
     expect(faulted.faultSinceActivation).toBe("division_by_zero");

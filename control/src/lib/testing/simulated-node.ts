@@ -92,7 +92,9 @@ import {
   SNR_DECIMALS,
   TRANSFER_MARGIN_MILLISECONDS,
   TRANSMIT_POWER_RANGES,
-  VM_TICK_PERIOD_MILLISECONDS,
+  VM_INSTRUCTIONS_PER_POLL,
+  VM_MINIMUM_PRINT_INTERVAL_MILLISECONDS,
+  VM_RESTART_DELAY_MILLISECONDS,
   echoLossDeadlineMilliseconds,
   isNeighborExpired,
   runReceptionDeadlineMilliseconds,
@@ -105,9 +107,9 @@ import {
   type RadioSettings,
 } from "$lib/radio/radio-settings.ts";
 import { computeFrameLength, computeTimeOnAirMicroseconds } from "$lib/radio/time-on-air.ts";
-import { scheduleRepeatedly, type TimeSource } from "$lib/utils/time-source.ts";
+import { type TimeSource } from "$lib/utils/time-source.ts";
 import { formatPrintLine } from "$lib/vm/instruction-set.ts";
-import { VirtualMachine, runTick, type VmFault } from "$lib/vm/virtual-machine.ts";
+import { VirtualMachine, advance, type VmFault } from "$lib/vm/virtual-machine.ts";
 import { verifyImage } from "./image-verification.ts";
 import { ManualTimeSource } from "./manual-time-source.ts";
 
@@ -390,6 +392,9 @@ export class SimulatedNetwork {
   }
 }
 
+/** Blocks of a program without waits that the simulated node runs before it yields. */
+const MAXIMUM_PROGRAM_BLOCKS = 1000;
+
 interface Neighbor {
   readonly id: NodeIdentifier;
   announced: AnnouncedState | null;
@@ -624,7 +629,9 @@ export class SimulatedNode implements NodePort {
   readonly #machine = new VirtualMachine();
   #program: Uint8Array = new Uint8Array(0);
   #faultSinceActivation: VmFault | null = null;
-  #lastTickFailed = false;
+  /** Bit 3 of the vm byte: the program faulted since the previous HELLO. */
+  #faultedSinceHello = false;
+  #cancelProgram: () => void = () => {};
 
   constructor(
     identifier: NodeIdentifier,
@@ -689,8 +696,8 @@ export class SimulatedNode implements NodePort {
 
   /**
    * Starts what a node does on its own after boot: the HELLO messages, with the first one in the
-   * first HELLO window and the next ones every period with its jitter, and the VM ticks. Returns
-   * the function that stops them.
+   * first HELLO window and the next ones every period with its jitter. The program runs on its own
+   * from its activation. Returns the function that stops them.
    */
   start(random: () => number = Math.random): () => void {
     let cancelHello = (): void => {};
@@ -709,18 +716,9 @@ export class SimulatedNode implements NodePort {
         random() *
           (FIRST_HELLO_MAXIMUM_DELAY_MILLISECONDS - FIRST_HELLO_MINIMUM_DELAY_MILLISECONDS),
     );
-    const stopTicks = scheduleRepeatedly(
-      this.#timeSource,
-      () => {
-        if (this.#program.length > 0) {
-          this.#runTick();
-        }
-      },
-      VM_TICK_PERIOD_MILLISECONDS,
-    );
     return () => {
       cancelHello();
-      stopTicks();
+      this.#cancelProgram();
     };
   }
 
@@ -739,9 +737,12 @@ export class SimulatedNode implements NodePort {
           rssi: Math.round(neighbor.rssi),
           snr: Math.round(neighbor.snr * 4) / 4,
         }));
+        const announced = this.#announcedState();
+        // The failing bit covers the interval up to this HELLO; the next one starts clean.
+        this.#faultedSinceHello = false;
         return {
           destination: BROADCAST_IDENTIFIER,
-          body: { type: "hello", announced: this.#announcedState(), neighbors },
+          body: { type: "hello", announced, neighbors },
         };
       },
     });
@@ -1175,7 +1176,7 @@ export class SimulatedNode implements NodePort {
         verification.reason === "signature"
           ? "signature: not signed by the operator"
           : verification.reason === "program"
-            ? `program: ${verification.fault} at ${verification.address}`
+            ? `program: ${verification.defect} at ${verification.address}`
             : `format: ${IMAGE_FORMAT_DEFECTS[verification.defect]}`,
       );
       return;
@@ -1398,7 +1399,7 @@ export class SimulatedNode implements NodePort {
     this.#emit("vm", {
       version: this.#activeVersion,
       size: this.#program.length,
-      tick: this.#machine.tickNumber,
+      starts: this.#machine.startCount,
       registers: [...this.#machine.registers],
     });
   }
@@ -1545,7 +1546,7 @@ export class SimulatedNode implements NodePort {
       version: this.#activeVersion,
       available: this.#availableVersion,
       vmFault: this.#faultSinceActivation,
-      vmFailing: this.#lastTickFailed,
+      vmFailing: this.#faultedSinceHello,
       transmitted: this.#sentCount,
     };
   }
@@ -2203,7 +2204,7 @@ export class SimulatedNode implements NodePort {
   // -------------------------------------------------------------------------------------------
   // Activation and VM
 
-  /** Activates the available version and runs its first tick, as the firmware does. */
+  /** Activates the available version and starts its program at once, as the firmware does. */
   #activate(cause: ActivationCause, source: NodeIdentifier | null): void {
     const image = this.#availableImage;
     const decoding = image === null ? null : decodeImage(image);
@@ -2213,33 +2214,78 @@ export class SimulatedNode implements NodePort {
     const previous = this.#activeVersion;
     this.#activeVersion = decoding.image.version;
     this.#program = decoding.image.program;
+    this.#cancelProgram();
     this.#machine.load(this.#program);
     this.#faultSinceActivation = null;
-    this.#lastTickFailed = false;
+    this.#faultedSinceHello = false;
     this.#emit("activation", { version: this.#activeVersion, previous, cause, src: source });
     this.#emitVirtualMachine();
     this.#emitLine(`VM: program v${this.#activeVersion}`);
     this.sendHello();
-    this.#runTick();
+    this.#runProgram();
   }
 
-  #runTick(): void {
-    const outcome = runTick(this.#machine);
-    for (const print of outcome.prints) {
-      this.#emit("vm_print", { tick: print.tick, reg: print.register, value: print.value });
-      this.#emitLine(formatPrintLine(print.register, print.value));
+  /** Runs the rest of the program later. A wait of the program itself is work for settle(). */
+  #continueProgram(delayMilliseconds: number, isWork: boolean): void {
+    this.#cancelProgram();
+    this.#cancelProgram = this.network.schedule(
+      () => this.#runProgram(),
+      delayMilliseconds,
+      isWork,
+    );
+  }
+
+  /**
+   * Runs the program in blocks, as the firmware does, up to its next wait: the one after a PRINT,
+   * a SLEEP or the restart after HALT or a fault. A program that never waits yields after
+   * MAXIMUM_PROGRAM_BLOCKS and goes on a moment later, so that the simulation keeps moving.
+   */
+  #runProgram(): void {
+    if (this.#program.length === 0) {
+      return;
     }
-    this.#lastTickFailed = outcome.step === "faulted";
-    const fault = this.#machine.fault;
-    if (outcome.step === "faulted" && fault !== null) {
-      this.#faultSinceActivation = fault;
-      this.#emit("vm_fault", {
-        tick: this.#machine.tickNumber,
-        pc: this.#machine.faultAddress,
-        reason: fault,
-      });
-      this.#emitLine(`VM: ${fault}`);
+    if (!this.#machine.isRunning) {
+      this.#machine.startVM();
     }
+    for (let block = 0; block < MAXIMUM_PROGRAM_BLOCKS; block += 1) {
+      const { step, print } = advance(this.#machine, VM_INSTRUCTIONS_PER_POLL);
+      switch (step) {
+        case "printed":
+          if (print !== null) {
+            this.#emit("vm_print", { n: print.number, reg: print.register, value: print.value });
+            this.#emitLine(formatPrintLine(print.register, print.value));
+          }
+          this.#continueProgram(VM_MINIMUM_PRINT_INTERVAL_MILLISECONDS, true);
+          return;
+        case "sleeping":
+          this.#continueProgram(this.#machine.sleepMilliseconds, true);
+          return;
+        case "halted":
+          this.#emitLine("VM: HALT stop-reset");
+          this.#continueProgram(VM_RESTART_DELAY_MILLISECONDS, false);
+          return;
+        case "faulted": {
+          const fault = this.#machine.fault;
+          if (fault !== null) {
+            this.#faultSinceActivation = fault;
+            this.#faultedSinceHello = true;
+            this.#emit("vm_fault", {
+              starts: this.#machine.startCount,
+              pc: this.#machine.faultAddress,
+              reason: fault,
+            });
+            this.#emitLine(`VM: ${fault}`);
+          }
+          this.#continueProgram(VM_RESTART_DELAY_MILLISECONDS, false);
+          return;
+        }
+        case "idle":
+          return;
+        case "running":
+          break;
+      }
+    }
+    this.#continueProgram(1, false);
   }
 }
 

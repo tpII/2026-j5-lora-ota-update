@@ -85,7 +85,7 @@ Con el par por defecto, cualquiera que tenga el repositorio puede firmar una ima
 | | `echo_service` | Eco: el pedido pendiente y su plazo, las respuestas a los pedidos de otros nodos hasta que salen al aire y los eventos `echo`, `echo_lost` y `echo_served` |
 | | `test_run_service` | Corridas del emisor y del receptor: cuándo termina cada una, el aviso cuando no queda ninguna y los eventos `run_start`, `run_done`, `test_rx` y `run_end` |
 | | `transfer_service` | Transferencia de imágenes: imagen disponible, recepción, ráfagas, reportes dirigidos al nodo y sus eventos; avisa cuándo cambia la versión disponible y cuándo un vecino ya la ejecuta |
-| | `activation_controller` | Versión activa y VM: la regla de activación para sus tres causas, el pedido de un HELLO inmediato cuando cambia lo que anuncia, los ticks y los eventos `activation`, `vm`, `vm_print`, `vm_fault` y `program` |
+| | `activation_controller` | Versión activa y VM: la regla de activación para sus tres causas, el pedido de un HELLO inmediato cuando cambia lo que anuncia, la ejecución continua del programa con sus esperas y sus reinicios, y los eventos `activation`, `vm`, `vm_print`, `vm_fault` y `program` |
 | `src/image/` | `image_format.h` | Cabecera de la imagen; sus largos y desplazamientos están en el contrato |
 | | `image_verifier` | Verificación de una imagen completa: formato, firma Ed25519 con libsodium y validación del programa, con el motivo del rechazo (`ImageRejection`) del vocabulario del contrato |
 | `src/transfer/` | `image_reception` | Recepción en curso: bytes recibidos, cotas del largo, armado del reporte y plazos de fin de ráfaga y de repetición del reporte |
@@ -97,7 +97,7 @@ Con el par por defecto, cualquiera que tenga el repositorio puede firmar una ima
 | | `command_line` | Palabras de una línea de comando y largo máximo de línea que aceptan los transportes |
 | | `argument_reader` | Gramática de los valores de los comandos: números en decimal o en hexadecimal con `0x`, valores de registro, identificadores de nodo y fracciones decimales |
 | `src/display/` | `debug_display` | OLED: fila de estado y registro de depuración |
-| `src/vm/` | `virtual_machine` | Micro VM de registros: validación del programa (`ValidProgram`, el único tipo que la VM carga, y la falla de la primera instrucción mala), ticks, fallas y estado que anuncia el HELLO; los opcodes, su forma de operandos, su efecto y las fallas están en el contrato |
+| `src/vm/` | `virtual_machine` | Micro VM de registros: validación del programa (`ValidProgram`, el único tipo que la VM carga, y el defecto de la primera instrucción mala, saltos incluidos), ejecución en bloques, pila de retorno, fallas y estado que anuncia el HELLO; los opcodes, su forma de operandos, su efecto, las fallas y los defectos están en el contrato |
 
 Cada módulo es un par `.h` y `.cpp` con el mismo nombre, salvo los que son solo un encabezado y `board_support.h` y `board_radio.h`, que se implementan en un archivo por modelo. Los `#include` entre carpetas usan rutas relativas. `src/protocol/protocol_contract.h` no se edita a mano: se cambia `firmware/protocol/contract.json` y se ejecuta `node tools/generate_protocol_sources.mjs`.
 

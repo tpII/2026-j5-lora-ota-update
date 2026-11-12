@@ -185,6 +185,18 @@ function describeContract(contract) {
   ensure(faults[0].name === "none", "the first fault code must be none");
   ensure(faults.at(-1).code <= vmFaultMask, "a fault code does not fit the vm byte");
 
+  const faultNames = faults.map((fault) => fault.name);
+  ensure(
+    new Set(vm.programDefects).size === vm.programDefects.length &&
+      vm.programDefects.every((defect) => !faultNames.includes(defect)),
+    "virtualMachine.programDefects must be distinct and apart from the faults",
+  );
+  ensure(
+    Number.isInteger(vm.returnStackDepth) && vm.returnStackDepth > 0 && vm.returnStackDepth <= 0xff,
+    "virtualMachine.returnStackDepth must fit one byte",
+  );
+  // Addresses take 16 bits, so the whole program memory must be addressable.
+  ensure(vm.programCapacity <= 0x10000, "virtualMachine.programCapacity exceeds a 16-bit address");
   const formNames = vm.operandForms.map((form) => form.name);
   for (const effect of vm.instructionEffects) {
     for (const form of effect.forms) {
@@ -560,7 +572,8 @@ function describeContract(contract) {
     format: "hex2",
     cppOnly: true,
     comment:
-      "Bit of the byte vm set when the last tick ended in a fault; the bits above it are reserved.",
+      "Bit of the byte vm set when the program faulted since the previous HELLO; the bits above it " +
+      "are reserved.",
   });
 
   section("ECHO_REQUEST and ECHO_REPLY bodies (docs/protocol/frame.md)");
@@ -693,16 +706,23 @@ function describeContract(contract) {
     `${registerValue.minimum}..${registerValue.maximum} or 0x hexadecimal`,
     { comment: "Detail of the out_of_range error for a register value." },
   );
-  constant("VM_TICK_PERIOD", "uint32_t", vm.tickPeriodMilliseconds, {
-    unit: "ms",
-    comment: "Time between the starts of two ticks.",
-  });
   constant("VM_INSTRUCTIONS_PER_POLL", "uint32_t", vm.instructionsPerPoll, {
-    cppOnly: true,
-    comment: "Instructions that one pass of the main loop runs at most, between radio services.",
+    comment:
+      "Instructions that one pass of the main loop runs at most, between radio services: the " +
+      "program runs without end, in blocks of this size.",
   });
-  constant("VM_MAXIMUM_INSTRUCTIONS_PER_TICK", "uint32_t", vm.maximumInstructionsPerTick, {
-    comment: "A tick that reaches this many instructions ends with the fault instruction_limit.",
+  constant("VM_RESTART_DELAY", "uint32_t", vm.restartDelayMilliseconds, {
+    unit: "ms",
+    comment:
+      "After HALT or a fault, the program starts again from address 0 once this time passes.",
+  });
+  constant("VM_MINIMUM_PRINT_INTERVAL", "uint32_t", vm.minimumPrintIntervalMilliseconds, {
+    unit: "ms",
+    comment:
+      "The VM does not run for this time after each PRINT, so that a loop cannot flood the console.",
+  });
+  constant("RETURN_STACK_DEPTH", "uint8_t", vm.returnStackDepth, {
+    comment: "Levels of the return stack of CALL and RET.",
   });
   definitions.push({
     kind: "enum",
@@ -713,9 +733,10 @@ function describeContract(contract) {
     hexadecimalCodes: true,
     noNames: true,
     comment:
-      "Group 0x0n holds the configuration instructions, 0x1n the arithmetic ones and 0x2n the logic " +
-      "ones; 0x3n is reserved for control. In groups 0x1n and 0x2n an even opcode takes a 32-bit " +
-      "immediate and the next odd one a source register.",
+      "Group 0x0n holds the configuration instructions and SLEEP, 0x1n the arithmetic ones, 0x2n the " +
+      "logic ones and 0x3n the control ones. In groups 0x1n and 0x2n an even opcode takes a 32-bit " +
+      "immediate and the next odd one a source register. Jumps and calls take an absolute 16-bit " +
+      "address.",
     entries: vm.instructions.map((instruction) => ({
       identifier: instruction.identifier,
       name: instruction.mnemonic,
@@ -728,7 +749,8 @@ function describeContract(contract) {
     tupleName: "OPERAND_FORMS",
     noNames: true,
     comment:
-      "Operands of an instruction: none, one register, a register and an immediate or two registers.",
+      "Operands of an instruction: none, one register, a register and an immediate, two registers, " +
+      "an unsigned immediate, an address or a register and an address.",
     entries: vm.operandForms.map((form, index) => ({
       identifier: upperCamelCase(form.name),
       name: form.name,
@@ -742,9 +764,10 @@ function describeContract(contract) {
     noNames: true,
     cppOnly: true,
     comment:
-      "What an instruction does: stop the tick, print a register, write its first register or " +
-      "write it after a division, which faults on a zero divisor. Each effect admits the operand " +
-      "forms of the contract that give it the registers it reads.",
+      "What an instruction does: stop the program, print a register, write its first register, " +
+      "write it after a division, which faults on a zero divisor, wait, jump, jump when a register " +
+      "meets the condition of the opcode, call a subroutine or return from it. Each effect admits " +
+      "the operand forms of the contract that give it the operands it reads.",
     entries: vm.instructionEffects.map((effect, index) => ({
       identifier: upperCamelCase(effect.name),
       name: effect.name,
@@ -761,14 +784,25 @@ function describeContract(contract) {
     cppCount: true,
     tupleSkipsFirst: true,
     comment:
-      "Fault that ends a tick, with the names of the vm_fault event. The code travels in the byte vm " +
-      "of the HELLO; None is code 0 and never appears on the console, which writes null instead.",
+      "Fault that stops the program, with the names of the vm_fault event. The code travels in the " +
+      "byte vm of the HELLO; None is code 0 and never appears on the console, which writes null " +
+      "instead. A valid program can raise only these: what validateProgram() rejects is a " +
+      "ProgramDefectReason.",
     entries: faults.map((fault) => ({
       identifier: upperCamelCase(fault.name),
       name: fault.name,
       code: fault.code,
     })),
   });
+  definitions.push(
+    vocabulary(
+      "ProgramDefectReason",
+      "PROGRAM_DEFECT_REASONS",
+      vm.programDefects,
+      "Why the load rejects a program: an unknown opcode, a register out of range, an instruction " +
+        "cut by the end or a jump or call to an address that does not start an instruction.",
+    ),
+  );
 
   section("Radio settings (docs/protocol/radio.md)");
   constant("MINIMUM_FREQUENCY", "float", frequency.minimum, {
@@ -2080,7 +2114,14 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
   const { consoleCommandLines, frame, responseDeadlines, signedImage, timeOnAir, virtualMachine } =
     vectors;
   const registerCount = contract.virtualMachine.registerCount;
-  const defaultLimit = contract.virtualMachine.maximumInstructionsPerTick;
+  // The VM has no instruction limit; the vectors cut a program that never stops after this many
+  // instructions of each start, so that a test always ends.
+  const defaultLimit = virtualMachine.defaultMaximumInstructions;
+  ensureVector(
+    Number.isInteger(defaultLimit) && defaultLimit > 0,
+    TEST_VECTOR_PATHS.virtualMachine,
+    "defaultMaximumInstructions must be a positive integer",
+  );
 
   ensureVector(
     signedImage.image === signedImage.header + signedImage.program + signedImage.signature,
@@ -2254,24 +2295,32 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
     1,
     ...virtualMachine.runs.map((run) => run.expected.prints.length),
   );
+  const maximumSleeps = Math.max(
+    1,
+    ...virtualMachine.runs.map((run) => (run.expected.sleeps ?? []).length),
+  );
   const runs = virtualMachine.runs.map((run) => {
     const prints = run.expected.prints.map(
       (print) => `{${print.register}, ${cppInteger32(print.value)}}`,
     );
     const registers = (values) => `{${values.map(cppInteger32).join(", ")}}`;
+    const sleeps = (run.expected.sleeps ?? []).map((milliseconds) => `${milliseconds}U`);
     const fields = [
       JSON.stringify(run.name),
       JSON.stringify(run.program),
       registers(run.registers),
-      String(run.instructionLimit ?? defaultLimit),
-      String(run.ticks),
+      String(run.maximumInstructions ?? defaultLimit),
+      String(run.starts),
       JSON.stringify(run.expected.step),
       String(prints.length),
       `{${prints.join(", ")}}`,
+      String(sleeps.length),
+      `{${sleeps.join(", ")}}`,
       registers(run.expected.registers),
       run.expected.fault === null ? "nullptr" : JSON.stringify(run.expected.fault),
       String(run.expected.faultAddress ?? 0),
-      String(run.expected.tickNumber),
+      String(run.expected.startCount),
+      String(run.expected.stackDepth ?? 0),
     ];
     return ["    {", ...fields.map((field) => `        ${field},`), "    },"].join("\n");
   });
@@ -2279,10 +2328,13 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
     [
       ...cppComment(
         `Programs run on the virtual machine (${TEST_VECTOR_PATHS.virtualMachine}). Each run loads the ` +
-          "program, sets the registers and runs whole ticks; the prints of every tick are kept in order.",
+          "program, sets the registers and starts it the given number of times; each start runs to " +
+          "HALT, to a fault or to the instruction limit of the vector. The prints and the waits of " +
+          "SLEEP are kept in order.",
       ),
       `constexpr size_t VECTOR_REGISTER_COUNT = ${registerCount};`,
       `constexpr size_t MAXIMUM_VECTOR_PRINTS = ${maximumPrints};`,
+      `constexpr size_t MAXIMUM_VECTOR_SLEEPS = ${maximumSleeps};`,
       "",
       "struct PrintVector {",
       "  uint8_t registerNumber; // 1 to 4",
@@ -2293,15 +2345,18 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
       "  const char *name;",
       "  const char *program;",
       "  int32_t registers[VECTOR_REGISTER_COUNT];",
-      "  uint32_t instructionLimit;",
-      "  uint32_t ticks;",
-      '  const char *step; // "halted" or "faulted", for the last tick',
+      "  uint32_t maximumInstructions; // of each start, so that a program without end stops",
+      "  uint32_t starts;",
+      '  const char *step; // "halted", "faulted" or "running", for the last start',
       "  size_t printCount;",
       "  PrintVector prints[MAXIMUM_VECTOR_PRINTS];",
+      "  size_t sleepCount;",
+      "  uint32_t sleeps[MAXIMUM_VECTOR_SLEEPS]; // milliseconds of each SLEEP, in order",
       "  int32_t expectedRegisters[VECTOR_REGISTER_COUNT];",
       "  const char *fault; // name of the vm_fault event, or nullptr",
       "  uint16_t faultAddress;",
-      "  uint32_t tickNumber;",
+      "  uint32_t startCount;",
+      "  uint8_t stackDepth;",
       "};",
       "",
       "constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {",
@@ -2314,20 +2369,21 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
   sections.push(
     [
       ...cppComment(
-        "Programs that the load rejects, with the address and the fault of the first bad instruction.",
+        "Programs that the load rejects, with the address and the ProgramDefectReason of the first " +
+          "bad instruction.",
       ),
       "struct ProgramCheckVector {",
       "  const char *name;",
       "  const char *program;",
       "  bool valid;",
       "  size_t address;",
-      "  const char *fault;",
+      "  const char *reason; // name of the ProgramDefectReason, or nullptr for a valid program",
       "};",
       "",
       "constexpr ProgramCheckVector PROGRAM_CHECK_VECTORS[] = {",
       ...virtualMachine.checks.map(
         (check) =>
-          `    {${JSON.stringify(check.name)}, ${JSON.stringify(check.program)}, ${check.valid}, ${check.address}, ${JSON.stringify(check.fault)}},`,
+          `    {${JSON.stringify(check.name)}, ${JSON.stringify(check.program)}, ${check.valid}, ${check.address}, ${check.reason === null ? "nullptr" : JSON.stringify(check.reason)}},`,
       ),
       "};",
       `constexpr size_t PROGRAM_CHECK_VECTOR_COUNT = ${virtualMachine.checks.length};`,
@@ -2457,11 +2513,13 @@ const DOCUMENT_MENTIONS = {
   ],
   "docs/protocol/virtual-machine.md": [
     "| R1 a R{REGISTER_COUNT} | Registros de 32 bits con signo",
+    "| Pila de retorno | {RETURN_STACK_DEPTH} niveles, para `CALL` y `RET`",
     "| Memoria de programa | {PROGRAM_CAPACITY} bytes (`programCapacity`",
-    "El nodo arranca un tick cada {VM_TICK_PERIOD_MS/1000} s",
-    "en porciones de {VM_INSTRUCTIONS_PER_POLL} instrucciones por vuelta del bucle principal",
-    "Un tick que ejecuta {VM_MAXIMUM_INSTRUCTIONS_PER_TICK:es} instrucciones termina con la falla `instruction_limit`.",
+    "en bloques de {VM_INSTRUCTIONS_PER_POLL} instrucciones por vuelta del bucle principal",
+    "la VM no avanza durante {VM_MINIMUM_PRINT_INTERVAL_MS} ms (`VM_MINIMUM_PRINT_INTERVAL_MS`)",
+    "A los {VM_RESTART_DELAY_MS/1000} s (`VM_RESTART_DELAY_MS`) vuelve a arrancar",
     "Los registros se codifican de 1 a {REGISTER_COUNT}",
+    "`CALL` con los {RETURN_STACK_DEPTH} niveles de la pila de retorno ocupados",
   ],
   "docs/protocol/radio.md": [
     "| Frecuencia central | {DEFAULT_FREQUENCY_MHZ:es} MHz | `freq` |",
@@ -2512,9 +2570,11 @@ const DOCUMENT_MENTIONS = {
     "Si la prueba dura más de {NEIGHBOR_EXPIRY_MS/1000} s, los vecinos",
   ],
   "docs/adrs/0008-register-virtual-machine.md": [
+    "una pila de retorno de {RETURN_STACK_DEPTH} niveles",
     "una memoria de programa de {PROGRAM_CAPACITY} bytes, definida por `programCapacity`",
-    "El programa activo corre un tick cada {VM_TICK_PERIOD_MS/1000} s",
-    "en porciones de {VM_INSTRUCTIONS_PER_POLL} instrucciones por vuelta, intercaladas con la radio, y un tope de {VM_MAXIMUM_INSTRUCTIONS_PER_TICK:es} instrucciones por tick",
+    "en bloques de {VM_INSTRUCTIONS_PER_POLL} instrucciones por vuelta, intercalados con la radio",
+    "desde la dirección 0 a los {VM_RESTART_DELAY_MS/1000} s",
+    "la VM no avanza durante los {VM_MINIMUM_PRINT_INTERVAL_MS} ms que siguen a cada PRINT",
   ],
   "docs/adrs/0009-self-describing-fragments.md": [
     "Una imagen (cabecera, hasta {MAXIMUM_PROGRAM_SIZE} bytes de programa y la firma Ed25519 de {IMAGE_SIGNATURE_SIZE} bytes) ocupa alrededor de {MAXIMUM_IMAGE_SIZE/1000:es.1} KB",

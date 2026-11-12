@@ -33,7 +33,8 @@ J5_HOST_TEST(testHelloMessage) {
   CHECK(body[HELLO_MODEL_OFFSET] == static_cast<uint8_t>(BoardModel::HeltecV43));
   CHECK(readUint32(body + HELLO_VERSION_OFFSET) == 7);
   CHECK(readUint32(body + HELLO_AVAILABLE_OFFSET) == 9);
-  // The byte vm: the fault code in the mask, the failing bit when the last tick faulted.
+  // The byte vm: the fault code in the mask, the failing bit when the program faulted since the
+  // previous HELLO.
   CHECK(body[HELLO_VM_STATUS_OFFSET] ==
         (static_cast<uint8_t>(VmFault::DivisionByZero) | VM_STATUS_FAILING_BIT));
   CHECK(readUint32(body + HELLO_TRANSMITTED_OFFSET) == 123456);

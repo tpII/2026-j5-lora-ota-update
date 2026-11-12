@@ -6,7 +6,7 @@
   import TargetNodeLine from "../TargetNodeLine.svelte";
   import { buildLoadRegistersCommand, type CommandProblem } from "$lib/commands/console-command.ts";
   import { parseInteger } from "$lib/vm/assembler.ts";
-  import { REGISTER_COUNT, VM_TICK_PERIOD_MILLISECONDS } from "$lib/protocol/protocol-contract.ts";
+  import { REGISTER_COUNT, VM_RESTART_DELAY_MILLISECONDS } from "$lib/protocol/protocol-contract.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   /**
@@ -45,8 +45,8 @@
     <h3 class="panel-section-title">En el nodo{node === null ? "" : ` ${node.state.identifier}`}</h3>
     {#if node === null}<TargetNodeLine target={panel.testTarget()} />{/if}
     <p class="panel-hint">
-      Un tick cada {VM_TICK_PERIOD_MILLISECONDS / 1000} s, el primero al activar el programa. Al reiniciarse, el nodo vuelve
-      al programa de fábrica (versión 0).
+      El programa corre sin parar desde que se activa. Tras HALT o una falla vuelve a empezar desde la dirección 0 a
+      los {VM_RESTART_DELAY_MILLISECONDS / 1000} s. Al reiniciarse, el nodo vuelve al programa de fábrica (versión 0).
     </p>
     <form
       class="flex flex-col gap-2"
@@ -55,7 +55,7 @@
         loadRegisters();
       }}
     >
-      <p class="panel-hint">El programa los usa desde el próximo tick.</p>
+      <p class="panel-hint">El programa los usa desde su próxima instrucción.</p>
       <RegisterInputs bind:values={registerTexts} />
       <div>
         <button type="submit" class="panel-button panel-button-primary" disabled={node === null}>Cargar registros</button>
@@ -75,8 +75,8 @@
         <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt class="text-muted">Largo</dt>
           <dd>{countWithNoun(machine.size, "byte", "bytes")}</dd>
-          <dt class="text-muted">Tick</dt>
-          <dd class="font-mono">{machine.tick}</dd>
+          <dt class="text-muted">Arranques</dt>
+          <dd class="font-mono">{machine.starts}</dd>
         </dl>
         <RegisterTable registers={machine.registers} />
         <p class="panel-hint">Un registro que el programa cambia sin PRINT se actualiza con «Consultar estado».</p>

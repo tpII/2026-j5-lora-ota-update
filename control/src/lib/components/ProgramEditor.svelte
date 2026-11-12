@@ -20,7 +20,8 @@
   </label>
   <p class="panel-hint">
     Una instrucción por línea, operandos separados por comas o espacios, registros R1 a R{REGISTER_COUNT}, enteros en
-    decimal o con 0x y comentarios después de «;;».
+    decimal o con 0x y comentarios después de «;;». Una etiqueta como «loop:» al comienzo de una línea nombra la
+    instrucción siguiente, para JMP, JZ, JNZ, JNEG y CALL.
   </p>
   {#if assembly.valid}
     <p class="text-xs text-muted">
