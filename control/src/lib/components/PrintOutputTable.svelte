@@ -1,29 +1,28 @@
 <script lang="ts">
   import { formatPrintLine, formatRegisterHex } from "$lib/vm/instruction-set.ts";
   import type { PrintedValue } from "$lib/vm/virtual-machine.ts";
-  import type { VirtualMachineFaultRecord } from "$lib/nodes/node-state.ts";
+  import type { VirtualMachineFaultRecord } from "$lib/vm/virtual-machine-state.ts";
   import { formatShortClockTime } from "$lib/utils/format.ts";
-  import { VM_FAULT_LABELS } from "$lib/utils/labels.ts";
+  import { VM_FAULT_LABELS } from "$lib/vm/fault-descriptions.ts";
 
   /**
    * The PRINT outputs of a VM and its last fault, drawn the same way for the reference interpreter
    * and for a node so that the expected and the reported outputs compare row by row (metric M5).
-   * `prints` is in the order they happened; the table shows the newest first. `showHostTime` adds
-   * the hour at which the panel received each output, which only the outputs of a node carry.
+   * `prints` is in the order they happened; the table shows the newest first. The outputs of a node
+   * also carry the hour at which the panel received them, which the table adds as a column.
    */
   let {
     prints,
     fault,
-    showHostTime = false,
   }: {
     prints: readonly (PrintedValue & { readonly hostTime?: number })[];
     fault: Pick<VirtualMachineFaultRecord, "tick" | "address" | "reason"> | null;
-    showHostTime?: boolean;
   } = $props();
 
   const MAXIMUM_VISIBLE_PRINTS = 100;
 
   const visiblePrints = $derived(prints.slice(-MAXIMUM_VISIBLE_PRINTS).toReversed());
+  const showHostTime = $derived(visiblePrints.some((print) => print.hostTime !== undefined));
 </script>
 
 <div class="flex flex-col gap-2">

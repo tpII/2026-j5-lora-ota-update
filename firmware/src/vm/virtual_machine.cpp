@@ -2,95 +2,40 @@
 
 #include <string.h>
 
-#include "../network/byte_order.h"
+#include "../encoding/byte_order.h"
 
 namespace firmware {
 
-static constexpr uint8_t OPCODE_GROUP_MASK = 0xF0;
-static constexpr uint8_t ARITHMETIC_GROUP = 0x10;
-static constexpr uint8_t LOGIC_GROUP = 0x20;
-static constexpr uint8_t REGISTER_FORM_BIT = 0x01;
-static constexpr size_t IMMEDIATE_INSTRUCTION_LENGTH = 6;
-static constexpr size_t REGISTER_INSTRUCTION_LENGTH = 3;
 static constexpr uint32_t SHIFT_MASK = 31;
 
-static bool isBinaryOperation(uint8_t opcode) {
-  const uint8_t group = opcode & OPCODE_GROUP_MASK;
-  return (group == ARITHMETIC_GROUP && opcode <= static_cast<uint8_t>(Opcode::ModuloRegister)) ||
-         (group == LOGIC_GROUP && opcode <= static_cast<uint8_t>(Opcode::ShiftRightRegister));
+// How the instruction that starts with each byte is encoded and what it does: its length, or 0 for
+// a byte that is no opcode, its operand form and its effect.
+namespace {
+struct InstructionDecodingTable {
+  uint8_t lengths[256];
+  OperandForm forms[256];
+  InstructionEffect effects[256];
+};
+} // namespace
+
+static constexpr InstructionDecodingTable buildInstructionDecodingTable() {
+  InstructionDecodingTable table{};
+  for (const InstructionEncoding &encoding : INSTRUCTION_ENCODINGS) {
+    const uint8_t opcode = static_cast<uint8_t>(encoding.opcode);
+    table.lengths[opcode] = static_cast<uint8_t>(operandFormLength(encoding.form));
+    table.forms[opcode] = encoding.form;
+    table.effects[opcode] = encoding.effect;
+  }
+  return table;
 }
+
+static constexpr InstructionDecodingTable INSTRUCTION_DECODING = buildInstructionDecodingTable();
 
 static bool isRegisterOperand(uint8_t operand) { return operand >= 1 && operand <= REGISTER_COUNT; }
 
-size_t instructionLength(uint8_t opcode) {
-  if (isBinaryOperation(opcode)) {
-    return (opcode & REGISTER_FORM_BIT) != 0 ? REGISTER_INSTRUCTION_LENGTH
-                                             : IMMEDIATE_INSTRUCTION_LENGTH;
-  }
-  switch (static_cast<Opcode>(opcode)) {
-  case Opcode::Halt:
-    return 1;
-  case Opcode::Print:
-  case Opcode::Not:
-    return 2;
-  case Opcode::Load:
-    return IMMEDIATE_INSTRUCTION_LENGTH;
-  default:
-    return 0;
-  }
-}
+// Length in bytes of the instruction that starts with the opcode, or 0 for an unknown opcode.
+static size_t instructionLength(uint8_t opcode) { return INSTRUCTION_DECODING.lengths[opcode]; }
 
-const char *vmFaultName(VmFault fault) {
-  switch (fault) {
-  case VmFault::None:
-    return "none";
-  case VmFault::DivisionByZero:
-    return "division_by_zero";
-  case VmFault::InstructionLimit:
-    return "instruction_limit";
-  case VmFault::EndOfProgram:
-    return "end_of_program";
-  case VmFault::InvalidOpcode:
-    return "invalid_opcode";
-  case VmFault::InvalidRegister:
-    return "invalid_register";
-  case VmFault::TruncatedInstruction:
-    return "truncated_instruction";
-  }
-  return "none";
-}
-
-static int hexDigitValue(char digit) {
-  if (digit >= '0' && digit <= '9') {
-    return digit - '0';
-  }
-  if (digit >= 'a' && digit <= 'f') {
-    return digit - 'a' + 10;
-  }
-  if (digit >= 'A' && digit <= 'F') {
-    return digit - 'A' + 10;
-  }
-  return -1;
-}
-
-bool decodeHexBytes(const char *text, uint8_t *output, size_t capacity, size_t &length) {
-  const size_t digits = strlen(text);
-  if (digits % 2 != 0 || digits / 2 > capacity) {
-    return false;
-  }
-  for (size_t index = 0; index < digits / 2; ++index) {
-    const int high = hexDigitValue(text[2 * index]);
-    const int low = hexDigitValue(text[2 * index + 1]);
-    if (high < 0 || low < 0) {
-      return false;
-    }
-    output[index] = static_cast<uint8_t>((high << 4) | low);
-  }
-  length = digits / 2;
-  return true;
-}
-
-// Checks the instruction at the address without running it.
 static VmFault checkInstruction(const uint8_t *code, size_t length, size_t address) {
   const uint8_t opcode = code[address];
   const size_t instruction = instructionLength(opcode);
@@ -100,59 +45,109 @@ static VmFault checkInstruction(const uint8_t *code, size_t length, size_t addre
   if (address + instruction > length) {
     return VmFault::TruncatedInstruction;
   }
-  if (instruction == 1) {
+  const OperandForm form = INSTRUCTION_DECODING.forms[opcode];
+  if (form == OperandForm::None) {
     return VmFault::None;
   }
   if (!isRegisterOperand(code[address + 1])) {
     return VmFault::InvalidRegister;
   }
-  if (instruction == REGISTER_INSTRUCTION_LENGTH && !isRegisterOperand(code[address + 2])) {
+  if (form == OperandForm::RegisterRegister && !isRegisterOperand(code[address + 2])) {
     return VmFault::InvalidRegister;
   }
   return VmFault::None;
 }
 
-bool validateProgram(const uint8_t *code, size_t length, size_t &errorOffset) {
-  errorOffset = 0;
+bool validateProgram(const uint8_t *code, size_t length, ValidProgram &program,
+                     ProgramDefect &defect) {
+  defect = ProgramDefect{0, VmFault::None};
+  if (length < MINIMUM_PROGRAM_SIZE || length > MAXIMUM_PROGRAM_SIZE) {
+    return false;
+  }
   for (size_t address = 0; address < length; address += instructionLength(code[address])) {
-    if (checkInstruction(code, length, address) != VmFault::None) {
-      errorOffset = address;
+    const VmFault fault = checkInstruction(code, length, address);
+    if (fault != VmFault::None) {
+      defect = ProgramDefect{address, fault};
       return false;
     }
   }
+  program = ValidProgram(code, length);
   return true;
 }
 
-// Arithmetic wraps around in two's complement, as on the control panel's reference interpreter.
-// The caller has already rejected a zero divisor.
-static int32_t applyOperation(uint8_t operation, int32_t left, int32_t right) {
-  const uint32_t leftBits = static_cast<uint32_t>(left);
-  const uint32_t rightBits = static_cast<uint32_t>(right);
-  switch (static_cast<Opcode>(operation)) {
-  case Opcode::AddImmediate:
-    return static_cast<int32_t>(leftBits + rightBits);
-  case Opcode::SubtractImmediate:
-    return static_cast<int32_t>(leftBits - rightBits);
-  case Opcode::MultiplyImmediate:
-    return static_cast<int32_t>(leftBits * rightBits);
-  case Opcode::DivideImmediate:
-    return left == INT32_MIN && right == -1 ? INT32_MIN : left / right;
-  case Opcode::ModuloImmediate:
-    return right == -1 ? 0 : left % right;
-  case Opcode::AndImmediate:
-    return static_cast<int32_t>(leftBits & rightBits);
-  case Opcode::OrImmediate:
-    return static_cast<int32_t>(leftBits | rightBits);
-  case Opcode::ExclusiveOrImmediate:
-    return static_cast<int32_t>(leftBits ^ rightBits);
-  case Opcode::ShiftLeftImmediate:
-    return static_cast<int32_t>(leftBits << (rightBits & SHIFT_MASK));
-  case Opcode::ShiftRightImmediate:
-    // Arithmetic shift: the sign bit fills the vacated positions.
-    return left >> (rightBits & SHIFT_MASK);
-  default:
-    return left;
+ValidProgram ValidProgram::copyTo(uint8_t *destination) const {
+  if (destination != code_) {
+    memcpy(destination, code_, length_);
   }
+  ValidProgram copy;
+  copy.code_ = destination;
+  copy.length_ = length_;
+  return copy;
+}
+
+// The value that an instruction writes to its target register, from the target and the source:
+// the immediate or the second register, as the operand form of the opcode says. Arithmetic wraps
+// around in two's complement, as on the control panel's reference interpreter. The caller has
+// already rejected a zero divisor.
+static int32_t applyOperation(Opcode opcode, int32_t target, int32_t source) {
+  const uint32_t targetBits = static_cast<uint32_t>(target);
+  const uint32_t sourceBits = static_cast<uint32_t>(source);
+  switch (opcode) {
+  case Opcode::Load:
+    return source;
+  case Opcode::AddImmediate:
+  case Opcode::AddRegister:
+    return static_cast<int32_t>(targetBits + sourceBits);
+  case Opcode::SubtractImmediate:
+  case Opcode::SubtractRegister:
+    return static_cast<int32_t>(targetBits - sourceBits);
+  case Opcode::MultiplyImmediate:
+  case Opcode::MultiplyRegister:
+    return static_cast<int32_t>(targetBits * sourceBits);
+  case Opcode::DivideImmediate:
+  case Opcode::DivideRegister:
+    return target == INT32_MIN && source == -1 ? INT32_MIN : target / source;
+  case Opcode::ModuloImmediate:
+  case Opcode::ModuloRegister:
+    return source == -1 ? 0 : target % source;
+  case Opcode::AndImmediate:
+  case Opcode::AndRegister:
+    return static_cast<int32_t>(targetBits & sourceBits);
+  case Opcode::OrImmediate:
+  case Opcode::OrRegister:
+    return static_cast<int32_t>(targetBits | sourceBits);
+  case Opcode::ExclusiveOrImmediate:
+  case Opcode::ExclusiveOrRegister:
+    return static_cast<int32_t>(targetBits ^ sourceBits);
+  case Opcode::ShiftLeftImmediate:
+  case Opcode::ShiftLeftRegister:
+    return static_cast<int32_t>(targetBits << (sourceBits & SHIFT_MASK));
+  case Opcode::ShiftRightImmediate:
+  case Opcode::ShiftRightRegister:
+    // Arithmetic shift: the sign bit fills the vacated positions.
+    return target >> (sourceBits & SHIFT_MASK);
+  case Opcode::Not:
+    return static_cast<int32_t>(~targetBits);
+  case Opcode::Halt:
+  case Opcode::Print:
+    // Their effects write no register; execute() handles them before.
+    return target;
+  }
+  return target;
+}
+
+static int32_t readSource(OperandForm form, const uint8_t *operands,
+                          const int32_t (&registers)[REGISTER_COUNT]) {
+  switch (form) {
+  case OperandForm::RegisterImmediate:
+    return static_cast<int32_t>(readUint32(operands + 1));
+  case OperandForm::RegisterRegister:
+    return registers[operands[1] - 1];
+  case OperandForm::None:
+  case OperandForm::Register:
+    return 0;
+  }
+  return 0;
 }
 
 void VirtualMachine::begin(uint32_t instructionLimit) {
@@ -168,20 +163,9 @@ void VirtualMachine::begin(uint32_t instructionLimit) {
   lastTickFaulted_ = false;
 }
 
-ProgramLoad VirtualMachine::loadProgram(uint32_t version, const uint8_t *code, size_t length,
-                                        size_t &errorOffset) {
-  errorOffset = 0;
-  if (version <= version_) {
-    return ProgramLoad::VersionNotNewer;
-  }
-  if (length == 0 || length > PROGRAM_CAPACITY) {
-    return ProgramLoad::InvalidLength;
-  }
-  if (!validateProgram(code, length, errorOffset)) {
-    return ProgramLoad::Malformed;
-  }
-  memcpy(program_, code, length);
-  programLength_ = length;
+void VirtualMachine::loadProgram(uint32_t version, const ValidProgram &program) {
+  memcpy(program_, program.code(), program.length());
+  programLength_ = program.length();
   version_ = version;
   programCounter_ = 0;
   tickNumber_ = 0;
@@ -189,7 +173,6 @@ ProgramLoad VirtualMachine::loadProgram(uint32_t version, const uint8_t *code, s
   fault_ = VmFault::None;
   lastFault_ = VmFault::None;
   lastTickFaulted_ = false;
-  return ProgramLoad::Accepted;
 }
 
 void VirtualMachine::setRegisters(const int32_t values[REGISTER_COUNT]) {
@@ -227,41 +210,33 @@ VmStep VirtualMachine::execute(uint32_t budget) {
     if (programCounter_ >= programLength_) {
       return stop(VmFault::EndOfProgram);
     }
-    const VmFault check = checkInstruction(program_, programLength_, programCounter_);
-    if (check != VmFault::None) {
-      return stop(check);
-    }
     ++instructionCount_;
-    const uint8_t opcode = program_[programCounter_];
+    const uint8_t code = program_[programCounter_];
+    const Opcode opcode = static_cast<Opcode>(code);
     const uint8_t *operands = program_ + programCounter_ + 1;
-    const size_t length = instructionLength(opcode);
+    const size_t length = instructionLength(code);
 
-    if (opcode == static_cast<uint8_t>(Opcode::Halt)) {
+    const InstructionEffect effect = INSTRUCTION_DECODING.effects[code];
+    switch (effect) {
+    case InstructionEffect::Halt:
       running_ = false;
       lastTickFaulted_ = false;
       return VmStep::Halted;
-    }
-    int32_t &target = registers_[operands[0] - 1];
-    if (opcode == static_cast<uint8_t>(Opcode::Print)) {
+    case InstructionEffect::Print:
       printedRegister_ = operands[0];
       programCounter_ += length;
       return VmStep::Printed;
+    case InstructionEffect::Write:
+    case InstructionEffect::Divide:
+      break;
     }
-    if (opcode == static_cast<uint8_t>(Opcode::Load)) {
-      target = static_cast<int32_t>(readUint32(operands + 1));
-    } else if (opcode == static_cast<uint8_t>(Opcode::Not)) {
-      target = static_cast<int32_t>(~static_cast<uint32_t>(target));
-    } else {
-      const bool registerForm = (opcode & REGISTER_FORM_BIT) != 0;
-      const int32_t source = registerForm ? registers_[operands[1] - 1]
-                                          : static_cast<int32_t>(readUint32(operands + 1));
-      const uint8_t operation = static_cast<uint8_t>(opcode & ~REGISTER_FORM_BIT);
-      if (source == 0 && (operation == static_cast<uint8_t>(Opcode::DivideImmediate) ||
-                          operation == static_cast<uint8_t>(Opcode::ModuloImmediate))) {
-        return stop(VmFault::DivisionByZero);
-      }
-      target = applyOperation(operation, target, source);
+    // The contract gives these effects only forms that start with the target register.
+    int32_t &target = registers_[operands[0] - 1];
+    const int32_t source = readSource(INSTRUCTION_DECODING.forms[code], operands, registers_);
+    if (effect == InstructionEffect::Divide && source == 0) {
+      return stop(VmFault::DivisionByZero);
     }
+    target = applyOperation(opcode, target, source);
     programCounter_ += length;
   }
   return VmStep::Running;

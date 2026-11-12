@@ -7,85 +7,65 @@ export interface TimeSource {
   now(): number;
   /** Calls `callback` once after `delayMilliseconds`; the returned function cancels the call. */
   schedule(callback: () => void, delayMilliseconds: number): () => void;
+  /** Resolves after `milliseconds`, or as soon as `signal` aborts. */
+  wait(milliseconds: number, signal?: AbortSignal): Promise<void>;
+}
+
+/** A wait built on the `schedule` of a time source, for its implementations. */
+export function waitWithSchedule(
+  schedule: TimeSource["schedule"],
+  milliseconds: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted === true) {
+      resolve();
+      return;
+    }
+    let cancel = (): void => {};
+    const finish = (): void => {
+      cancel();
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    cancel = schedule(finish, milliseconds);
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
+
+/**
+ * Calls `callback` every `intervalMilliseconds` through the `schedule` of `timeSource`, until the
+ * returned function is called.
+ */
+export function scheduleRepeatedly(
+  timeSource: TimeSource,
+  callback: () => void,
+  intervalMilliseconds: number,
+): () => void {
+  let cancel = (): void => {};
+  let stopped = false;
+  const next = (): void => {
+    cancel = timeSource.schedule(() => {
+      if (!stopped) {
+        next();
+        callback();
+      }
+    }, intervalMilliseconds);
+  };
+  next();
+  return () => {
+    stopped = true;
+    cancel();
+  };
+}
+
+function scheduleOnHost(callback: () => void, delayMilliseconds: number): () => void {
+  const handle = setTimeout(callback, Math.max(0, delayMilliseconds));
+  return () => clearTimeout(handle);
 }
 
 export const SYSTEM_TIME_SOURCE: TimeSource = {
   now: () => Date.now(),
-  schedule(callback, delayMilliseconds) {
-    const handle = setTimeout(callback, Math.max(0, delayMilliseconds));
-    return () => clearTimeout(handle);
-  },
+  schedule: scheduleOnHost,
+  wait: (milliseconds, signal) => waitWithSchedule(scheduleOnHost, milliseconds, signal),
 };
-
-interface ScheduledCall {
-  readonly dueTime: number;
-  readonly order: number;
-  readonly callback: () => void;
-}
-
-/** Time source advanced explicitly, for tests and simulations. */
-export class ManualTimeSource implements TimeSource {
-  #currentTime: number;
-  #nextOrder = 0;
-  #pendingCalls: ScheduledCall[] = [];
-
-  constructor(initialTime = 0) {
-    this.#currentTime = initialTime;
-  }
-
-  now(): number {
-    return this.#currentTime;
-  }
-
-  schedule(callback: () => void, delayMilliseconds: number): () => void {
-    const call: ScheduledCall = {
-      dueTime: this.#currentTime + Math.max(0, delayMilliseconds),
-      order: this.#nextOrder++,
-      callback,
-    };
-    this.#pendingCalls.push(call);
-    return () => {
-      this.#pendingCalls = this.#pendingCalls.filter((pending) => pending !== call);
-    };
-  }
-
-  /** Number of calls scheduled and not yet executed or cancelled. */
-  get pendingCallCount(): number {
-    return this.#pendingCalls.length;
-  }
-
-  /** Moves time forward, executing every call that falls due, in order. */
-  advanceBy(milliseconds: number): void {
-    const targetTime = this.#currentTime + milliseconds;
-    for (;;) {
-      const next = this.#takeNextDueCall(targetTime);
-      if (next === null) {
-        break;
-      }
-      this.#currentTime = next.dueTime;
-      next.callback();
-    }
-    this.#currentTime = targetTime;
-  }
-
-  #takeNextDueCall(limit: number): ScheduledCall | null {
-    let next: ScheduledCall | null = null;
-    for (const call of this.#pendingCalls) {
-      if (call.dueTime > limit) {
-        continue;
-      }
-      if (
-        next === null ||
-        call.dueTime < next.dueTime ||
-        (call.dueTime === next.dueTime && call.order < next.order)
-      ) {
-        next = call;
-      }
-    }
-    if (next !== null) {
-      const taken = next;
-      this.#pendingCalls = this.#pendingCalls.filter((call) => call !== taken);
-    }
-    return next;
-  }
-}

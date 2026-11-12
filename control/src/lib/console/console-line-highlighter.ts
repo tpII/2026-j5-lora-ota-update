@@ -1,8 +1,9 @@
 /**
- * Colors the JSON of console lines with Shiki. Only the JSON grammar and one dark theme, written
- * here with the colors of the panel, are loaded. The grammar comes precompiled, with its regular expressions already written for
- * JavaScript, so the raw engine runs it without WebAssembly and without the converter of
- * Oniguruma expressions: the highlighter starts synchronously and the bundle stays small.
+ * Colors the JSON of console lines with Shiki. Only the JSON grammar and one dark theme are loaded;
+ * the theme names the color tokens of app.css, so the colors change in one place. The grammar
+ * comes precompiled, with its regular expressions already written for JavaScript, so the raw
+ * engine runs it without WebAssembly and without the converter of Oniguruma expressions: the
+ * highlighter starts synchronously and the bundle stays small.
  */
 import json from "@shikijs/langs-precompiled/json";
 import {
@@ -17,29 +18,34 @@ import { createJavaScriptRawEngine } from "shiki/engine/javascript";
 /** A piece of a line drawn with one style. */
 export interface HighlightedSegment {
   readonly text: string;
-  /** Inline CSS of the segment, for example "color:#5CE1F0". */
+  /** Inline CSS of the segment, for example "color:var(--color-neon)". */
   readonly style: string;
 }
 
 const THEME = "j5-neon";
 
-/** Keys in the neon of the panel, strings in green, numbers in amber, literals in magenta. */
 const NEON_THEME: ThemeRegistration = {
   name: THEME,
   type: "dark",
-  fg: "#98B0B8",
-  bg: "#020405",
+  fg: "var(--color-muted)",
+  bg: "var(--color-sunken)",
   settings: [
-    { settings: { foreground: "#98B0B8" } },
-    { scope: ["support.type.property-name.json"], settings: { foreground: "#5CE1F0" } },
-    { scope: ["string"], settings: { foreground: "#9EF0B8" } },
-    { scope: ["constant.numeric"], settings: { foreground: "#FFC86B" } },
-    { scope: ["constant.language"], settings: { foreground: "#FF7AC0" } },
-    { scope: ["punctuation"], settings: { foreground: "#6F868E" } },
+    { settings: { foreground: "var(--color-muted)" } },
+    {
+      scope: ["support.type.property-name.json"],
+      settings: { foreground: "var(--color-neon)" },
+    },
+    { scope: ["string"], settings: { foreground: "var(--color-syntax-string)" } },
+    { scope: ["constant.numeric"], settings: { foreground: "var(--color-syntax-number)" } },
+    { scope: ["constant.language"], settings: { foreground: "var(--color-syntax-literal)" } },
+    { scope: ["punctuation"], settings: { foreground: "var(--color-faint)" } },
   ],
 };
 
-/** Lines kept already colored; the panel keeps 3000 lines and draws at most 500. */
+/**
+ * Lines kept already colored: more than the event stream draws at once (MAXIMUM_VISIBLE_RECORDS of
+ * EventStreamSection.svelte) and fewer than it keeps (STREAM_CAPACITY of event-stream.svelte.ts).
+ */
 const MAXIMUM_CACHED_LINES = 2000;
 
 let highlighter: HighlighterCore | null = null;
@@ -60,7 +66,6 @@ function colorLine(line: string): HighlightedSegment[] {
   for (const token of tokens.flat()) {
     const style = stringifyTokenStyle(getTokenStyleObject(token));
     const previous = segments.at(-1);
-    // Neighbors with the same style become one segment, so the page draws fewer elements.
     if (previous !== undefined && previous.style === style) {
       segments[segments.length - 1] = { text: previous.text + token.content, style };
     } else {

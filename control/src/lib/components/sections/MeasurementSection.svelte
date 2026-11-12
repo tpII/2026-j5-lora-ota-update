@@ -1,11 +1,13 @@
 <script lang="ts">
   import MeasurementExportAction from "$lib/components/MeasurementExportAction.svelte";
+  import { RECEPTION_OUTCOME_LABELS } from "$lib/measurements/test-run-ledger.ts";
   import MeasurementSheetForm from "$lib/components/MeasurementSheetForm.svelte";
   import RegulatoryChannelNote from "$lib/components/RegulatoryChannelNote.svelte";
   import CapacityTestSection from "$lib/components/sections/CapacityTestSection.svelte";
   import CommunicationTestSection from "$lib/components/sections/CommunicationTestSection.svelte";
   import RunSection from "$lib/components/sections/RunSection.svelte";
-  import type { ExportedTest } from "$lib/measurements/measurement-export.ts";
+  import TabPanels from "$lib/components/TabPanels.svelte";
+  import Tabs from "$lib/components/Tabs.svelte";
   import {
     formatBitRate,
     formatDeliveryRatio,
@@ -16,8 +18,9 @@
     formatShortClockTime,
     formatSnr,
   } from "$lib/utils/format.ts";
-  import { MEASUREMENT_SECTION_TEST_LABELS, RECEPTION_OUTCOME_LABELS } from "$lib/utils/labels.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import { MEASUREMENT_SECTIONS, type MeasurementSectionTest } from "$lib/state/panel-sections.ts";
+  import { describeSectionProgress } from "$lib/state/radio-test-activity.ts";
 
   /**
    * The measurements: the power sweep, the capacity test and the communication test, chosen with the
@@ -25,67 +28,27 @@
    */
   let { panel }: { panel: ControlPanel } = $props();
 
-  type SectionTest = Exclude<ExportedTest, "update">;
-
-  const TESTS: readonly SectionTest[] = ["power-sweep", "capacity-test", "communication-test"];
+  const TEST_IDS = { tabIdPrefix: "measurement-tab-", panelIdPrefix: "measurement-panel-" } as const;
   const MAXIMUM_VISIBLE_RUNS = 30;
-  const EXPORT_LABELS: { readonly [Test in Exclude<SectionTest, "communication-test">]: string } = {
+  const EXPORT_LABELS: {
+    readonly [Test in Exclude<MeasurementSectionTest, "communication-test">]: string;
+  } = {
     "power-sweep": "Exportar el barrido de potencia",
     "capacity-test": "Exportar la prueba de capacidad",
   };
 
-  let selectedTest = $state<SectionTest>("power-sweep");
-  /** Grows at each discard of the record, so that the export forgets its last outcome. */
-  let recordGeneration = $state(0);
+  let selectedTest = $state<MeasurementSectionTest>(MEASUREMENT_SECTIONS[0].key);
 
   const sheet = $derived(panel.measurementSheet);
-  const exportedNodes = $derived(
-    panel.participatingNodes.map((node) => node.id).filter((id) => !sheet.excludedNodes.includes(id)),
-  );
   const visibleRuns = $derived(panel.runs.slice(-MAXIMUM_VISIBLE_RUNS).toReversed());
   const recordEmpty = $derived(
-    panel.journalSize === 0 && panel.summaryRows.length === 0 && panel.updateCommands.length === 0,
+    panel.journalSize === 0 &&
+      panel.summaryRows.length === 0 &&
+      panel.update.record.commands.length === 0,
   );
 
-  /** For each test, the node it runs on, in Spanish, or null when it does not run. */
-  const progressNotes = $derived.by((): { readonly [Test in SectionTest]: string | null } => {
-    const campaignSender = panel.isCampaignActive ? (panel.campaign?.sender ?? null) : null;
-    const manualSenders = panel.manualRunConnections.map((connection) => connection.state.identifier);
-    const communicationTest = panel.communicationTest;
-    const receiverMode = panel.receiverMode;
-    return {
-      "power-sweep": manualSenders.length === 0 ? null : `en curso en ${manualSenders.join(", ")}`,
-      "capacity-test": campaignSender === null ? null : `en curso en ${campaignSender}`,
-      "communication-test":
-        panel.isCommunicationTestActive && communicationTest !== null
-          ? `en curso en ${communicationTest.requester}`
-          : panel.isReceiverModeActive && receiverMode !== null
-            ? `modo receptor en ${receiverMode.node}`
-            : null,
-    };
-  });
-
-  function selectAdjacentTest(event: KeyboardEvent): void {
-    const index = TESTS.indexOf(selectedTest);
-    let next: number;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      next = (index + 1) % TESTS.length;
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      next = (index - 1 + TESTS.length) % TESTS.length;
-    } else if (event.key === "Home") {
-      next = 0;
-    } else if (event.key === "End") {
-      next = TESTS.length - 1;
-    } else {
-      return;
-    }
-    event.preventDefault();
-    const test = TESTS[next];
-    if (test !== undefined) {
-      selectedTest = test;
-      document.getElementById(`measurement-tab-${test}`)?.focus();
-    }
-  }
+  /** For each test, where it runs, in Spanish; absent when it does not run. */
+  const progressNotes = $derived(describeSectionProgress(panel.activities));
 
   function clearRecord(): void {
     if (
@@ -94,7 +57,6 @@
       )
     ) {
       panel.clearMeasurementRecord();
-      recordGeneration += 1;
     }
   }
 </script>
@@ -104,63 +66,35 @@
 
   <div class="flex flex-wrap items-center gap-3">
     <span id="measurement-test-caption" class="sr-only">Prueba</span>
-    <div
-      class="flex flex-wrap gap-1"
-      role="tablist"
-      aria-labelledby="measurement-test-caption"
-      tabindex="-1"
-      onkeydown={selectAdjacentTest}
+    <Tabs
+      tabs={MEASUREMENT_SECTIONS}
+      bind:selected={selectedTest}
+      {...TEST_IDS}
+      labelledby="measurement-test-caption"
+      variant="outline"
     >
-      {#each TESTS as test (test)}
-        {@const note = progressNotes[test]}
-        <button
-          id="measurement-tab-{test}"
-          type="button"
-          role="tab"
-          aria-selected={selectedTest === test}
-          aria-controls="measurement-panel-{test}"
-          tabindex={selectedTest === test ? 0 : -1}
-          class="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm {selectedTest === test
-            ? 'border-neon bg-neon/5 text-neon'
-            : 'border-line-strong text-muted hover:border-neon/70 hover:text-ink'}"
-          onclick={() => (selectedTest = test)}
-        >
-          {MEASUREMENT_SECTION_TEST_LABELS[test]}
-          {#if note !== null}
-            <span class="panel-badge text-ok">{note}</span>
-          {/if}
-        </button>
-      {/each}
-    </div>
+      {#snippet badge(test)}
+        {@const note = progressNotes.get(test)}
+        {#if note !== undefined}
+          <span class="panel-badge text-ok">{note}</span>
+        {/if}
+      {/snippet}
+    </Tabs>
   </div>
 
-  <div
-    id="measurement-panel-power-sweep"
-    role="tabpanel"
-    aria-labelledby="measurement-tab-power-sweep"
-    hidden={selectedTest !== "power-sweep"}
-  >
-    <RunSection {panel} />
-  </div>
-  <div
-    id="measurement-panel-capacity-test"
-    role="tabpanel"
-    aria-labelledby="measurement-tab-capacity-test"
-    hidden={selectedTest !== "capacity-test"}
-  >
-    <CapacityTestSection {panel} />
-  </div>
-  <div
-    id="measurement-panel-communication-test"
-    role="tabpanel"
-    aria-labelledby="measurement-tab-communication-test"
-    hidden={selectedTest !== "communication-test"}
-  >
-    <CommunicationTestSection {panel} />
-  </div>
+  <TabPanels
+    tabs={MEASUREMENT_SECTIONS}
+    selected={selectedTest}
+    {...TEST_IDS}
+    panels={{
+      "power-sweep": powerSweep,
+      "capacity-test": capacityTest,
+      "communication-test": communicationTest,
+    }}
+  />
 
   {#if selectedTest !== "communication-test"}
-    <section class="panel-card flex flex-col gap-3" aria-labelledby="recorded-runs-title">
+    <section class="panel-card flex flex-col gap-3" aria-labelledby="recorded-runs-title" data-testid="recorded-runs">
       <h3 id="recorded-runs-title" class="panel-section-title">Corridas registradas</h3>
       {#if visibleRuns.length === 0}
         <p class="text-sm text-muted">Todavía no hay corridas registradas.</p>
@@ -219,7 +153,7 @@
                       <td class="whitespace-nowrap">{formatRssi(reception.row?.rssi_avg)}</td>
                       <td class="whitespace-nowrap">{formatSnr(reception.row?.snr_avg)}</td>
                       <td class="whitespace-nowrap">{formatBitRate(reception.row?.goodput)}</td>
-                      <td class="whitespace-nowrap">{RECEPTION_OUTCOME_LABELS[reception.outcome]}</td>
+                      <td class="whitespace-nowrap" data-outcome={reception.outcome}>{RECEPTION_OUTCOME_LABELS[reception.outcome]}</td>
                     {/if}
                   </tr>
                 {/each}
@@ -235,7 +169,7 @@
     </section>
   {/if}
 
-  <MeasurementSheetForm {panel} />
+  <MeasurementSheetForm sheet={panel.measurementSheet} />
 
   <section class="panel-card flex flex-col gap-3" aria-labelledby="measurement-record-title">
     <h3 id="measurement-record-title" class="panel-section-title">Registro</h3>
@@ -277,29 +211,36 @@
               </label>
             {/each}
           </div>
-          {#if exportedNodes.length === 0}
+          {#if panel.exportedNodes.length === 0}
             <p class="panel-hint">Hay que marcar al menos un nodo para exportar.</p>
           {/if}
         {/if}
       </div>
 
-      {#key `${selectedTest}:${recordGeneration}`}
-        <MeasurementExportAction
-          {panel}
-          {test}
-          files="metadata.json, events.jsonl (los eventos de los nodos marcados) y summary.csv (una fila por receptor de cada corrida)"
-          fileCount="tres"
-          label={EXPORT_LABELS[test]}
-          disabled={exportedNodes.length === 0}
-          exportFiles={(description) => panel.exportMeasurement({ test, ...description }, exportedNodes)}
-        />
-      {/key}
+      <MeasurementExportAction
+        {panel}
+        kind={test}
+        label={EXPORT_LABELS[test]}
+        disabled={panel.exportedNodes.length === 0}
+      />
     {/if}
 
     <div class="flex flex-wrap gap-2">
-      <button type="button" class="panel-button-danger" disabled={recordEmpty} onclick={clearRecord}>
+      <button type="button" class="panel-button panel-button-danger" disabled={recordEmpty} onclick={clearRecord}>
         Descartar el registro
       </button>
     </div>
   </section>
 </div>
+
+{#snippet powerSweep()}
+  <RunSection {panel} />
+{/snippet}
+
+{#snippet capacityTest()}
+  <CapacityTestSection {panel} />
+{/snippet}
+
+{#snippet communicationTest()}
+  <CommunicationTestSection {panel} />
+{/snippet}

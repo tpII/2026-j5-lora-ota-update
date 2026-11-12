@@ -4,15 +4,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../image/image_format.h"
-#include "transfer_messages.h"
+#include "../messages/fragment_message.h"
+#include "../messages/report_message.h"
+#include "../protocol/protocol_contract.h"
 
 namespace firmware {
 
 struct FragmentReceipt {
   bool accepted;    // the fragment belongs to the reception in progress
   bool contributed; // it supplied at least one byte that was missing
-  bool started; // it opened a reception: the first one, a newer version or after a contradiction
 };
 
 // The reception in progress of one image (docs/protocol/frame.md, "Transferencia de imágenes").
@@ -30,7 +30,7 @@ public:
   // Offers a fragment that the caller already found newer than the available version. A fragment
   // of a version older than the reception is ignored; a newer one replaces the reception.
   // fragmentAirMillis is the time on air of a full fragment of this size.
-  FragmentReceipt offer(uint16_t source, const FragmentFields &fields, uint32_t nowMillis,
+  FragmentReceipt offer(uint16_t source, const FragmentMessage &fragment, uint32_t nowMillis,
                         uint32_t fragmentAirMillis);
 
   bool isLengthKnown() const { return active_ && upperBound_ == lowerBound_ + 1; }
@@ -44,7 +44,7 @@ public:
 
   // The report for the size and count of the last fragment received: every fragment with a missing
   // byte, and the last fragment while the exact length is unknown.
-  void buildReport(ReportFields &report) const;
+  void buildReport(ReportMessage &report) const;
 
   // Between a fragment with fragments still to come and the expected end of its burst.
   bool isBurstInProgress(uint32_t nowMillis) const;
@@ -62,7 +62,7 @@ public:
 private:
   void start(uint32_t version, uint32_t nowMillis);
   // Narrows the bounds of the image length with the fragment. Returns false when no length is left.
-  static bool narrowBounds(const FragmentFields &fields, size_t &lowerBound, size_t &upperBound);
+  static bool narrowBounds(const FragmentMessage &fragment, size_t &lowerBound, size_t &upperBound);
   bool isCovered(size_t offset, size_t length) const;
 
   uint8_t image_[MAXIMUM_IMAGE_SIZE] = {};

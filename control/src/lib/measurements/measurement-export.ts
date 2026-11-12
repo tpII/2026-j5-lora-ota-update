@@ -1,27 +1,25 @@
 /**
- * Files of a measurement export, as defined in measurements/README.md: a folder
- * `<YYYY-MM-DD>-<test>-<NN>/` with metadata.json, events.jsonl and summary.csv.
+ * The export pipeline of docs/measurement-exports.md. Every export of the panel is a folder
+ * `<YYYY-MM-DD>-<test>-<NN>/` with metadata.json, events.jsonl and one or more CSV files. Each test
+ * describes its export once, as an ExportLayout (the files, known before exporting, with its CSV
+ * tables listed once) and a MeasurementExport (their content, with the rows of each table in the
+ * order of the layout); buildExportFolder turns the second into the files.
  */
 import type { BoardModel, NodeIdentifier } from "$lib/console/console-event.ts";
-import { SUMMARY_COLUMNS, type TestRunSummaryRow } from "./test-run-ledger.ts";
+import { pad } from "$lib/utils/format.ts";
 
-/** Tests exported from the Export section, with the summary of the test-run ledger. */
-export const MEASUREMENT_TESTS = ["power-sweep", "capacity-test"] as const;
-export type MeasurementTest = (typeof MEASUREMENT_TESTS)[number];
+/** Every test that names an export folder, as metadata.json writes it in `test`. */
+export type ExportedTest = "power-sweep" | "capacity-test" | "communication-test" | "update";
 
-/**
- * Every test that names an export folder; the communication test and the updates export from
- * their own sections.
- */
-export type ExportedTest = MeasurementTest | "communication-test" | "update";
+/** Tests exported from the record of the measurement section, with the test-run ledger. */
+export type MeasurementTest = Extract<ExportedTest, "power-sweep" | "capacity-test">;
 
 export const METADATA_FILE_NAME = "metadata.json";
 export const EVENTS_FILE_NAME = "events.jsonl";
 export const SUMMARY_FILE_NAME = "summary.csv";
 
-/** What the operator fills in before exporting. */
+/** The measurement sheet as the exports take it: what the operator fills in before exporting. */
 export interface MeasurementDescription {
-  readonly test: MeasurementTest;
   readonly place: string;
   readonly distanceMeters: number | null;
   readonly antennas: string;
@@ -32,19 +30,6 @@ export interface MeasurementDescription {
 export interface ParticipatingNode {
   readonly id: NodeIdentifier;
   readonly model: BoardModel | null;
-}
-
-/** Content of metadata.json, with the field names of measurements/README.md. */
-export interface MeasurementMetadata {
-  readonly test: MeasurementTest;
-  readonly date: string;
-  readonly place: string;
-  readonly distance_m: number | null;
-  readonly antennas: string;
-  readonly operators: string;
-  readonly notes: string;
-  readonly nodes: readonly ParticipatingNode[];
-  readonly panel_version: string;
 }
 
 /** An event as recorded by the panel, ready to become a line of events.jsonl. */
@@ -59,14 +44,81 @@ export interface ExportedEvent {
   readonly hostTime: number;
 }
 
+export type CsvValue = string | number | null;
+
+export type CsvRecord = { readonly [column: string]: CsvValue };
+
+export interface CsvFileLayout {
+  readonly fileName: string;
+  /** What each row is, in Spanish, as the panel lists it next to the export button. */
+  readonly description: string;
+  readonly columns: readonly string[];
+}
+
+/** A CSV file whose columns are the fields of its rows. */
+export interface CsvTable<Row extends CsvRecord> extends CsvFileLayout {
+  readonly columns: readonly (keyof Row & string)[];
+}
+
+/** The files of an export, known before exporting. */
+export interface ExportLayout {
+  readonly test: ExportedTest;
+  /** Side of a two-sided test the export comes from; metadata.json writes it after `test`. */
+  readonly role: "sender" | "receiver" | null;
+  /** What metadata.json holds besides the sheet, in Spanish; null when nothing else. */
+  readonly metadata: string | null;
+  /** Which events events.jsonl holds, in Spanish. */
+  readonly events: string;
+  /** The CSV files, in the order the folder lists them. */
+  readonly tables: readonly CsvFileLayout[];
+}
+
+/** A layout whose CSV tables hold rows of the types of `Rows`, one type per table in order. */
+export type ExportLayoutOf<Rows extends readonly CsvRecord[]> = ExportLayout & {
+  readonly tables: { readonly [Index in keyof Rows]: CsvTable<Rows[Index]> };
+};
+
+export interface MeasurementExport {
+  readonly layout: ExportLayout;
+  readonly description: MeasurementDescription;
+  /** Nodes whose consoles contributed events. */
+  readonly nodes: readonly ParticipatingNode[];
+  /** Fields of metadata.json after the common ones, in order. */
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly events: Iterable<ExportedEvent>;
+  /** The rows of each table of the layout, in its order. */
+  readonly rows: readonly (readonly CsvRecord[])[];
+}
+
+/** What an export holds besides its layout, with one list of rows per table of the layout. */
+export type MeasurementContent<Rows extends readonly CsvRecord[]> = Omit<
+  MeasurementExport,
+  "layout" | "rows"
+> & {
+  readonly rows: { readonly [Index in keyof Rows]: readonly Rows[Index][] };
+};
+
+/** An export of `layout`, with rows of the types of its tables. */
+export function measurementExportOf<const Rows extends readonly CsvRecord[]>(
+  layout: ExportLayoutOf<Rows>,
+  content: MeasurementContent<Rows>,
+): MeasurementExport {
+  return { ...content, layout, rows: content.rows };
+}
+
 export interface MeasurementFile {
   readonly name: string;
-  readonly mediaType: string;
   readonly content: string;
 }
 
-function pad(value: number, length = 2): string {
-  return String(value).padStart(length, "0");
+/** What the writer puts on disk: the files, and the test that names their folder. */
+export interface ExportFolder {
+  readonly test: ExportedTest;
+  readonly files: readonly MeasurementFile[];
+}
+
+export function exportFileNames(layout: ExportLayout): string[] {
+  return [METADATA_FILE_NAME, EVENTS_FILE_NAME, ...layout.tables.map((table) => table.fileName)];
 }
 
 /** Wall-clock fields of `date` at the given offset from UTC, in minutes east of Greenwich. */
@@ -84,7 +136,10 @@ export function formatLocalDate(date: Date, offsetMinutes = localOffsetOf(date))
   return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
 }
 
-/** Date and time on the computer in ISO 8601 with its offset, for example 2026-10-07T14:03:05-03:00. */
+/**
+ * Date and time on the computer in ISO 8601 with its offset, for example
+ * 2026-10-07T14:03:05-03:00.
+ */
 export function formatLocalTimestamp(date: Date, offsetMinutes = localOffsetOf(date)): string {
   const shifted = shiftedFields(date, offsetMinutes);
   const sign = offsetMinutes >= 0 ? "+" : "-";
@@ -95,21 +150,35 @@ export function formatLocalTimestamp(date: Date, offsetMinutes = localOffsetOf(d
   );
 }
 
+const DATE_PLACEHOLDER = "<AAAA-MM-DD>";
+const SEQUENCE_PLACEHOLDER = "<NN>";
+
+function folderNameOf(localDate: string, test: ExportedTest, sequence: string): string {
+  return `${localDate}-${test}-${sequence}`;
+}
+
 export function formatFolderName(
   localDate: string,
   test: ExportedTest,
   sequenceNumber: number,
 ): string {
-  return `${localDate}-${test}-${pad(sequenceNumber)}`;
+  return folderNameOf(localDate, test, pad(sequenceNumber));
 }
 
-/** Folder for a new export: the number after the highest one already used that day for that test. */
+/** The folder name of the exports of `test`, with placeholders for the date and the number. */
+export function folderNamePattern(test: ExportedTest): string {
+  return folderNameOf(DATE_PLACEHOLDER, test, SEQUENCE_PLACEHOLDER);
+}
+
+/**
+ * Folder for a new export: the number after the highest one already used that day for that test.
+ */
 export function selectNextFolderName(
   existingNames: Iterable<string>,
   localDate: string,
   test: ExportedTest,
 ): string {
-  const prefix = `${localDate}-${test}-`;
+  const prefix = folderNameOf(localDate, test, "");
   let highest = 0;
   for (const name of existingNames) {
     if (!name.startsWith(prefix)) {
@@ -123,23 +192,26 @@ export function selectNextFolderName(
   return formatFolderName(localDate, test, highest + 1);
 }
 
+/** Content of metadata.json: the fields of docs/measurement-exports.md, then those of the test. */
 export function buildMetadata(
-  description: MeasurementDescription,
-  nodes: readonly ParticipatingNode[],
+  measurement: MeasurementExport,
   exportDate: Date,
   panelVersion: string,
   offsetMinutes = localOffsetOf(exportDate),
-): MeasurementMetadata {
+): Record<string, unknown> {
+  const { layout, description } = measurement;
   return {
-    test: description.test,
+    test: layout.test,
+    ...(layout.role === null ? {} : { role: layout.role }),
     date: formatLocalTimestamp(exportDate, offsetMinutes),
     place: description.place.trim(),
     distance_m: description.distanceMeters,
     antennas: description.antennas.trim(),
     operators: description.operators.trim(),
     notes: description.notes.trim(),
-    nodes: [...nodes].sort((first, second) => first.id.localeCompare(second.id)),
+    nodes: [...measurement.nodes].sort((first, second) => first.id.localeCompare(second.id)),
     panel_version: panelVersion,
+    ...measurement.metadata,
   };
 }
 
@@ -169,7 +241,7 @@ export function buildEventLines(events: Iterable<ExportedEvent>): string {
   return content;
 }
 
-export function formatCsvValue(value: string | number | null): string {
+export function formatCsvValue(value: CsvValue): string {
   if (value === null) {
     return "";
   }
@@ -179,27 +251,32 @@ export function formatCsvValue(value: string | number | null): string {
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
-/** summary.csv: comma separator, decimal point and one header row. */
-export function buildSummaryCsv(rows: readonly TestRunSummaryRow[]): string {
-  const lines = [SUMMARY_COLUMNS.join(",")];
+/** A CSV file as docs/measurement-exports.md defines them: comma, decimal point and one header row. */
+export function buildCsv(columns: readonly string[], rows: readonly CsvRecord[]): string {
+  const lines = [columns.join(",")];
   for (const row of rows) {
-    lines.push(SUMMARY_COLUMNS.map((column) => formatCsvValue(row[column])).join(","));
+    lines.push(columns.map((column) => formatCsvValue(row[column] ?? null)).join(","));
   }
   return `${lines.join("\n")}\n`;
 }
 
-export function buildMeasurementFiles(
-  metadata: MeasurementMetadata,
-  events: Iterable<ExportedEvent>,
-  rows: readonly TestRunSummaryRow[],
-): MeasurementFile[] {
-  return [
-    {
-      name: METADATA_FILE_NAME,
-      mediaType: "application/json",
-      content: `${JSON.stringify(metadata, null, 2)}\n`,
-    },
-    { name: EVENTS_FILE_NAME, mediaType: "application/x-ndjson", content: buildEventLines(events) },
-    { name: SUMMARY_FILE_NAME, mediaType: "text/csv", content: buildSummaryCsv(rows) },
-  ];
+/** The files of an export, in the order of its layout, and the test that names its folder. */
+export function buildExportFolder(
+  measurement: MeasurementExport,
+  exportDate: Date,
+  panelVersion: string,
+  offsetMinutes?: number,
+): ExportFolder {
+  const metadata = buildMetadata(measurement, exportDate, panelVersion, offsetMinutes);
+  return {
+    test: measurement.layout.test,
+    files: [
+      { name: METADATA_FILE_NAME, content: `${JSON.stringify(metadata, null, 2)}\n` },
+      { name: EVENTS_FILE_NAME, content: buildEventLines(measurement.events) },
+      ...measurement.layout.tables.map((table, index) => ({
+        name: table.fileName,
+        content: buildCsv(table.columns, measurement.rows[index] ?? []),
+      })),
+    ],
+  };
 }

@@ -1,37 +1,46 @@
 <script lang="ts">
-  import type { ExportedTest, MeasurementDescription } from "$lib/measurements/measurement-export.ts";
-  import type { ExportOutcome } from "$lib/measurements/measurement-writer.ts";
-  import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import {
+    EVENTS_FILE_NAME,
+    METADATA_FILE_NAME,
+    exportFileNames,
+    folderNamePattern,
+  } from "$lib/measurements/measurement-export.ts";
+  import { formatCardinal, formatConjunction } from "$lib/utils/format.ts";
+  import type { ControlPanel, PanelExportKind } from "$lib/state/control-panel.svelte.ts";
 
   /**
    * The export of one test with the measurement sheet of the panel: a summary of the sheet, the
-   * button and the outcome. The sheet itself is edited in `MeasurementSheetForm`.
+   * files of the layout, the button and the outcome, which the panel keeps with the record. The
+   * sheet itself is edited in `MeasurementSheetForm`.
    */
   let {
     panel,
-    test,
-    files,
-    fileCount,
-    exportFiles,
+    kind,
     disabled = false,
     label = "Exportar las métricas",
   }: {
     panel: ControlPanel;
-    /** Test that names the folder. */
-    test: ExportedTest;
-    /** The files of the folder and what each holds, as a Spanish list. */
-    files: string;
-    /** Number of files, in words, for the browsers that download them: "cuatro". */
-    fileCount: string;
-    exportFiles: (description: Omit<MeasurementDescription, "test">) => Promise<ExportOutcome | null>;
+    kind: PanelExportKind;
     disabled?: boolean;
     label?: string;
   } = $props();
 
   const sheet = $derived(panel.measurementSheet);
+  const layout = $derived(panel.exports[kind].layout);
+  const result = $derived(panel.exportResults.get(kind) ?? null);
   let exporting = $state(false);
-  let outcome = $state<ExportOutcome | null>(null);
-  let failure = $state<string | null>(null);
+
+  const folder = $derived(folderNamePattern(layout.test));
+  const files = $derived(
+    formatConjunction(
+      [
+        [METADATA_FILE_NAME, layout.metadata] as const,
+        [EVENTS_FILE_NAME, layout.events] as const,
+        ...layout.tables.map((table) => [table.fileName, table.description] as const),
+      ].map(([name, content]) => (content === null ? name : `${name} (${content})`)),
+    ),
+  );
+  const fileCount = $derived(formatCardinal(exportFileNames(layout).length));
 
   const summary = $derived(
     [
@@ -45,12 +54,8 @@
 
   async function submit(): Promise<void> {
     exporting = true;
-    failure = null;
-    outcome = null;
     try {
-      outcome = await exportFiles(sheet.description());
-    } catch (error) {
-      failure = error instanceof Error ? error.message : String(error);
+      await panel.exports[kind].write(sheet.description());
     } finally {
       exporting = false;
     }
@@ -60,16 +65,16 @@
 <div class="flex flex-col gap-2 border-t border-line pt-3">
   <p class="panel-hint">
     {#if panel.directoryPickerAvailable}
-      Pide la carpeta measurements/ del repositorio y crea dentro &lt;AAAA-MM-DD&gt;-{test}-&lt;NN&gt;/ con {files}.
+      Pide una carpeta y crea dentro {folder}/ con {files}.
     {:else}
-      Crea la carpeta measurements/&lt;AAAA-MM-DD&gt;-{test}-&lt;NN&gt;/ con {files}. Este navegador no permite
-      elegir carpetas: descarga los {fileCount} archivos para moverlos a mano.
+      Crea una carpeta {folder}/ con {files}. Este navegador no permite elegir carpetas: descarga los
+      {fileCount} archivos para moverlos a mano.
     {/if}
   </p>
   <div class="flex flex-wrap items-center gap-3">
     <button
       type="button"
-      class="panel-button-primary"
+      class="panel-button panel-button-primary"
       disabled={exporting || disabled || sheet.problem !== null}
       onclick={() => void submit()}
     >
@@ -81,14 +86,13 @@
       <span class="font-mono text-xs text-muted">Ficha: {summary}</span>
     {/if}
   </div>
-  {#if outcome !== null}
+  {#if result?.kind === "written"}
     <p class="text-sm text-ok">
-      {outcome.method === "directory"
-        ? `Se exportó en ${outcome.parentName ?? ""}/${outcome.folderName}/.`
-        : `Se descargaron los archivos; van en measurements/${outcome.folderName}/, con el número siguiente si esa carpeta ya existe.`}
+      {result.outcome.method === "directory"
+        ? `Se exportó en ${result.outcome.parentName ?? ""}/${result.outcome.folderName}/.`
+        : `Se descargaron los archivos; van en una carpeta ${result.outcome.folderName}/, con el número siguiente si esa carpeta ya existe.`}
     </p>
-  {/if}
-  {#if failure !== null}
-    <p class="panel-error-text">No se pudo exportar: {failure}</p>
+  {:else if result?.kind === "failed"}
+    <p class="panel-error-text">No se pudo exportar: {result.message}</p>
   {/if}
 </div>

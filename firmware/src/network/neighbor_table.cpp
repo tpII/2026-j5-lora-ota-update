@@ -1,21 +1,14 @@
 #include "neighbor_table.h"
 
+#include "least_recently_heard.h"
+
 namespace firmware {
 
 void NeighborTable::recordFrame(uint16_t id, float rssi, float snr, uint32_t nowMillis) {
   Neighbor *neighbor = find(id);
   if (neighbor == nullptr) {
-    if (count_ < MAXIMUM_NEIGHBORS) {
-      neighbor = &entries_[count_++];
-    } else {
-      // Full table: replace the neighbor heard least recently.
-      neighbor = &entries_[0];
-      for (size_t index = 1; index < count_; ++index) {
-        if (static_cast<int32_t>(entries_[index].lastHeardMillis - neighbor->lastHeardMillis) < 0) {
-          neighbor = &entries_[index];
-        }
-      }
-    }
+    neighbor =
+        count_ < MAXIMUM_NEIGHBORS ? &entries_[count_++] : leastRecentlyHeard(entries_, count_);
     *neighbor = Neighbor{};
     neighbor->id = id;
   }
@@ -24,32 +17,26 @@ void NeighborTable::recordFrame(uint16_t id, float rssi, float snr, uint32_t now
   neighbor->lastHeardMillis = nowMillis;
 }
 
-void NeighborTable::recordHello(uint16_t id, uint8_t model, uint32_t version, uint32_t available,
-                                uint8_t vmStatus, uint32_t transmitted) {
-  Neighbor *neighbor = find(id);
-  if (neighbor == nullptr) {
-    return;
-  }
-  neighbor->model = model;
-  neighbor->version = version;
-  neighbor->available = available;
-  neighbor->vmStatus = vmStatus;
-  neighbor->transmitted = transmitted;
+void NeighborTable::recordHello(uint16_t id, const AnnouncedState &announced, float rssi, float snr,
+                                uint32_t nowMillis) {
+  recordFrame(id, rssi, snr, nowMillis);
+  find(id)->announced = announced;
 }
 
-bool NeighborTable::contains(uint16_t id) const {
-  for (size_t index = 0; index < count_; ++index) {
-    if (entries_[index].id == id) {
-      return true;
-    }
-  }
-  return false;
+NeighborList NeighborTable::neighbors(uint32_t nowMillis) {
+  expire(nowMillis);
+  return NeighborList(entries_, count_);
+}
+
+bool NeighborTable::contains(uint16_t id, uint32_t nowMillis) {
+  expire(nowMillis);
+  return find(id) != nullptr;
 }
 
 void NeighborTable::expire(uint32_t nowMillis) {
   size_t index = 0;
   while (index < count_) {
-    if (nowMillis - entries_[index].lastHeardMillis >= NEIGHBOR_EXPIRY_MS) {
+    if (isNeighborExpired(nowMillis - entries_[index].lastHeardMillis)) {
       entries_[index] = entries_[count_ - 1];
       --count_;
     } else {

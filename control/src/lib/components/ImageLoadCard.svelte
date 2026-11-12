@@ -2,36 +2,27 @@
   import ImageVersionInput from "./ImageVersionInput.svelte";
   import {
     DEFAULT_FRAGMENT_SIZE,
-    FRAGMENT_SIZE_QUERY_COMMAND,
     MAXIMUM_FRAGMENT_SIZE,
     MINIMUM_FRAGMENT_SIZE,
+    PROGRAM_CAPACITY,
+  } from "$lib/protocol/protocol-contract.ts";
+  import {
+    FRAGMENT_SIZE_QUERY_COMMAND,
     buildFragmentSizeCommand,
-  } from "$lib/console/console-command.ts";
-  import { IMAGE_HEADER_SIZE, IMAGE_SIGNATURE_SIZE } from "$lib/image/image-format.ts";
-  import type { ImageVersionCheck } from "$lib/image/image-preparation.ts";
-  import { PROGRAM_CAPACITY } from "$lib/vm/instruction-set.ts";
-  import { formatNumber, formatShortClockTime } from "$lib/utils/format.ts";
-  import { countWithNoun, describeErrorReason } from "$lib/utils/labels.ts";
-  import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
-  import type { ImageSigningSession } from "$lib/state/image-signing-session.svelte.ts";
+  } from "$lib/commands/console-command.ts";
+  import { fragmentCountFor, imageSizeFor } from "$lib/image/image-format.ts";
+  import { countWithNoun, formatNumber, formatShortClockTime } from "$lib/utils/format.ts";
+  import { describeErrorReason } from "$lib/utils/labels.ts";
+  import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
 
   let {
     panel,
     draft,
-    session,
-    target,
-    checkVersion,
-    signAndLoad,
     openProgram,
   }: {
     panel: ControlPanel;
     draft: ProgramDraft;
-    session: ImageSigningSession;
-    /** The node chosen above, which becomes the origin of the update; null when there is none. */
-    target: ConnectionView | null;
-    checkVersion: (version: number) => ImageVersionCheck;
-    signAndLoad: (program: Uint8Array, version: number) => Promise<string | null>;
     /** Switches the panel to the Programa tab, where the draft is edited. */
     openProgram: () => void;
   } = $props();
@@ -44,48 +35,29 @@
   let problem = $state<string | null>(null);
   let loading = $state(false);
 
+  const update = $derived(panel.update);
+  const session = $derived(update.session);
+  /** The node chosen above, which becomes the origin of the update; null when there is none. */
+  const target = $derived(update.target);
   const assembly = $derived(draft.assembly);
-  const check = $derived(checkVersion(session.nextVersion));
+  const check = $derived(update.checkVersion(session.nextVersion));
   const connected = $derived(target !== null);
   const nodeFragmentSize = $derived(target?.state.transfer?.fragmentSize ?? null);
-  const imageSize = $derived(assembly.valid ? IMAGE_HEADER_SIZE + assembly.code.length + IMAGE_SIGNATURE_SIZE : null);
+  const imageSize = $derived(assembly.valid ? imageSizeFor(assembly.code.length) : null);
   const fragmentCount = $derived(
-    imageSize === null || nodeFragmentSize === null ? null : Math.ceil(imageSize / nodeFragmentSize),
+    imageSize === null || nodeFragmentSize === null ? null : fragmentCountFor(imageSize, nodeFragmentSize),
   );
   const canLoad = $derived(connected && !loading && session.key !== null && assembly.valid && check.acceptable);
-
-  /** How the node answered the last `load_image` of the panel, from its events. */
-  const loadResponse = $derived.by(() => {
-    const attempt = session.lastLoad;
-    if (attempt === null) {
-      return null;
-    }
-    const state = panel.connection(attempt.key)?.state;
-    if (state === undefined) {
-      return { kind: "unknown" as const };
-    }
-    const accepted = state.images.some(
-      (record) =>
-        record.version === attempt.version && record.via === "console" && record.hostTime >= attempt.hostTime,
-    );
-    if (accepted) {
-      return { kind: "accepted" as const };
-    }
-    const error = state.errors.findLast(
-      (record) => record.command === "load_image" && record.hostTime >= attempt.hostTime,
-    );
-    return error === undefined ? { kind: "waiting" as const } : { kind: "rejected" as const, error };
-  });
+  const loadResponse = $derived(update.lastLoadResponse);
 
   async function load(): Promise<void> {
     if (!assembly.valid) {
-      problem = "El programa tiene errores: corregirlos en la pestaña Programa antes de firmarlo.";
       return;
     }
     loading = true;
     problem = null;
     try {
-      problem = await signAndLoad(assembly.code, session.nextVersion);
+      problem = await update.loadImage(assembly.code, session.nextVersion);
     } finally {
       loading = false;
     }
@@ -148,7 +120,11 @@
     <button type="button" class="panel-button" onclick={openProgram}>Editar en Programa</button>
   </div>
 
-  <ImageVersionInput bind:version={session.nextVersion} {check} />
+  <ImageVersionInput
+    bind:version={session.nextVersion}
+    {check}
+    proposeVersion={() => session.proposedVersion()}
+  />
 
   <div class="flex flex-wrap items-end gap-2">
     <label class="panel-label">
@@ -187,7 +163,7 @@
   {/if}
 
   <div class="flex flex-wrap items-center gap-3">
-    <button type="submit" class="panel-button-primary" disabled={!canLoad}>
+    <button type="submit" class="panel-button panel-button-primary" disabled={!canLoad}>
       {loading
         ? "Firmando…"
         : target === null
@@ -206,8 +182,8 @@
     <p class="panel-error-text">{problem}</p>
   {/if}
 
-  {#if session.lastLoad !== null && loadResponse !== null}
-    {@const attempt = session.lastLoad}
+  {#if update.lastLoad !== null && loadResponse !== null}
+    {@const attempt = update.lastLoad}
     <p class="text-sm">
       <span class="panel-caption">Última carga:</span>
       versión <span class="font-mono">{attempt.version}</span> ({formatNumber(attempt.imageSize)} bytes) en

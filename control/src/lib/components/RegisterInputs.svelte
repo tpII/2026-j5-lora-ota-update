@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { REGISTER_COUNT } from "$lib/vm/instruction-set.ts";
   import { parseInteger } from "$lib/vm/assembler.ts";
+  import { REGISTER_COUNT } from "$lib/protocol/protocol-contract.ts";
 
   /** One text per register, so that 0x values can be typed. */
   let { values = $bindable() }: { values: string[] } = $props();

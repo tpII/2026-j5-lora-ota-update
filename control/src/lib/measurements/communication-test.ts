@@ -5,66 +5,59 @@
  * they were. The neighbor answers in receiver mode (communication-receiver.ts). Every echo yields
  * the link quality in both directions; the metrics are in communication-test-metrics.ts.
  */
-import type { CampaignNode } from "./capacity-test-campaign.ts";
+import { CommunicationTestSession } from "./communication-test-session.ts";
 import {
-  DEFAULT_CONFIRMATION_TIMEOUT_MILLISECONDS,
-  applyModulation,
-  holdPresence,
-  restoreNode,
-} from "./command-confirmation.ts";
-import { EchoSeries } from "./echo-series.ts";
-import { MAXIMUM_PRESENCE_HOLD_SECONDS, MINIMUM_ECHO_SIZE } from "$lib/console/console-command.ts";
-import type { ConsoleEvent, NodeIdentifier } from "$lib/console/console-event.ts";
+  EchoSeries,
+  MAXIMUM_ECHO_SERIES_COUNT,
+  MINIMUM_ECHO_SERIES_COUNT,
+  type EchoSeriesSnapshot,
+} from "./echo-series.ts";
+import { buildRadioSetCommand, normalizeNodeIdentifier } from "$lib/commands/console-command.ts";
+import type { NodeIdentifier } from "$lib/console/console-event.ts";
+import type { EchoResult } from "$lib/nodes/echo-records.ts";
+import type { NodePort } from "$lib/nodes/node-port.ts";
 import {
-  BANDWIDTHS_KILOHERTZ,
-  CODING_RATE_DENOMINATORS,
-  SPREADING_FACTORS,
-  timeOnAirFor,
-  type BandwidthKilohertz,
-  type RadioSettings,
-} from "$lib/radio/radio-settings.ts";
-import { computeFrameLength } from "$lib/radio/time-on-air.ts";
+  DEFAULT_CODING_RATE_DENOMINATOR,
+  DEFAULT_SPREADING_FACTOR,
+  MAXIMUM_PRESENCE_HOLD_SECONDS,
+  MINIMUM_ECHO_SIZE,
+  ON_AIR_BANDWIDTH_KILOHERTZ,
+  echoLossDeadlineMilliseconds,
+} from "$lib/protocol/protocol-contract.ts";
+import type { Modulation, RadioSettings, SupportedModulation } from "$lib/radio/radio-settings.ts";
+import { timeOnAirOfPayload } from "$lib/radio/time-on-air.ts";
 import { SYSTEM_TIME_SOURCE, type TimeSource } from "$lib/utils/time-source.ts";
 
 /** Echoes carry the shortest body the firmware accepts. */
 export const COMMUNICATION_TEST_PAYLOAD_SIZE = MINIMUM_ECHO_SIZE;
+export const MINIMUM_COMMUNICATION_TEST_COUNT = MINIMUM_ECHO_SERIES_COUNT;
 export const DEFAULT_COMMUNICATION_TEST_COUNT = 100;
-export const MAXIMUM_COMMUNICATION_TEST_COUNT = 1000;
+export const MAXIMUM_COMMUNICATION_TEST_COUNT = MAXIMUM_ECHO_SERIES_COUNT;
 
 /** Pause of the panel between the result of one echo and the next request. */
 const ECHO_PAUSE_MILLISECONDS = 200;
 /** Console latency and processing on both nodes, per echo, for the estimates. */
 const ECHO_OVERHEAD_MILLISECONDS = 50;
-/** The firmware declares an echo lost after twice the time on air plus this margin. */
-const ECHO_LOSS_MARGIN_MILLISECONDS = 1000;
 /** Margin of the HELLO hold over the worst case, for the preparation and the restoration. */
 const PRESENCE_HOLD_MARGIN_MILLISECONDS = 60_000;
 /** Wait after both nodes confirmed the modulation, before the first echo. */
 const SETTLING_MILLISECONDS = 300;
 
-export interface CommunicationTestConfiguration {
-  readonly sf: number;
-  readonly bw: BandwidthKilohertz;
-  readonly cr: number;
+/** The modulation both operators agree on and the number of echoes. */
+export interface CommunicationTestConfiguration extends SupportedModulation {
   readonly count: number;
 }
 
 export const DEFAULT_COMMUNICATION_TEST_CONFIGURATION: CommunicationTestConfiguration = {
-  sf: 7,
-  bw: 500,
-  cr: 5,
+  sf: DEFAULT_SPREADING_FACTOR,
+  bw: ON_AIR_BANDWIDTH_KILOHERTZ,
+  cr: DEFAULT_CODING_RATE_DENOMINATOR,
   count: DEFAULT_COMMUNICATION_TEST_COUNT,
 };
 
 /** Time on air of one echo frame, request or reply, in microseconds. */
-export function echoTimeOnAirMicroseconds(
-  configuration: Pick<CommunicationTestConfiguration, "sf" | "bw" | "cr">,
-  preamble: number,
-): number {
-  return timeOnAirFor(computeFrameLength(COMMUNICATION_TEST_PAYLOAD_SIZE), {
-    ...configuration,
-    preamble,
-  });
+export function echoTimeOnAirMicroseconds(modulation: Modulation, preamble: number): number {
+  return timeOnAirOfPayload(COMMUNICATION_TEST_PAYLOAD_SIZE, { ...modulation, preamble });
 }
 
 /** Expected duration of the series when every echo is answered. */
@@ -84,13 +77,11 @@ export function presenceHoldSecondsFor(
   configuration: CommunicationTestConfiguration,
   preamble: number,
 ): number {
-  const roundTrip = (2 * echoTimeOnAirMicroseconds(configuration, preamble)) / 1000;
+  const lossDeadline = echoLossDeadlineMilliseconds(
+    echoTimeOnAirMicroseconds(configuration, preamble),
+  );
   const worstCase =
-    configuration.count *
-      (roundTrip +
-        ECHO_LOSS_MARGIN_MILLISECONDS +
-        ECHO_OVERHEAD_MILLISECONDS +
-        ECHO_PAUSE_MILLISECONDS) +
+    configuration.count * (lossDeadline + ECHO_OVERHEAD_MILLISECONDS + ECHO_PAUSE_MILLISECONDS) +
     PRESENCE_HOLD_MARGIN_MILLISECONDS;
   return Math.ceil(worstCase / 1000);
 }
@@ -100,29 +91,24 @@ export function validateCommunicationTestConfiguration(
   configuration: CommunicationTestConfiguration,
   preamble: number,
 ): string[] {
-  const problems: string[] = [];
-  if (!(SPREADING_FACTORS as readonly number[]).includes(configuration.sf)) {
-    problems.push("El factor de dispersión va de 7 a 12.");
-  }
-  if (!(BANDWIDTHS_KILOHERTZ as readonly number[]).includes(configuration.bw)) {
-    problems.push("El ancho de banda es de 125, 250 o 500 kHz.");
-  }
-  if (!(CODING_RATE_DENOMINATORS as readonly number[]).includes(configuration.cr)) {
-    problems.push("La tasa de código va de 4/5 a 4/8.");
-  }
+  const { sf, bw, cr } = configuration;
+  const radio = buildRadioSetCommand({ sf, bw, cr }, null);
+  const problems = radio.valid ? [] : radio.problems.map((problem) => problem.message);
   if (
     !Number.isInteger(configuration.count) ||
-    configuration.count < 1 ||
+    configuration.count < MINIMUM_COMMUNICATION_TEST_COUNT ||
     configuration.count > MAXIMUM_COMMUNICATION_TEST_COUNT
   ) {
-    problems.push(`La cantidad de ecos va de 1 a ${MAXIMUM_COMMUNICATION_TEST_COUNT}.`);
+    problems.push(
+      `La cantidad de ecos va de ${MINIMUM_COMMUNICATION_TEST_COUNT} a ${MAXIMUM_COMMUNICATION_TEST_COUNT}.`,
+    );
   }
   if (
     problems.length === 0 &&
     presenceHoldSecondsFor(configuration, preamble) > MAXIMUM_PRESENCE_HOLD_SECONDS
   ) {
     problems.push(
-      "En el peor caso la prueba supera la hora que admite la suspensión de los HELLO: " +
+      `En el peor caso la prueba supera los ${MAXIMUM_PRESENCE_HOLD_SECONDS / 60} minutos que admite la suspensión de los HELLO: ` +
         "conviene pedir menos ecos o usar una modulación más rápida.",
     );
   }
@@ -138,25 +124,25 @@ export type CommunicationTestStatus =
   | "stopped"
   | "failed";
 
-/** One echo of the series. */
-export type EchoExchange =
-  | {
-      readonly outcome: "answered";
-      readonly number: number;
-      readonly hostTime: number;
-      readonly roundTripMicroseconds: number;
-      /** Quality of the request as the responder received it. */
-      readonly forwardRssi: number;
-      readonly forwardSnr: number;
-      /** Quality of the reply as the requester received it. */
-      readonly reverseRssi: number;
-      readonly reverseSnr: number;
-    }
-  | {
-      readonly outcome: "lost";
-      readonly number: number;
-      readonly hostTime: number;
-    };
+export const COMMUNICATION_TEST_STATUS_LABELS: {
+  readonly [Status in CommunicationTestStatus]: string;
+} = {
+  ready: "Lista para empezar",
+  preparing: "Suspendiendo los HELLO y aplicando la modulación",
+  measuring: "Enviando ecos",
+  restoring: "Restableciendo la radio y los HELLO",
+  finished: "Terminada",
+  stopped: "Detenida",
+  failed: "Falló",
+};
+
+/** True from the start of the test until the radio and the HELLO of the node are restored. */
+export function isCommunicationTestActive(snapshot: {
+  readonly status: CommunicationTestStatus;
+}): boolean {
+  const status = snapshot.status;
+  return status === "preparing" || status === "measuring" || status === "restoring";
+}
 
 /** What the test ran with: the channel of the node, the modulation chosen and the series. */
 export interface CommunicationTestSettings {
@@ -177,7 +163,10 @@ export interface CommunicationTestSnapshot {
   readonly settings: CommunicationTestSettings;
   /** Radio settings of the requester before the test, which the restoration puts back. */
   readonly requesterRadio: RadioSettings;
-  readonly exchanges: readonly EchoExchange[];
+  /** The `echo` and `echo_lost` of the series, oldest first. */
+  readonly exchanges: readonly EchoResult[];
+  /** Share of the echoes of the series already requested and settled, from 0 to 1. */
+  readonly progress: number;
   readonly startHostTime: number | null;
   readonly endHostTime: number | null;
   /** Explanation of a failure, in Spanish. */
@@ -189,15 +178,13 @@ export interface CommunicationTestSnapshot {
 
 export interface CommunicationTestOptions {
   /** The connected node, which sends the echoes. */
-  readonly node: CampaignNode;
+  readonly node: NodePort;
   /** Radio settings the node reported before the test. */
   readonly radio: RadioSettings;
   /** Neighbor that answers the echoes; its operator sets the same modulation by hand. */
   readonly destination: NodeIdentifier;
   readonly configuration: CommunicationTestConfiguration;
   readonly timeSource?: TimeSource;
-  readonly confirmationTimeoutMilliseconds?: number;
-  readonly echoPauseMilliseconds?: number;
   readonly onChange?: (snapshot: CommunicationTestSnapshot) => void;
 }
 
@@ -206,28 +193,29 @@ export interface CommunicationTestOptions {
  * receiver mode with the same modulation (communication-receiver.ts).
  */
 export class CommunicationTest {
-  readonly #node: CampaignNode;
+  readonly #node: NodePort;
   readonly #radio: RadioSettings;
   readonly #destination: NodeIdentifier;
   readonly #configuration: CommunicationTestConfiguration;
   readonly #settings: CommunicationTestSettings;
   readonly #timeSource: TimeSource;
-  readonly #confirmationTimeout: number;
-  readonly #echoPause: number;
+  readonly #session: CommunicationTestSession;
   readonly #onChange: ((snapshot: CommunicationTestSnapshot) => void) | undefined;
+  readonly #stopController = new AbortController();
   #status: CommunicationTestStatus = "ready";
-  #exchanges: EchoExchange[] = [];
+  #exchanges: readonly EchoResult[] = [];
+  /** Echoes of the series that settled: answered, reported lost or without any result in time. */
+  #requested = 0;
   #startHostTime: number | null = null;
   #endHostTime: number | null = null;
   #failure: string | null = null;
   #restored: boolean | null = null;
   #restorationProblems: string[] = [];
-  #stopRequested = false;
   #series: EchoSeries | null = null;
   #snapshot: CommunicationTestSnapshot;
 
   constructor(options: CommunicationTestOptions) {
-    const destination = options.destination.trim().toUpperCase();
+    const destination = normalizeNodeIdentifier(options.destination);
     if (options.node.identifier === destination) {
       throw new Error("the destination must be another node");
     }
@@ -246,9 +234,7 @@ export class CommunicationTest {
       count: options.configuration.count,
     };
     this.#timeSource = options.timeSource ?? SYSTEM_TIME_SOURCE;
-    this.#confirmationTimeout =
-      options.confirmationTimeoutMilliseconds ?? DEFAULT_CONFIRMATION_TIMEOUT_MILLISECONDS;
-    this.#echoPause = options.echoPauseMilliseconds ?? ECHO_PAUSE_MILLISECONDS;
+    this.#session = new CommunicationTestSession(options.node, options.radio, this.#timeSource);
     this.#onChange = options.onChange;
     this.#snapshot = this.#buildSnapshot();
   }
@@ -265,27 +251,16 @@ export class CommunicationTest {
     this.#startHostTime = this.#timeSource.now();
     this.#status = "preparing";
     this.#publish();
-    const unsubscribe = this.#node.subscribe((event, hostTime) =>
-      this.#acceptEvent(event, hostTime),
-    );
     let outcome: "finished" | "stopped" | "failed";
     try {
       outcome = await this.#prepareAndMeasure();
     } catch (error) {
       this.#failure = error instanceof Error ? error.message : String(error);
       outcome = "failed";
-    } finally {
-      unsubscribe();
     }
     this.#status = "restoring";
     this.#publish();
-    const { sf, bw, cr } = this.#radio;
-    this.#restorationProblems = await restoreNode(
-      this.#node,
-      { sf, bw, cr },
-      this.#timeSource,
-      this.#confirmationTimeout,
-    );
+    this.#restorationProblems = await this.#session.restore();
     this.#restored = this.#restorationProblems.length === 0;
     this.#status = outcome;
     this.#endHostTime = this.#timeSource.now();
@@ -300,41 +275,35 @@ export class CommunicationTest {
       this.#publish();
       return;
     }
-    if (this.#stopRequested || (this.#status !== "preparing" && this.#status !== "measuring")) {
+    if (
+      this.#stopController.signal.aborted ||
+      (this.#status !== "preparing" && this.#status !== "measuring")
+    ) {
       return;
     }
-    this.#stopRequested = true;
+    this.#stopController.abort();
     this.#series?.stop();
   }
 
   async #prepareAndMeasure(): Promise<"finished" | "stopped" | "failed"> {
-    const held = await holdPresence(
-      this.#node,
-      presenceHoldSecondsFor(this.#configuration, this.#radio.preamble),
-      this.#timeSource,
-      this.#confirmationTimeout,
-    );
-    if (held !== null) {
-      return this.#fail(`No se pudieron suspender los HELLO: ${held}`);
-    }
-    if (this.#stopRequested) {
-      return "stopped";
-    }
-
+    const stopSignal = this.#stopController.signal;
     const { sf, bw, cr } = this.#configuration;
-    const modulated = await applyModulation(
-      this.#node,
-      { sf, bw, cr },
-      this.#timeSource,
-      this.#confirmationTimeout,
+    const modulation: Modulation = { sf, bw, cr };
+    const prepared = await this.#session.prepare(
+      modulation,
+      presenceHoldSecondsFor(this.#configuration, this.#radio.preamble),
+      stopSignal,
     );
-    if (modulated !== null) {
-      return this.#fail(`No se pudo aplicar la modulación de la prueba: ${modulated}`);
+    if (prepared !== null) {
+      return this.#fail(prepared);
     }
-    if (this.#stopRequested) {
+    if (stopSignal.aborted) {
       return "stopped";
     }
-    await this.#sleep(SETTLING_MILLISECONDS);
+    await this.#timeSource.wait(SETTLING_MILLISECONDS, stopSignal);
+    if (stopSignal.aborted) {
+      return "stopped";
+    }
 
     this.#status = "measuring";
     this.#publish();
@@ -343,13 +312,12 @@ export class CommunicationTest {
       destination: this.#destination,
       size: COMMUNICATION_TEST_PAYLOAD_SIZE,
       count: this.#configuration.count,
-      pauseMilliseconds: this.#echoPause,
+      radio: { ...modulation, preamble: this.#radio.preamble },
+      pauseMilliseconds: ECHO_PAUSE_MILLISECONDS,
       timeSource: this.#timeSource,
+      onChange: (snapshot) => this.#acceptSeries(snapshot),
     });
     this.#series = series;
-    if (this.#stopRequested) {
-      series.stop();
-    }
     const result = await series.run();
     this.#series = null;
     if (result.status === "failed") {
@@ -358,24 +326,13 @@ export class CommunicationTest {
     return result.status === "finished" ? "finished" : "stopped";
   }
 
-  #acceptEvent(event: ConsoleEvent, hostTime: number): void {
-    if (this.#status !== "measuring") {
-      return;
-    }
-    if (event.ev === "echo" && event.dst === this.#destination) {
-      this.#exchanges.push({
-        outcome: "answered",
-        number: event.n,
-        hostTime,
-        roundTripMicroseconds: event.rtt,
-        forwardRssi: event.remote_rssi,
-        forwardSnr: event.remote_snr,
-        reverseRssi: event.rssi,
-        reverseSnr: event.snr,
-      });
-      this.#publish();
-    } else if (event.ev === "echo_lost" && event.dst === this.#destination) {
-      this.#exchanges.push({ outcome: "lost", number: event.n, hostTime });
+  #acceptSeries(snapshot: EchoSeriesSnapshot): void {
+    if (
+      snapshot.requested !== this.#requested ||
+      snapshot.results.length !== this.#exchanges.length
+    ) {
+      this.#requested = snapshot.requested;
+      this.#exchanges = snapshot.results;
       this.#publish();
     }
   }
@@ -383,12 +340,6 @@ export class CommunicationTest {
   #fail(failure: string): "failed" {
     this.#failure = failure;
     return "failed";
-  }
-
-  #sleep(milliseconds: number): Promise<void> {
-    return new Promise((resolve) => {
-      this.#timeSource.schedule(resolve, milliseconds);
-    });
   }
 
   #publish(): void {
@@ -403,7 +354,9 @@ export class CommunicationTest {
       responder: this.#destination,
       settings: this.#settings,
       requesterRadio: this.#radio,
-      exchanges: [...this.#exchanges],
+      exchanges: this.#exchanges,
+      progress:
+        this.#settings.count === 0 ? 0 : Math.min(1, this.#requested / this.#settings.count),
       startHostTime: this.#startHostTime,
       endHostTime: this.#endHostTime,
       failure: this.#failure,

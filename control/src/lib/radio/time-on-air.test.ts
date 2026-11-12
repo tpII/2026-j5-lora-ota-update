@@ -1,47 +1,49 @@
 import { describe, expect, it } from "vite-plus/test";
+import timeOnAirVectors from "../../../../firmware/protocol/test-vectors/time-on-air.json";
 import {
-  computeFrameLength,
   computePayloadSymbolCount,
   computeTimeOnAirMicroseconds,
   requiresLowDataRateOptimization,
-  type TimeOnAirParameters,
+  timeOnAirOfPayload,
+  type TimeOnAirSettings,
 } from "./time-on-air.ts";
 
-function parametersAt(
-  spreadingFactor: number,
-  bandwidthKilohertz = 125,
-  codingRateDenominator = 5,
-  preambleLength = 8,
-): TimeOnAirParameters {
-  return { spreadingFactor, bandwidthKilohertz, codingRateDenominator, preambleLength };
-}
-
-function inMilliseconds(microseconds: number): number {
-  return Math.round(microseconds / 100) / 10;
+function settingsAt(sf: number, bw = 125, cr = 5, preamble = 8): TimeOnAirSettings {
+  return { sf, bw, cr, preamble };
 }
 
 describe("computeTimeOnAirMicroseconds", () => {
-  it("matches the reference values at 125 kHz, CR 4/5 and an 8-symbol preamble", () => {
-    expect(inMilliseconds(computeTimeOnAirMicroseconds(33, parametersAt(7)))).toBe(71.9);
-    expect(inMilliseconds(computeTimeOnAirMicroseconds(33, parametersAt(9)))).toBe(246.8);
-    expect(inMilliseconds(computeTimeOnAirMicroseconds(33, parametersAt(12)))).toBe(1810.4);
-    expect(inMilliseconds(computeTimeOnAirMicroseconds(81, parametersAt(7)))).toBe(143.6);
-    expect(inMilliseconds(computeTimeOnAirMicroseconds(255, parametersAt(7)))).toBe(399.6);
-    expect(inMilliseconds(computeTimeOnAirMicroseconds(255, parametersAt(12)))).toBe(9019.4);
-  });
-
-  it("gives whole microseconds, as the toa_calc field of the firmware", () => {
-    expect(computeTimeOnAirMicroseconds(33, parametersAt(7))).toBe(71_936);
-    // Full TEST frame at the default modulation: SF7, 500 kHz, CR 4/5.
-    expect(computeTimeOnAirMicroseconds(255, parametersAt(7, 500))).toBe(99_904);
-    // 16-byte echo request at the default modulation.
-    expect(computeTimeOnAirMicroseconds(32, parametersAt(7, 500))).toBe(17_984);
-  });
+  it.each(timeOnAirVectors.cases)(
+    "matches the shared vector for a frame of $frameLength bytes at SF$spreadingFactor and $bandwidthKilohertz kHz",
+    (vector) => {
+      const settings = settingsAt(
+        vector.spreadingFactor,
+        vector.bandwidthKilohertz,
+        vector.codingRateDenominator,
+        vector.preambleLength,
+      );
+      const microseconds = computeTimeOnAirMicroseconds(vector.frameLength, settings);
+      expect(microseconds).toBe(vector.expectedMicroseconds);
+      // The reference value in milliseconds has one decimal.
+      expect(microseconds / 1000).toBeCloseTo(vector.expectedMilliseconds, 1);
+    },
+  );
 
   it("grows with the coding rate and the preamble", () => {
-    const base = computeTimeOnAirMicroseconds(64, parametersAt(9, 500, 5));
-    expect(computeTimeOnAirMicroseconds(64, parametersAt(9, 500, 8))).toBeGreaterThan(base);
-    expect(computeTimeOnAirMicroseconds(64, parametersAt(9, 500, 5, 16))).toBeGreaterThan(base);
+    const base = computeTimeOnAirMicroseconds(64, settingsAt(9, 500, 5));
+    expect(computeTimeOnAirMicroseconds(64, settingsAt(9, 500, 8))).toBeGreaterThan(base);
+    expect(computeTimeOnAirMicroseconds(64, settingsAt(9, 500, 5, 16))).toBeGreaterThan(base);
+  });
+});
+
+describe("timeOnAirOfPayload", () => {
+  it("counts the header and the tag of the frame", () => {
+    // A 239-byte payload fills the 255-byte frame of the vectors.
+    const settings = settingsAt(12);
+    const fullFrame = timeOnAirVectors.cases.find(
+      (vector) => vector.frameLength === 255 && vector.spreadingFactor === 12,
+    );
+    expect(timeOnAirOfPayload(239, settings)).toBe(fullFrame?.expectedMicroseconds);
   });
 });
 
@@ -58,13 +60,6 @@ describe("requiresLowDataRateOptimization", () => {
 
 describe("computePayloadSymbolCount", () => {
   it("never goes below the 8 symbols of the header block", () => {
-    expect(computePayloadSymbolCount(0, parametersAt(12))).toBe(8);
-  });
-});
-
-describe("computeFrameLength", () => {
-  it("adds the 16 bytes of header and tag", () => {
-    expect(computeFrameLength(239)).toBe(255);
-    expect(computeFrameLength(17)).toBe(33);
+    expect(computePayloadSymbolCount(0, settingsAt(12))).toBe(8);
   });
 });

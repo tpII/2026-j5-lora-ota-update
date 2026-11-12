@@ -1,0 +1,231 @@
+{"t":0,"ev":"error","cmd":"help","reason":"usage","detail":"help"}
+{"t":0,"ev":"error","cmd":"frobnicate","reason":"unknown_command"}
+{"t":0,"ev":"error","cmd":"STATUS","reason":"unknown_command"}
+{"t":0,"ev":"error","cmd":"abcdefghijklmno","reason":"unknown_command"}
+{"t":0,"ev":"error","cmd":"status","reason":"line_too_long"}
+{"t":0,"ev":"error","cmd":"xxxxxxxxxxxxxxx","reason":"line_too_long"}
+{"t":0,"ev":"error","cmd":"load_image","reason":"invalid_image","detail":"format: longer than 1097 bytes"}
+{"t":0,"ev":"error","cmd":"load_image","reason":"line_too_long"}
+{"t":0,"ev":"error","cmd":"status","reason":"usage","detail":"status"}
+{"t":0,"ev":"error","cmd":"radio","reason":"usage","detail":"radio | radio reset | radio <key> <value> ... (freq sf bw cr preamble sync power lna)"}
+{"t":0,"ev":"error","cmd":"echo","reason":"usage","detail":"echo <id> [size]"}
+{"t":0,"ev":"error","cmd":"echo","reason":"usage","detail":"echo <id> [size] with the id of another node"}
+{"t":0,"ev":"error","cmd":"run","reason":"usage","detail":"run <count> <size> <interval_ms> | run stop"}
+{"t":0,"ev":"error","cmd":"run","reason":"usage","detail":"no run in progress"}
+{"t":0,"ev":"error","cmd":"wifi","reason":"usage","detail":"wifi on|off"}
+{"t":0,"ev":"error","cmd":"resend","reason":"usage","detail":"resend"}
+{"t":0,"ev":"error","cmd":"presence","reason":"usage","detail":"presence on | presence off <seconds>"}
+{"t":0,"ev":"error","cmd":"load_registers","reason":"usage","detail":"load_registers <r1> <r2> <r3> <r4>"}
+{"t":0,"ev":"error","cmd":"load_image","reason":"usage","detail":"load_image <hex>"}
+{"t":0,"ev":"error","cmd":"activate","reason":"usage","detail":"activate <version>"}
+{"t":0,"ev":"error","cmd":"fragment_size","reason":"usage","detail":"fragment_size [bytes]"}
+{"t":0,"ev":"error","cmd":"program","reason":"usage","detail":"program"}
+{"t":0,"ev":"error","cmd":"resend","reason":"usage","detail":"nothing to resend"}
+{"t":0,"ev":"error","cmd":"echo","reason":"out_of_range","detail":"size 4..239"}
+{"t":0,"ev":"error","cmd":"run","reason":"out_of_range","detail":"count 1..65535"}
+{"t":0,"ev":"error","cmd":"run","reason":"out_of_range","detail":"size 8..239"}
+{"t":0,"ev":"error","cmd":"run","reason":"out_of_range","detail":"interval 0..60000"}
+{"t":0,"ev":"error","cmd":"presence","reason":"out_of_range","detail":"seconds 1..3600"}
+{"t":0,"ev":"error","cmd":"fragment_size","reason":"out_of_range","detail":"bytes 32..231"}
+{"t":0,"ev":"error","cmd":"activate","reason":"out_of_range","detail":"version 0..4294967295"}
+{"t":0,"ev":"error","cmd":"load_registers","reason":"out_of_range","detail":"-2147483648..4294967295 or 0x hexadecimal"}
+{"t":0,"ev":"error","cmd":"radio","reason":"out_of_range","detail":"sf 7..12"}
+{"t":0,"ev":"run_start","run":1,"count":5,"size":8,"interval":100}
+{"t":0,"ev":"error","cmd":"radio","reason":"busy"}
+{"t":0,"ev":"error","cmd":"echo","reason":"busy"}
+{"t":0,"ev":"error","cmd":"run","reason":"busy"}
+{"t":0,"ev":"error","cmd":"resend","reason":"busy"}
+{"t":0,"ev":"presence","state":"off","remaining":5}
+{"t":0,"ev":"run_done","run":1,"count":5,"sent":0,"duration":0,"aborted":true}
+{"t":0,"ev":"error","cmd":"echo","reason":"radio_failure","detail":"radio not started"}
+{"t":0,"ev":"error","cmd":"run","reason":"radio_failure","detail":"radio not started"}
+{"t":0,"ev":"error","cmd":"radio","reason":"radio_failure","detail":"radio not started"}
+{"t":0,"ev":"error","cmd":"resend","reason":"radio_failure","detail":"radio not started"}
+{"t":0,"ev":"error","cmd":"radio","reason":"out_of_range","detail":"bw 125, 250 or 500"}
+{"t":0,"ev":"error","cmd":"radio","reason":"usage","detail":"sf <7..12>"}
+{"t":0,"ev":"error","cmd":"radio","reason":"unreachable_power","detail":"power 2..17 or 20 on V2"}
+{"t":0,"ev":"error","cmd":"radio","reason":"not_supported","detail":"lna exists only on V4.3"}
+{"t":0,"ev":"error","cmd":"radio","reason":"usage","detail":"unknown key gain"}
+{"t":0,"ev":"presence","state":"on","remaining":null}
+{"t":123456,"ev":"tx","type":"hello","dst":"FFFF","seq":3,"size":31,"toa":17984,"toa_calc":17984}
+{"t":0,"ev":"error","cmd":"echo","reason":"busy","detail":"transmit queue full"}
+{"t":0,"ev":"run_start","run":1,"count":65535,"size":239,"interval":60000}
+{"t":0,"ev":"run_done","run":1,"count":65535,"sent":0,"duration":0,"aborted":true}
+{"t":0,"ev":"run_start","run":2,"count":1,"size":8,"interval":0}
+{"t":0,"ev":"run_done","run":2,"count":1,"sent":0,"duration":0,"aborted":true}
+{"t":0,"ev":"presence","state":"off","remaining":3600}
+{"t":0,"ev":"vm","version":0,"size":0,"tick":0,"registers":[-1,16,2147483647,-1]}
+{"t":0,"ev":"vm","version":0,"size":0,"tick":0,"registers":[-2147483648,0,-16,255]}
+{"t":0,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":231}
+{"t":0,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":64}
+{"t":0,"ev":"program","version":0,"size":0,"code":""}
+{"t":123456,"ev":"tx","type":"hello","dst":"FFFF","seq":0,"size":31,"toa":17984,"toa_calc":17984}
+{"t":0,"ev":"error","cmd":"resend","reason":"busy","detail":"transmit queue full"}
+{"t":0,"ev":"error","cmd":"load_image","reason":"invalid_image","detail":"format: not hexadecimal"}
+{"t":0,"ev":"error","cmd":"load_image","reason":"invalid_image","detail":"format: length does not match the header"}
+{"t":0,"ev":"error","cmd":"load_image","reason":"invalid_image","detail":"program: invalid_opcode at 0"}
+{"t":0,"ev":"image","version":1762300800,"size":29,"image_size":102,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":0,"ev":"error","cmd":"load_image","reason":"version_not_newer","detail":"available version 1762300800"}
+{"t":0,"ev":"error","cmd":"activate","reason":"not_available","detail":"available version 1762300800"}
+{"t":0,"ev":"activation","version":1762300800,"previous":0,"cause":"console","src":null}
+{"t":0,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[-2147483648,0,-16,255]}
+{"t":0,"ev":"error","cmd":"activate","reason":"version_not_newer","detail":"active version 1762300800"}
+{"t":0,"ev":"run_start","run":1,"count":1,"size":8,"interval":0}
+{"t":0,"ev":"presence","state":"off","remaining":1}
+{"t":0,"ev":"vm","version":0,"size":0,"tick":0,"registers":[-2147483648,-1,0,-1]}
+{"t":0,"ev":"error","cmd":"load_image","reason":"invalid_image","detail":"signature: not signed by the operator"}
+{"t":0,"ev":"error","cmd":"activate","reason":"not_available","detail":"available version 0"}
+{"t":0,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":32}
+{"t":100,"ev":"drop","reason":"crc","size":20,"rssi":-90.5,"snr":-3.25}
+{"t":100,"ev":"drop","reason":"short","size":15,"rssi":-90.5,"snr":-3.25}
+{"t":100,"ev":"drop","reason":"tag","size":20,"rssi":-90.5,"snr":-3.25}
+{"t":100,"ev":"drop","reason":"type","size":16,"rssi":-90.5,"snr":-3.25}
+{"t":100,"ev":"drop","reason":"body","size":19,"rssi":-90.5,"snr":-3.25}
+{"t":100,"ev":"id_conflict","epoch":1,"seq":4,"rssi":-90.5,"snr":-3.25}
+{"t":100,"ev":"duplicate","src":"3A7F","epoch":1,"seq":1,"type":"echo_request"}
+{"t":200,"ev":"echo_served","src":"0004","n":7,"size":4,"rssi":-60,"snr":8}
+{"t":200,"ev":"tx","type":"echo_reply","dst":"0004","seq":3,"size":20,"toa":14144,"toa_calc":14144}
+{"t":100,"ev":"tx","type":"hello","dst":"FFFF","seq":0,"size":31,"toa":17984,"toa_calc":17984}
+{"t":110,"ev":"burst_start","version":1762300800,"size":32,"count":4,"cause":"load","trigger":null}
+{"t":110,"ev":"tx","type":"fragment","dst":"FFFF","seq":1,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":0}
+{"t":12110,"ev":"tx","type":"fragment","dst":"FFFF","seq":2,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":1}
+{"t":12110,"ev":"activation","version":1762300800,"previous":0,"cause":"console","src":null}
+{"t":12110,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":12120,"ev":"tx","type":"hello","dst":"FFFF","seq":3,"size":31,"toa":17984,"toa_calc":17984}
+{"t":12130,"ev":"run_start","run":1,"count":2,"size":8,"interval":1000}
+{"t":12130,"ev":"tx","type":"test","dst":"FFFF","seq":4,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":0}
+{"t":13130,"ev":"tx","type":"test","dst":"FFFF","seq":5,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":1}
+{"t":13130,"ev":"run_done","run":1,"count":2,"sent":2,"duration":1015424,"aborted":false}
+{"t":13140,"ev":"tx","type":"hello","dst":"FFFF","seq":6,"size":31,"toa":17984,"toa_calc":17984}
+{"t":13150,"ev":"tx","type":"fragment","dst":"FFFF","seq":7,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":2}
+{"t":13160,"ev":"presence","state":"off","remaining":60}
+{"t":13170,"ev":"presence","state":"on","remaining":null}
+{"t":13170,"ev":"tx","type":"hello","dst":"FFFF","seq":8,"size":31,"toa":17984,"toa_calc":17984}
+{"t":13180,"ev":"tx","type":"fragment","dst":"FFFF","seq":9,"size":30,"toa":17984,"toa_calc":17984,"version":1762300800,"index":3}
+{"t":13180,"ev":"burst_done","version":1762300800,"size":32,"sent":4,"duration":13087984}
+{"t":20000,"ev":"run_start","run":1,"count":3,"size":8,"interval":0}
+{"t":20000,"ev":"tx","type":"test","dst":"FFFF","seq":0,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":0}
+{"t":20010,"ev":"tx","type":"test","dst":"FFFF","seq":1,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":1}
+{"t":20020,"ev":"tx","type":"test","dst":"FFFF","seq":2,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":2}
+{"t":20020,"ev":"run_done","run":1,"count":3,"sent":3,"duration":35424,"aborted":false}
+{"t":23020,"ev":"tx","type":"hello","dst":"FFFF","seq":3,"size":31,"toa":17984,"toa_calc":17984}
+{"t":0,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":0,"ev":"tx","type":"hello","dst":"FFFF","seq":0,"size":31,"toa":17984,"toa_calc":17984}
+{"t":0,"ev":"hello","src":"3A7F","epoch":1,"seq":0,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-60,"snr":8,"ferr":0,"neighbors":[]}
+{"t":0,"ev":"vm_print","tick":1,"reg":1,"value":8}
+{"t":10,"ev":"burst_start","version":1762300800,"size":32,"count":4,"cause":"load","trigger":null}
+{"t":10,"ev":"tx","type":"fragment","dst":"FFFF","seq":1,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":0}
+{"t":10,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":0,"count":4,"size":32,"remaining":3,"accepted":true,"new":true,"rssi":-60,"snr":8}
+{"t":10,"ev":"vm_print","tick":1,"reg":1,"value":-6}
+{"t":20,"ev":"tx","type":"fragment","dst":"FFFF","seq":2,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":1}
+{"t":20,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":1,"count":4,"size":32,"remaining":2,"accepted":true,"new":true,"rssi":-60,"snr":8}
+{"t":30,"ev":"tx","type":"fragment","dst":"FFFF","seq":3,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":2}
+{"t":40,"ev":"tx","type":"fragment","dst":"FFFF","seq":4,"size":30,"toa":17984,"toa_calc":17984,"version":1762300800,"index":3}
+{"t":40,"ev":"burst_done","version":1762300800,"size":32,"sent":4,"duration":47984}
+{"t":40,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":3,"count":4,"size":32,"remaining":0,"accepted":true,"new":true,"rssi":-60,"snr":8}
+{"t":40,"ev":"report_sent","dst":"3A7F","version":1762300800,"size":32,"count":4,"missing":[2],"round":1}
+{"t":40,"ev":"tx","type":"report","dst":"3A7F","seq":0,"size":23,"toa":15424,"toa_calc":15424,"version":1762300800}
+{"t":40,"ev":"report_received","src":"1A2B","version":1762300800,"size":32,"count":4,"missing":[2]}
+{"t":50,"ev":"burst_start","version":1762300800,"size":32,"count":1,"cause":"report","trigger":"1A2B"}
+{"t":50,"ev":"tx","type":"fragment","dst":"FFFF","seq":5,"size":56,"toa":26944,"toa_calc":26944,"version":1762300800,"index":2}
+{"t":50,"ev":"burst_done","version":1762300800,"size":32,"sent":1,"duration":26944}
+{"t":50,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":2,"count":4,"size":32,"remaining":0,"accepted":true,"new":true,"rssi":-60,"snr":8}
+{"t":50,"ev":"image","version":1762300800,"size":29,"image_size":102,"via":"radio","src":"3A7F","fragments":4,"reports":1,"duration":40}
+{"t":50,"ev":"activation","version":1762300800,"previous":0,"cause":"neighbor","src":"3A7F"}
+{"t":50,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":50,"ev":"tx","type":"hello","dst":"FFFF","seq":1,"size":35,"toa":19264,"toa_calc":19264}
+{"t":50,"ev":"hello","src":"1A2B","epoch":1,"seq":1,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":1,"rssi":-60,"snr":8,"ferr":0,"neighbors":[{"id":"3A7F","rssi":-60,"snr":8}]}
+{"t":50,"ev":"vm_print","tick":1,"reg":1,"value":8}
+{"t":60,"ev":"burst_start","version":1762300800,"size":231,"count":1,"cause":"complete","trigger":null}
+{"t":60,"ev":"tx","type":"fragment","dst":"FFFF","seq":2,"size":126,"toa":52544,"toa_calc":52544,"version":1762300800,"index":0}
+{"t":60,"ev":"burst_done","version":1762300800,"size":231,"sent":1,"duration":52544}
+{"t":60,"ev":"fragment_rx","src":"1A2B","version":1762300800,"index":0,"count":1,"size":231,"remaining":0,"accepted":false,"new":false,"rssi":-60,"snr":8}
+{"t":60,"ev":"vm_print","tick":1,"reg":1,"value":-6}
+{"t":4242,"ev":"error","cmd":"radio","reason":"radio_failure","detail":"apply","code":-2}
+{"t":4242,"ev":"error","cmd":"status","reason":"usage","detail":"status"}
+{"t":4242,"ev":"error","cmd":"frobnicate","reason":"unknown_command"}
+{"t":4242,"ev":"program","version":1,"size":3,"code":"000000"}
+{"t":12,"ev":"boot","id":"3A7F","model":"V2","epoch":3,"firmware":"0.2.0","protocol":2,"key":"default","operator_key":"default"}
+{"t":12,"ev":"status","id":"3A7F","model":"V4.3","epoch":3,"tx":10,"rx":20,"dropped":1,"heap":200000}
+{"t":12,"ev":"radio","freq":915.9,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":4,"lna":null}
+{"t":12,"ev":"radio","freq":923.3,"sf":9,"bw":125,"cr":5,"preamble":8,"sync":18,"power":26,"chip":19,"lna":"on"}
+{"t":12,"ev":"wifi","state":"on","ssid":"J5-3A7F","channel":1,"clients":2}
+{"t":12,"ev":"wifi","state":"off","ssid":"J5-3A7F","channel":1,"clients":0}
+{"t":12,"ev":"tx","type":"hello","dst":"FFFF","seq":5,"size":40,"toa":1040,"toa_calc":1030}
+{"t":12,"ev":"tx","type":"echo_request","dst":"FFFF","seq":5,"size":40,"toa":1040,"toa_calc":1030}
+{"t":12,"ev":"tx","type":"echo_reply","dst":"FFFF","seq":5,"size":40,"toa":1040,"toa_calc":1030}
+{"t":12,"ev":"tx","type":"test","dst":"FFFF","seq":5,"size":40,"toa":1040,"toa_calc":1030,"run":1,"index":2}
+{"t":12,"ev":"tx","type":"fragment","dst":"FFFF","seq":5,"size":40,"toa":1040,"toa_calc":1030,"version":7,"index":2}
+{"t":12,"ev":"tx","type":"report","dst":"FFFF","seq":5,"size":40,"toa":1040,"toa_calc":1030,"version":7}
+{"t":12,"ev":"drop","reason":"crc","size":30,"rssi":-100.5,"snr":-7.25}
+{"t":12,"ev":"drop","reason":"body","size":30,"rssi":-100.5,"snr":-7.25}
+{"t":12,"ev":"duplicate","src":"3A7F","epoch":2,"seq":9,"type":"hello"}
+{"t":12,"ev":"id_conflict","epoch":2,"seq":9,"rssi":-40,"snr":10}
+{"t":1000,"ev":"hello","src":"3A7F","epoch":2,"seq":17,"model":"V4.3","version":3,"available":4,"vm_fault":"division_by_zero","vm_failing":true,"tx":120,"rssi":-71.5,"snr":6.25,"ferr":1235,"neighbors":[{"id":"1A2B","rssi":-70,"snr":6.25},{"id":"00F4","rssi":-101,"snr":-3.5}]}
+{"t":3500,"ev":"neighbor","id":"3A7F","model":"V4.3","version":3,"available":4,"vm_fault":"division_by_zero","vm_failing":true,"tx":120,"rssi":-71.5,"snr":6.25,"age":2500}
+{"t":3500,"ev":"neighbor","id":"00F4","model":null,"version":0,"available":0,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-90,"snr":1,"age":1500}
+{"t":5000,"ev":"presence","state":"off","remaining":60}
+{"t":35001,"ev":"presence","state":"off","remaining":30}
+{"t":65000,"ev":"presence","state":"on","remaining":null}
+{"t":70000,"ev":"presence","state":"on","remaining":null}
+{"t":70000,"ev":"presence","state":"off","remaining":1}
+{"t":90000,"ev":"presence","state":"off","remaining":60}
+{"t":90000,"ev":"run_start","run":1,"count":1,"size":8,"interval":0}
+{"t":90000,"ev":"tx","type":"test","dst":"FFFF","seq":0,"size":24,"toa":15424,"toa_calc":15424,"run":1,"index":0}
+{"t":90000,"ev":"run_done","run":1,"count":1,"sent":1,"duration":15424,"aborted":false}
+{"t":1042,"ev":"echo","dst":"00F4","n":1,"size":16,"rtt":40500,"rssi":-79.5,"snr":8.5,"remote_rssi":-80.5,"remote_snr":7.75}
+{"t":780,"ev":"echo_lost","dst":"00F4","n":2,"size":16,"timeout":1036}
+{"t":2500,"ev":"echo_served","src":"00F4","n":8,"size":16,"rssi":-90,"snr":-2}
+{"t":2500,"ev":"echo_served","src":"3A7F","n":7,"size":32,"rssi":-60.5,"snr":9.25}
+{"t":1000,"ev":"run_start","run":1,"count":2,"size":8,"interval":0}
+{"t":1003,"ev":"run_done","run":1,"count":2,"sent":2,"duration":30,"aborted":false}
+{"t":1003,"ev":"run_start","run":2,"count":5,"size":8,"interval":100}
+{"t":2001,"ev":"run_done","run":2,"count":5,"sent":1,"duration":10,"aborted":true}
+{"t":2001,"ev":"run_start","run":3,"count":5,"size":8,"interval":0}
+{"t":3000,"ev":"run_done","run":3,"count":5,"sent":0,"duration":0,"aborted":true}
+{"t":3000,"ev":"run_start","run":4,"count":5,"size":8,"interval":0}
+{"t":3000,"ev":"run_done","run":4,"count":5,"sent":0,"duration":0,"aborted":true}
+{"t":5000,"ev":"test_rx","src":"3A7F","run":9,"index":0,"count":2,"size":8,"rssi":-50,"snr":8,"ferr":-12}
+{"t":5100,"ev":"test_rx","src":"3A7F","run":9,"index":1,"count":2,"size":8,"rssi":-60,"snr":6,"ferr":3}
+{"t":5100,"ev":"run_end","src":"3A7F","run":9,"count":2,"received":2,"pdr":1,"rssi_avg":-55,"rssi_min":-60,"rssi_max":-50,"snr_avg":7,"first":5000,"last":5100,"reason":"complete"}
+{"t":5100,"ev":"test_rx","src":"3A7F","run":10,"index":0,"count":3,"size":8,"rssi":-51.3,"snr":7.5,"ferr":0}
+{"t":7232,"ev":"run_end","src":"3A7F","run":10,"count":3,"received":1,"pdr":0.3333,"rssi_avg":-51.3,"rssi_min":-51.3,"rssi_max":-51.3,"snr_avg":7.5,"first":6000,"last":6000,"reason":"timeout"}
+{"t":9000,"ev":"test_rx","src":"3A7F","run":11,"index":0,"count":5,"size":8,"rssi":-50,"snr":8,"ferr":0}
+{"t":9100,"ev":"run_end","src":"3A7F","run":11,"count":5,"received":1,"pdr":0.2,"rssi_avg":-50,"rssi_min":-50,"rssi_max":-50,"snr_avg":8,"first":9000,"last":9000,"reason":"timeout"}
+{"t":9100,"ev":"test_rx","src":"3A7F","run":12,"index":0,"count":5,"size":8,"rssi":-50,"snr":8,"ferr":0}
+{"t":9100,"ev":"test_rx","src":"0001","run":1,"index":0,"count":5,"size":8,"rssi":-50,"snr":8,"ferr":0}
+{"t":9100,"ev":"test_rx","src":"0002","run":1,"index":0,"count":5,"size":8,"rssi":-50,"snr":8,"ferr":0}
+{"t":9100,"ev":"test_rx","src":"0003","run":1,"index":0,"count":5,"size":8,"rssi":-50,"snr":8,"ferr":0}
+{"t":9100,"ev":"test_rx","src":"0004","run":1,"index":0,"count":5,"size":8,"rssi":-50,"snr":8,"ferr":0}
+{"t":0,"ev":"image","version":5,"size":3,"image_size":76,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":1000,"ev":"activation","version":5,"previous":0,"cause":"hello","src":"3A7F"}
+{"t":1000,"ev":"vm","version":5,"size":3,"tick":0,"registers":[0,0,0,0]}
+{"t":1000,"ev":"vm_print","tick":1,"reg":1,"value":0}
+{"t":2000,"ev":"vm","version":5,"size":3,"tick":1,"registers":[-1,-2,3,2147483647]}
+{"t":11000,"ev":"vm_print","tick":2,"reg":1,"value":-1}
+{"t":11000,"ev":"image","version":6,"size":7,"image_size":80,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":20000,"ev":"activation","version":6,"previous":5,"cause":"console","src":null}
+{"t":20000,"ev":"vm","version":6,"size":7,"tick":0,"registers":[-1,-2,3,2147483647]}
+{"t":20000,"ev":"vm_fault","tick":1,"pc":0,"reason":"division_by_zero"}
+{"t":20000,"ev":"image","version":7,"size":3,"image_size":76,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":30000,"ev":"activation","version":7,"previous":6,"cause":"neighbor","src":"00F4"}
+{"t":30000,"ev":"vm","version":7,"size":3,"tick":0,"registers":[-1,-2,3,2147483647]}
+{"t":30000,"ev":"program","version":7,"size":3,"code":"010100"}
+{"t":200,"ev":"hello","src":"3A7F","epoch":1,"seq":1,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-60,"snr":8,"ferr":0,"neighbors":[]}
+{"t":200,"ev":"activation","version":1762300800,"previous":0,"cause":"hello","src":"3A7F"}
+{"t":200,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":300,"ev":"hello","src":"3A7F","epoch":1,"seq":2,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-60,"snr":8,"ferr":0,"neighbors":[]}
+{"t":100,"ev":"transfer","active":0,"available":0,"receiving":null,"missing":null,"fragment_size":231}
+{"t":100,"ev":"image","version":1762300800,"size":29,"image_size":102,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":100,"ev":"transfer","active":5,"available":1762300800,"receiving":null,"missing":null,"fragment_size":231}
+{"t":110,"ev":"burst_start","version":1762300800,"size":231,"count":1,"cause":"load","trigger":null}
+{"t":110,"ev":"tx","type":"fragment","dst":"FFFF","seq":1,"size":126,"toa":52544,"toa_calc":52544,"version":1762300800,"index":0}
+{"t":110,"ev":"burst_done","version":1762300800,"size":231,"sent":1,"duration":52544}
+{"t":300,"ev":"activation","version":1762300800,"previous":0,"cause":"hello","src":"00F4"}
+{"t":300,"ev":"vm","version":1762300800,"size":29,"tick":0,"registers":[0,0,0,0]}
+{"t":400,"ev":"tx","type":"hello","dst":"FFFF","seq":2,"size":31,"toa":17984,"toa_calc":17984}
+{"t":410,"ev":"burst_start","version":1762300800,"size":231,"count":1,"cause":"hello","trigger":"00F4"}
+{"t":410,"ev":"tx","type":"fragment","dst":"FFFF","seq":3,"size":126,"toa":52544,"toa_calc":52544,"version":1762300800,"index":0}
+{"t":410,"ev":"burst_done","version":1762300800,"size":231,"sent":1,"duration":52544}
+{"t":500,"ev":"fragment_rx","src":"3A7F","version":1762300800,"index":0,"count":1,"size":231,"remaining":0,"accepted":true,"new":true,"rssi":-80,"snr":-1.5}
+{"t":500,"ev":"image_rejected","version":1762300800,"reason":"signature","src":"3A7F"}

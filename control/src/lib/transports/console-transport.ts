@@ -5,6 +5,11 @@
 
 export type TransportKind = "serial" | "websocket";
 
+export const TRANSPORT_LABELS: { readonly [Kind in TransportKind]: string } = {
+  serial: "USB",
+  websocket: "WiFi",
+};
+
 export interface TransportClosure {
   /** True when the panel closed the transport; false when the connection was lost. */
   readonly requested: boolean;
@@ -27,12 +32,4 @@ export interface ConsoleTransport {
   /** Sends one command line; the transport adds whatever line end it needs. */
   writeLine(line: string): Promise<void>;
   close(): Promise<void>;
-}
-
-/** Message of an error for the operator. */
-export function describeTransportError(error: unknown): string {
-  if (error instanceof Error && error.message !== "") {
-    return error.message;
-  }
-  return String(error);
 }

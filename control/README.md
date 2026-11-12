@@ -1,6 +1,6 @@
 # Panel de control
 
-Aplicación web con la que el operador maneja los nodos de la red J5. Se conecta a la consola de cada nodo por USB, con Web Serial, o por WiFi, con un WebSocket contra el punto de acceso del nodo. Muestra el flujo de eventos, los vecinos y los parámetros de radio, pide ecos, transmite corridas, ejecuta la prueba de capacidad y la prueba de comunicación, firma y carga imágenes, ordena su activación y exporta las mediciones con el formato de [`measurements/README.md`](../measurements/README.md). Es una aplicación de una sola página, estática e instalable como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). El contrato con el firmware está en [`docs/protocol/console.md`](../docs/protocol/console.md).
+Aplicación web con la que el operador maneja los nodos de la red J5. Se conecta a la consola de cada nodo por USB, con Web Serial, o por WiFi, con un WebSocket contra el punto de acceso del nodo. Muestra el flujo de eventos, los vecinos y los parámetros de radio, pide ecos, transmite corridas, ejecuta la prueba de capacidad y la prueba de comunicación, firma y carga imágenes, ordena su activación y exporta las mediciones con el formato de [`docs/measurement-exports.md`](../docs/measurement-exports.md). Es una aplicación de una sola página, estática e instalable como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). El contrato con el firmware está en [`docs/protocol/console.md`](../docs/protocol/console.md).
 
 ## Requisitos
 
@@ -18,23 +18,25 @@ vp build          # compila la versión de producción en dist/
 vp preview        # sirve dist/ para probarla
 vp test           # corre las pruebas
 vp check          # revisa formato, lint y tipos del código TypeScript
-vp run typecheck  # revisa los tipos de los componentes Svelte, de vite.config.ts y del service worker
+vp run typecheck  # revisa los tipos de los componentes Svelte, de vite.config.ts, del service worker y de los scripts de tools/
 ```
+
+`mise run check:control`, desde la raíz del repositorio, corre además `vp check` sobre los scripts de `tools/`, que están fuera de `control/` y que `tsconfig.tools.json` revisa con los tipos de Node.
 
 El service worker solo se registra en la versión de producción, así que el funcionamiento sin red se prueba con `vp build` y `vp preview`.
 
 ## Publicación
 
-El panel se publica en Cloudflare como un Worker con activos estáticos, sin código propio del lado del servidor: Cloudflare sirve los archivos de `dist/` por HTTPS, que es lo que exigen Web Serial y la instalación como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). La configuración está en `wrangler.jsonc` y Wrangler, la herramienta de línea de comandos de Cloudflare, es una dependencia de desarrollo.
+El panel se publica en Cloudflare como un Worker con activos estáticos, sin código propio del lado del servidor: Cloudflare sirve los archivos de `dist/` por HTTPS, que es lo que exigen Web Serial y la instalación como PWA ([ADR 0003](../docs/adrs/0003-control-panel-as-pwa-over-websocket.md)). La configuración está en `wrangler.toml` y Wrangler, la herramienta de línea de comandos de Cloudflare, es una dependencia de desarrollo.
 
 ```sh
 vp exec wrangler login   # una sola vez por computadora: abre el navegador y autoriza la cuenta
 vp run deploy            # compila y publica dist/
 ```
 
-- La primera publicación crea el Worker `j5-control-panel` en la cuenta y lo deja en `https://j5-control-panel.<subdominio>.workers.dev`; Wrangler muestra la dirección al terminar. Las siguientes reemplazan la versión publicada.
+- La primera publicación crea el Worker `lora-control` en la cuenta y lo deja en `https://lora-control.<subdominio>.workers.dev`; Wrangler muestra la dirección al terminar. Las siguientes reemplazan la versión publicada.
 - Cualquier otra ruta devuelve `index.html` (`not_found_handling`), así un enlace a una ruta vieja sigue abriendo el panel.
-- Un dominio propio se agrega desde el panel de Cloudflare, en la configuración del Worker, o con `routes` en `wrangler.jsonc`.
+- Un dominio propio se agrega desde el panel de Cloudflare, en la configuración del Worker, o con `routes` en `wrangler.toml`.
 - Antes de publicar conviene correr `vp test`, `vp check` y `vp run typecheck`, que el script no ejecuta.
 - El plan gratuito de Workers sirve activos estáticos sin límite de tráfico.
 
@@ -69,7 +71,7 @@ El panel tiene que abrir aunque la computadora esté asociada al punto de acceso
   - **Activación**: envía `activate <versión>` al nodo elegido. Propone la versión disponible más alta que algún nodo todavía no activó y habilita la orden solo cuando todos los nodos del grafo de conexiones la anuncian como disponible; si no, lista los que la bloquean y por qué. La activación forzada del RF5 envía la orden igual, desde un recuadro aparte y después de una confirmación que nombra los nodos que todavía no la tienen.
   - **Estado de la actualización**: cada nodo con su fuente (consola, HELLO de un vecino o solo la lista de vecinos de otro nodo), la versión activa, la versión disponible, la recepción en curso de los nodos conectados y el estado de la VM; cada enlace con la RSSI y la SNR en los dos sentidos; y la actividad reciente de la transferencia en los nodos conectados: ráfagas, reportes, imágenes, rechazos y activaciones.
   - **Reversión**: pide el programa activo con `program` y lo vuelve a firmar con la próxima versión, igual que cualquier imagen que el panel firmó desde que se abrió. Cualquiera de esos programas también se puede llevar al editor de Programa, desensamblado.
-  - **Métricas de la actualización**: M1, con su distribución y su activación, M2 y M3 de cada imagen cargada desde que se descartó el registro, recalculadas cada segundo mientras la pestaña está a la vista, y su exportación a `measurements/<AAAA-MM-DD>-update-<NN>/`.
+  - **Métricas de la actualización**: M1, con su distribución y su activación, M2 y M3 de cada imagen cargada desde que se descartó el registro, recalculadas cuando llegan eventos o comandos nuevos mientras la pestaña está a la vista, y su exportación a `<AAAA-MM-DD>-update-<NN>/`.
 - **Mediciones**: las pruebas de radio y su exportación. Arriba, la nota de la ADR 0004 y el selector de la prueba, que marca la que está en curso:
   - **Barrido de potencia**: corridas manuales con el nodo elegido como emisor y un selector de su potencia en la antena. Cada paso del barrido es una corrida.
   - **Prueba de capacidad**: con el nodo elegido como emisor y el receptor que se elige, recorre una matriz de modulaciones y largos, con pausa, reanudación, avance y tiempo restante estimado. Por defecto mide de SF7 a SF12 a 500 kHz, CR 4/5, 239 bytes y 300 paquetes por punto.
@@ -88,25 +90,30 @@ El panel tiene que abrir aunque la computadora esté asociada al punto de acceso
 ```
 src/
 ├── main.ts                          punto de entrada
+├── simulation.ts                    punto de entrada de la compilación simulada (simulation.html), para las capturas
 ├── App.svelte                       raíz de la interfaz, con las pestañas
 ├── app.css                          estilos globales y Tailwind
 ├── service-worker.ts                service worker, que compila vite-plugin-pwa
 └── lib/                             el resto del código, importado con el alias $lib
-    ├── components/                  componentes Svelte; sections/ tiene las pestañas y sus partes
-    ├── state/                       estado reactivo de la aplicación (.svelte.ts)
-    ├── console/                     eventos, comandos y lectura de líneas de la consola
+    ├── protocol/                    contrato del protocolo, generado desde firmware/protocol/contract.json
+    ├── console/                     eventos, tabla de comandos y lectura de líneas de la consola
+    ├── commands/                    constructores de los comandos, que validan sus argumentos
     ├── transports/                  Web Serial y WebSocket detrás de una misma interfaz
-    ├── nodes/                       conexión, estado derivado de cada nodo y grafo de conexiones
+    ├── nodes/                       partes del estado de cada nodo, tabla de vecinos y envío de comandos con confirmación
+    ├── node-session/                conexión, estado compuesto de cada nodo, vista de una conexión y grafo de conexiones
     ├── image/                       formato, firma, verificación y controles previos a la carga de las imágenes
-    ├── radio/                       parámetros de radio y tiempo de aire
-    ├── vm/                          ensamblador, desensamblador e intérprete de referencia de la VM
-    ├── measurements/                corridas, pruebas de capacidad y de comunicación, eco, métricas de actualización y exportación
-    ├── utils/                       formato de valores, textos de la interfaz y utilidades
-    └── testing/                     sesiones grabadas y nodo simulado para las pruebas
+    ├── radio/                       parámetros de radio, tiempo de aire y advertencias de potencia
+    ├── vm/                          ensamblador, desensamblador, intérprete de referencia y fallas de la VM
+    ├── update/                      carga, activación, registro de los comandos, métricas y exportación de las actualizaciones
+    ├── measurements/                corridas, pruebas de capacidad y de comunicación, eco, registro de eventos y exportación
+    ├── state/                       estado reactivo del panel (.svelte.ts) y regla de una prueba de radio a la vez
+    ├── components/                  componentes Svelte; sections/ tiene las pestañas y sus partes
+    ├── utils/                       formato de valores, motivos de error, reloj y utilidades
+    └── testing/                     sesiones de consola escritas a mano y nodo simulado para las pruebas
 public/                              íconos
 ```
 
-La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al lado (`*.test.ts`); los componentes solo presentan el estado. `$lib` apunta a `src/lib/`, como en SvelteKit, y está declarado en `vite.config.ts` y en `tsconfig.app.json`. El service worker corre en otro ámbito global, así que no lo revisa `tsconfig.app.json` sino `tsconfig.worker.json`, con los tipos de WebWorker.
+La lógica vive en módulos de TypeScript con sus pruebas al lado (`*.test.ts`); los componentes solo presentan el estado. Svelte aparece fuera de los componentes solo en el estado reactivo, en los módulos `.svelte.ts`: el panel y sus sesiones en `state/`, y en `update/` el flujo de la actualización, la sesión de firma y el registro de los comandos de actualización. Los textos de un solo componente o de una sola función viven junto a ellos. `$lib` apunta a `src/lib/`, como en SvelteKit, y está declarado en `vite.config.ts` y en `tsconfig.app.json`. El service worker corre en otro ámbito global, así que no lo revisa `tsconfig.app.json` sino `tsconfig.worker.json`, con los tipos de WebWorker.
 
 ## Dependencias
 
@@ -119,7 +126,7 @@ La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al l
 ## Criterios ante huecos del contrato
 
 - Un receptor que no oye ningún paquete de una corrida nunca la abre, así que no emite `run_end`. Si ese nodo estaba conectado al panel y escuchaba en el canal del emisor, el panel cierra la recepción con cero paquetes, PDR 0 y motivo `timeout` una vez que vence el plazo del receptor. La prueba de capacidad hace lo mismo al terminar cada punto.
-- El firmware escribe `null` en `rssi_avg`, `rssi_min`, `rssi_max` y `snr_avg` de `run_end` cuando no hay paquetes; el panel lo acepta y deja vacías esas columnas de `summary.csv`.
+- El firmware abre una recepción con su primer paquete, así que `run_end` siempre trae valores en `rssi_avg`, `rssi_min`, `rssi_max` y `snr_avg`. En una recepción que el panel cierra sin paquetes, esas columnas de `summary.csv` quedan vacías.
 - Una línea que empieza con `{` pero no es JSON válido se toma como texto de depuración. Un objeto JSON con un evento desconocido o con campos inválidos se muestra como objeto no reconocido, con la descripción del primer campo que no cumple el contrato, y se exporta igual. Los motivos de `error` que el panel no conoce se aceptan.
 - Los campos numéricos aceptan cualquier número finito, con decimales o sin ellos: el firmware escribe un valor entero sin decimales, por ejemplo `-35`. Un campo opcional que llega en `null` se toma como ausente.
 - Cada línea de `events.jsonl` es el texto exacto que emitió el firmware con `node` y `host_time` agregados al final.
@@ -127,7 +134,7 @@ La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al l
 - El número `<NN>` de una exportación es el siguiente al mayor que ya existe para esa fecha y esa prueba.
 - La prueba de capacidad envía a los dos nodos la frecuencia, la modulación, el preámbulo y la palabra de sincronismo de cada punto; la potencia y el LNA quedan como estén.
 - La prueba de comunicación cambia solo el SF, el ancho de banda y la tasa de código. La frecuencia, el preámbulo y la palabra de sincronismo tienen que coincidir en los dos nodos, como en la red. Al terminar, cada modo devuelve a su nodo la modulación que informaba al empezar.
-- En el emisor, la suspensión de los HELLO dura lo que tardaría la serie si se perdieran todos los ecos, más un minuto. En el receptor dura una hora y el panel la renueva cada 30 minutos mientras el modo siga activo. Si el panel pierde la conexión, los HELLO vuelven solos al vencer el plazo, pero la modulación de prueba queda hasta que se cambie desde la pestaña Red o se reinicie el nodo.
+- En el emisor, la suspensión de los HELLO dura lo que tardaría la serie si se perdieran todos los ecos, más un minuto. En el receptor dura lo más que admite el firmware (`timings.maximumPresenceHoldSeconds` del contrato) y el panel la renueva a la mitad de ese plazo mientras el modo siga activo. Si el panel pierde la conexión, los HELLO vuelven solos al vencer el plazo, pero la modulación de prueba queda hasta que se cambie desde la pestaña Red o se reinicie el nodo.
 - El panel cuenta como actualización cada versión que un nodo acepta con `load_image`, es decir, cuando la consola de ese nodo responde con su evento `image` de la versión con `via` en `"console"`. M1 empieza en el primer `load_image` aceptado; un `load_image` rechazado no crea una actualización, aunque queda en `commands` de `metadata.json`. Descartar el registro de mediciones también olvida esos comandos.
 - Una actualización termina con el primer `load_image` aceptado de otra versión. Sus nodos son los que nombran los eventos hasta que converge, sin los que nadie escuchó en los 60 s anteriores, como en el grafo de conexiones; un nodo que aparece después no la reabre. M2 descarta los contadores `tx` de los eventos `neighbor`, que repiten el de un HELLO anterior, y reconoce un reinicio por el cambio de época.
 - La orden de activación se habilita con el grafo de conexiones del momento: un nodo vecino que nadie escuchó en los últimos 60 s sale del grafo y deja de bloquearla. Un nodo que solo aparece en la lista de vecinos de otro no tiene versiones conocidas y la bloquea.
@@ -136,4 +143,4 @@ La lógica vive en módulos de TypeScript puro, sin Svelte, con sus pruebas al l
 
 ## Pruebas
 
-Las pruebas no necesitan placas. Usan sesiones de consola grabadas en el formato del contrato y un par de nodos simulados que responden los comandos con las mismas líneas que el firmware. Cubren el análisis de líneas, el estado derivado de cada nodo, los resúmenes de corridas, la prueba de capacidad completa, la firma de imágenes contra el vector de prueba de OpenSSL, una actualización grabada con su reparación y su activación, el grafo de conexiones, las métricas M1 a M3 y su exportación, el desensamblador, la exportación y los dos transportes.
+Las pruebas no necesitan placas. Usan sesiones de consola escritas a mano en el formato del contrato, cuyos campos se comparan con las líneas que escribe el firmware en sus pruebas (`firmware/protocol/test-vectors/firmware-console-lines.jsonl`), y un par de nodos simulados que despachan los comandos con la misma tabla del contrato que el firmware. Las pruebas de los nodos simulados comparan con ese mismo archivo los campos de cada evento que escriben y el texto de los errores que responden; el resto de los valores de sus eventos no se compara con el firmware. Cubren el análisis de líneas, el estado derivado de cada nodo, los resúmenes de corridas, la prueba de capacidad completa, la firma de imágenes contra el vector de prueba de OpenSSL, una actualización escrita a mano con su reparación y su activación, el grafo de conexiones, las métricas M1 a M3 y su exportación, el desensamblador, la exportación y los dos transportes.

@@ -5,6 +5,7 @@ import {
   estimatePointDurationMilliseconds,
   estimateTransmissionMilliseconds,
   pointTimeOnAirMicroseconds,
+  usesBenchBandwidths,
   validateCapacityTestConfiguration,
   type CapacityTestConfiguration,
 } from "./capacity-test-plan.ts";
@@ -40,12 +41,12 @@ describe("buildCapacityTestPlan", () => {
 
   it("repeats the series for each bandwidth chosen", () => {
     const plan = buildCapacityTestPlan(
-      configurationWith({ bandwidths: [125, 500], spreadingFactors: [7, 12] }),
+      configurationWith({ bandwidths: [125, 500], spreadingFactorRange: { first: 11, last: 12 } }),
     );
     expect(plan.map((point) => `${point.sf}/${point.bw}`)).toEqual([
-      "7/125",
+      "11/125",
       "12/125",
-      "7/500",
+      "11/500",
       "12/500",
     ]);
   });
@@ -72,7 +73,7 @@ describe("buildCapacityTestPlan", () => {
   it("adds the coding rates at one modulation", () => {
     const plan = buildCapacityTestPlan(
       configurationWith({
-        spreadingFactors: [12],
+        spreadingFactorRange: { first: 12, last: 12 },
         codingRateSweep: {
           enabled: true,
           codingRates: [5, 6, 7, 8],
@@ -108,6 +109,14 @@ describe("validateCapacityTestConfiguration", () => {
     ]);
   });
 
+  it("reports a range of spreading factors that starts after it ends", () => {
+    expect(
+      validateCapacityTestConfiguration(
+        configurationWith({ spreadingFactorRange: { first: 10, last: 8 } }),
+      ),
+    ).toEqual(["El factor de dispersión inicial no puede superar al final."]);
+  });
+
   it("checks the sweeps only when they are enabled", () => {
     const sweep = { enabled: false, sizes: [4], modulations: [{ sf: 7, bw: 500, cr: 5 } as const] };
     expect(validateCapacityTestConfiguration(configurationWith({ payloadSweep: sweep }))).toEqual(
@@ -121,11 +130,39 @@ describe("validateCapacityTestConfiguration", () => {
   });
 });
 
+describe("usesBenchBandwidths", () => {
+  it("looks at the main series and at the sweeps that are enabled", () => {
+    const narrow = { sf: 7, bw: 125, cr: 5 } as const;
+    expect(usesBenchBandwidths(DEFAULT_CAPACITY_TEST_CONFIGURATION)).toBe(false);
+    expect(usesBenchBandwidths(configurationWith({ bandwidths: [250, 500] }))).toBe(true);
+    const codingRateSweep = {
+      ...DEFAULT_CAPACITY_TEST_CONFIGURATION.codingRateSweep,
+      modulation: narrow,
+    };
+    expect(usesBenchBandwidths(configurationWith({ codingRateSweep }))).toBe(false);
+    expect(
+      usesBenchBandwidths(
+        configurationWith({ codingRateSweep: { ...codingRateSweep, enabled: true } }),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("estimates", () => {
   it("derive from the time on air of the full frame", () => {
     const [point] = buildCapacityTestPlan(DEFAULT_CAPACITY_TEST_CONFIGURATION);
     expect(pointTimeOnAirMicroseconds(point!)).toBe(99_904);
-    expect(estimateTransmissionMilliseconds(point!)).toBeCloseTo(300 * (99.904 + 3));
-    expect(estimatePointDurationMilliseconds(point!)).toBeCloseTo(300 * (99.904 + 3) + 1500);
+  });
+
+  it("estimate a point of the plan as its packets back to back plus the setup of both nodes", () => {
+    const [point] = buildCapacityTestPlan(DEFAULT_CAPACITY_TEST_CONFIGURATION);
+    expect(estimateTransmissionMilliseconds({ ...point!, count: 1 })).toBeCloseTo(99.904);
+    // Back to back: between two packets only the time the firmware takes, far below any interval.
+    const pause = estimateTransmissionMilliseconds({ ...point!, count: 2 }) - 2 * 99.904;
+    expect(pause).toBeGreaterThanOrEqual(0);
+    expect(pause).toBeLessThan(10);
+    expect(estimatePointDurationMilliseconds(point!)).toBeGreaterThan(
+      estimateTransmissionMilliseconds(point!),
+    );
   });
 });

@@ -3,14 +3,15 @@
  * and ADR 0011): the version, against the node and the rest of the connection graph, and the
  * program a node returned with `program`, for a rollback.
  */
-import type { ConnectionGraph } from "$lib/nodes/connection-graph.ts";
 import {
+  MAXIMUM_IMAGE_VERSION,
   MAXIMUM_PROGRAM_SIZE,
+  MINIMUM_IMAGE_VERSION,
   MINIMUM_PROGRAM_SIZE,
-  isImageVersion,
-  parseHex,
-  proposeImageVersion,
-} from "./image-format.ts";
+} from "$lib/protocol/protocol-contract.ts";
+import { formatLimit } from "$lib/utils/format.ts";
+import { isImageVersion, proposeImageVersion } from "./image-format.ts";
+import { parseHex } from "$lib/utils/hex.ts";
 
 /** A version this far ahead of the computer's clock is probably a typing mistake. */
 export const FUTURE_VERSION_TOLERANCE_SECONDS = 3600;
@@ -18,17 +19,6 @@ export const FUTURE_VERSION_TOLERANCE_SECONDS = 3600;
 /** The line of firmware/build_opt.h that compiles `publicKey` as the operator public key. */
 export function operatorKeyDefinition(publicKey: string): string {
   return `-DJ5_OPERATOR_PUBLIC_KEY="\\"${publicKey}\\""`;
-}
-
-/** Highest available version that some node of the graph announces; null when none is known. */
-export function highestAvailableVersion(graph: ConnectionGraph): number | null {
-  let highest: number | null = null;
-  for (const node of graph.nodes) {
-    if (node.availableVersion !== null) {
-      highest = highest === null ? node.availableVersion : Math.max(highest, node.availableVersion);
-    }
-  }
-  return highest;
 }
 
 export interface ImageVersionCheck {
@@ -60,7 +50,7 @@ export function checkImageVersion(
   if (!isImageVersion(version)) {
     return {
       acceptable: false,
-      problem: "La versión es un entero de 1 a 4.294.967.295.",
+      problem: `La versión es un entero de ${formatLimit(MINIMUM_IMAGE_VERSION)} a ${formatLimit(MAXIMUM_IMAGE_VERSION)}.`,
       warnings: [],
     };
   }

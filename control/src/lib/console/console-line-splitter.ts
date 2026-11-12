@@ -1,10 +1,11 @@
 /**
- * Splits the byte stream of a serial console into lines.
+ * Splits what a console transport receives into lines: the framing rule of both transports.
  *
- * Lines end in "\n"; a preceding "\r" is removed. Empty lines are discarded. Bytes that are not
- * valid UTF-8 (for example the boot messages of the ESP32 ROM, sent at another baud rate) are
- * replaced with U+FFFD and end up in debug text lines. A line longer than the maximum length is
- * emitted in pieces so that a stream without line ends cannot exhaust memory.
+ * Lines end in "\n"; a preceding "\r" is removed. The end of a WebSocket message also ends a line.
+ * Empty lines are discarded. Bytes that are not valid UTF-8 (for example the boot messages of the
+ * ESP32 ROM, sent at another baud rate) are replaced with U+FFFD and end up in debug text lines. A
+ * line longer than the maximum length is emitted in pieces so that a stream without line ends
+ * cannot exhaust memory.
  */
 export class ConsoleLineSplitter {
   readonly #decoder = new TextDecoder("utf-8");
@@ -36,6 +37,11 @@ export class ConsoleLineSplitter {
     }
     this.#pendingText = remainder;
     return lines;
+  }
+
+  /** Accepts a text that ends where a line ends, such as a WebSocket message. */
+  acceptMessage(text: string): string[] {
+    return [...this.acceptText(text), ...this.flush()];
   }
 
   /** Returns the incomplete line held back, if any, and empties the splitter. */

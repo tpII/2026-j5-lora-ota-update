@@ -19,6 +19,13 @@ describe("ConsoleLineSplitter", () => {
     expect(splitter.acceptText("\n")).toEqual(["second"]);
   });
 
+  it("ends a line at the end of a message, as the WebSocket console sends them", () => {
+    const splitter = new ConsoleLineSplitter();
+    expect(splitter.acceptMessage("wifi 1 client(s)\r")).toEqual(["wifi 1 client(s)"]);
+    expect(splitter.acceptMessage("first\nsecond")).toEqual(["first", "second"]);
+    expect(splitter.acceptMessage("")).toEqual([]);
+  });
+
   it("decodes UTF-8 sequences split across chunks", () => {
     const splitter = new ConsoleLineSplitter();
     const bytes = encoder.encode("µs\n");

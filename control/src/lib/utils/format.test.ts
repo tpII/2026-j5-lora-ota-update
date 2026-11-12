@@ -5,14 +5,19 @@ import {
   formatDuration,
   formatFrequency,
   formatImageVersion,
+  formatLimit,
   formatModulation,
   formatNumber,
   formatPower,
   formatRssi,
   formatSnr,
   formatSyncWord,
+  countWithNoun,
+  formatCardinal,
+  roundToDecimals,
+  formatRange,
+  formatSignedInteger,
 } from "./format.ts";
-import { countWithNoun, describeErrorReason } from "./labels.ts";
 
 describe("formatting of image versions", () => {
   it("writes the version without thousands separators and names the factory program", () => {
@@ -51,11 +56,53 @@ describe("formatting for the operator", () => {
     expect(formatPower(4)).toBe("+4 dBm");
   });
 
-  it("explains error reasons, including unknown ones", () => {
-    expect(describeErrorReason("busy")).toBe("hay una corrida o un eco en curso");
-    expect(describeErrorReason("wifi_failure")).toBe("no se pudo encender el punto de acceso");
-    expect(describeErrorReason("thermal_limit")).toBe("motivo que este panel no conoce");
+  it("chooses the singular or the plural of a noun", () => {
     expect(countWithNoun(1, "cliente", "clientes")).toBe("1 cliente");
     expect(countWithNoun(2, "cliente", "clientes")).toBe("2 clientes");
+  });
+});
+
+describe("formatting of limits", () => {
+  it("groups thousands only from five digits on and writes the minus sign", () => {
+    expect(formatLimit(3600)).toBe("3600");
+    expect(formatLimit(65535)).toBe("65.535");
+    expect(formatLimit(-2147483648)).toBe("−2.147.483.648");
+    expect(formatLimit(915, 1)).toBe("915,0");
+  });
+});
+
+describe("roundToDecimals", () => {
+  it("rounds the stored value half away from zero, as the CSV files write it", () => {
+    expect(roundToDecimals(-100.25, 1)).toBe(-100.3);
+    expect(roundToDecimals(-7.125, 2)).toBe(-7.13);
+    expect(roundToDecimals(7031.25, 1)).toBe(7031.3);
+    // 1000007 / 20 is stored just below 50000.35.
+    expect(roundToDecimals(1_000_007 / 20, 1)).toBe(50000.3);
+    expect(roundToDecimals(null, 2)).toBeNull();
+  });
+});
+
+describe("formatCardinal", () => {
+  it("writes small counts in words", () => {
+    expect(formatCardinal(3)).toBe("tres");
+    expect(formatCardinal(4)).toBe("cuatro");
+    expect(formatCardinal(12)).toBe("12");
+  });
+});
+
+describe("formatSignedInteger", () => {
+  it("rounds and writes the minus sign", () => {
+    expect(formatSignedInteger(-87.4)).toBe("−87");
+    expect(formatSignedInteger(3.6)).toBe("4");
+  });
+});
+
+describe("formatRange", () => {
+  it("joins the extremes with the format of the samples", () => {
+    expect(formatRange({ minimum: -90, maximum: -71.5 }, formatRssi)).toBe("-90,0 dBm a -71,5 dBm");
+  });
+
+  it("writes a dash without samples", () => {
+    expect(formatRange({ minimum: null, maximum: null }, formatRssi)).toBe("—");
   });
 });

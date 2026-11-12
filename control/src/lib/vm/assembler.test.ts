@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
+import { PROGRAM_CAPACITY } from "$lib/protocol/protocol-contract.ts";
 import { assemble, parseInteger } from "./assembler.ts";
-import { PROGRAM_CAPACITY, formatPrintLine, formatProgramHex } from "./instruction-set.ts";
+import { formatPrintLine } from "./instruction-set.ts";
+import { formatHex } from "$lib/utils/hex.ts";
 
 function hexOf(source: string): string {
   const result = assemble(source);
   if (!result.valid) {
     throw new Error(result.problems.map((problem) => problem.message).join(" "));
   }
-  return formatProgramHex(result.code);
+  return formatHex(result.code);
 }
 
 describe("assemble", () => {

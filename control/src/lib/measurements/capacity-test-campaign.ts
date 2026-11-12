@@ -3,11 +3,7 @@
  * on both, waits until both confirm them, has the sender transmit a run and waits for the report
  * of the receiver. Points that fail are marked and the campaign continues with the next one.
  */
-import {
-  RUN_STOP_COMMAND,
-  buildRadioSetCommand,
-  buildRunCommand,
-} from "$lib/console/console-command.ts";
+import { RUN_STOP_COMMAND, buildRunCommand } from "$lib/commands/console-command.ts";
 import type { ConsoleEvent, NodeIdentifier, RunEndEvent } from "$lib/console/console-event.ts";
 import {
   CAPACITY_TEST_INTERVAL,
@@ -16,17 +12,17 @@ import {
   pointTimeOnAirMicroseconds,
   type CapacityTestPoint,
 } from "./capacity-test-plan.ts";
-import { frequenciesMatch } from "$lib/radio/radio-settings.ts";
+import {
+  COMMAND_CONFIRMATION_MILLISECONDS,
+  CommandFailure,
+  applyRadioSettings,
+  describeCommandFailureSentence,
+  sendAndAwait,
+  type NodePort,
+} from "$lib/nodes/node-port.ts";
+import { CHANNEL_FIELDS } from "$lib/radio/radio-settings.ts";
 import { receptionGraceMilliseconds } from "./test-run-ledger.ts";
-import { SYSTEM_TIME_SOURCE, type TimeSource } from "$lib/utils/time-source.ts";
-
-/** A connected node as the campaign sees it. */
-export interface CampaignNode {
-  readonly identifier: NodeIdentifier;
-  sendCommand(command: string): Promise<void>;
-  /** Receives every event of the node; returns the function that ends the subscription. */
-  subscribe(listener: (event: ConsoleEvent, hostTime: number) => void): () => void;
-}
+import { SYSTEM_TIME_SOURCE, scheduleRepeatedly, type TimeSource } from "$lib/utils/time-source.ts";
 
 export type PointStatus =
   | "pending"
@@ -35,6 +31,15 @@ export type PointStatus =
   | "completed"
   | "failed"
   | "stopped";
+
+export const POINT_STATUS_LABELS: { readonly [Status in PointStatus]: string } = {
+  pending: "Pendiente",
+  configuring: "Configurando la radio",
+  transmitting: "Transmitiendo",
+  completed: "Completo",
+  failed: "Falló",
+  stopped: "Detenido",
+};
 
 export interface PointResult {
   readonly point: CapacityTestPoint;
@@ -58,6 +63,24 @@ export type CampaignStatus =
   | "stopped"
   | "finished";
 
+export const CAMPAIGN_STATUS_LABELS: { readonly [Status in CampaignStatus]: string } = {
+  ready: "Lista para empezar",
+  running: "En curso",
+  pausing: "Se pausa al terminar el punto en curso",
+  paused: "En pausa",
+  stopping: "Deteniendo",
+  stopped: "Detenida",
+  finished: "Terminada",
+};
+
+/** True from the start of the campaign until it stops or finishes, through its pauses. */
+export function isCampaignActive(snapshot: { readonly status: CampaignStatus }): boolean {
+  const status = snapshot.status;
+  return (
+    status === "running" || status === "pausing" || status === "paused" || status === "stopping"
+  );
+}
+
 export interface CampaignSnapshot {
   readonly status: CampaignStatus;
   readonly sender: NodeIdentifier;
@@ -74,17 +97,10 @@ export interface CampaignSnapshot {
 }
 
 export interface CapacityTestCampaignOptions {
-  readonly sender: CampaignNode;
-  readonly receiver: CampaignNode;
+  readonly sender: NodePort;
+  readonly receiver: NodePort;
   readonly points: readonly CapacityTestPoint[];
   readonly timeSource?: TimeSource;
-  /** Time both nodes have to confirm the radio settings. */
-  readonly radioConfirmationTimeoutMilliseconds?: number;
-  /** Time the sender has to answer `run` with `run_start`. */
-  readonly runStartTimeoutMilliseconds?: number;
-  /** Pause before repeating a `radio` command that a node refused as busy. */
-  readonly busyRetryDelayMilliseconds?: number;
-  readonly maximumBusyRetries?: number;
   readonly onChange?: (snapshot: CampaignSnapshot) => void;
   /** Called when the receiver heard no packet of a run, so the ledger can record it. */
   readonly onSilentReception?: (
@@ -94,10 +110,7 @@ export interface CapacityTestCampaignOptions {
   ) => void;
 }
 
-const DEFAULT_RADIO_CONFIRMATION_TIMEOUT_MILLISECONDS = 5000;
-const DEFAULT_RUN_START_TIMEOUT_MILLISECONDS = 5000;
-const DEFAULT_BUSY_RETRY_DELAY_MILLISECONDS = 2000;
-const DEFAULT_MAXIMUM_BUSY_RETRIES = 5;
+const PROGRESS_REFRESH_INTERVAL_MILLISECONDS = 1000;
 /** The sender gets this factor over the estimated transmission time, plus a fixed margin. */
 const TRANSMISSION_TIMEOUT_FACTOR = 1.5;
 const TRANSMISSION_TIMEOUT_MARGIN_MILLISECONDS = 10_000;
@@ -109,28 +122,21 @@ type WaitResult<Value> =
 
 type Verdict = { readonly failure: string } | "confirmed";
 
-/** Events of both nodes relevant to the point in course. */
-class PointObservation {
-  readonly #point: CapacityTestPoint;
+/** What the sender and the receiver report about the run of the point in course. */
+class RunObservation {
   readonly #sender: NodeIdentifier;
-  radioPending = false;
-  senderRadioConfirmed = false;
-  receiverRadioConfirmed = false;
-  radioRefusal: {
-    readonly node: NodeIdentifier;
-    readonly reason: string;
-    readonly detail: string | null;
-  } | null = null;
-  runPending = false;
-  runRefusal: { readonly reason: string; readonly detail: string | null } | null = null;
+  /** Run number the sender assigned, once it confirmed the run. */
   runNumber: number | null = null;
-  senderDone = false;
+  readonly #doneRuns = new Set<number>();
   readonly #packetsByRun = new Map<number, number>();
   readonly #endsByRun = new Map<number, RunEndEvent>();
 
-  constructor(point: CapacityTestPoint, sender: NodeIdentifier) {
-    this.#point = point;
+  constructor(sender: NodeIdentifier) {
     this.#sender = sender;
+  }
+
+  get senderDone(): boolean {
+    return this.runNumber !== null && this.#doneRuns.has(this.runNumber);
   }
 
   get receivedPackets(): number {
@@ -141,109 +147,21 @@ class PointObservation {
     return this.runNumber === null ? null : (this.#endsByRun.get(this.runNumber) ?? null);
   }
 
-  acceptSenderEvent(node: NodeIdentifier, event: ConsoleEvent): void {
-    switch (event.ev) {
-      case "radio":
-        if (this.radioPending && this.#matchesPoint(event)) {
-          this.senderRadioConfirmed = true;
-        }
-        break;
-      case "run_start":
-        if (this.runPending && this.runNumber === null) {
-          this.runNumber = event.run;
-        }
-        break;
-      case "run_done":
-        if (this.runNumber !== null && event.run === this.runNumber) {
-          this.senderDone = true;
-        }
-        break;
-      case "error":
-        this.#acceptError(node, event.cmd, event.reason, event.detail ?? null);
-        break;
-      default:
-        break;
+  // Kept by run number: run_start and run_done of a short run may arrive in the same burst of
+  // console lines, before the confirmation of the run sets the run number here.
+  acceptSenderEvent(event: ConsoleEvent): void {
+    if (event.ev === "run_done") {
+      this.#doneRuns.add(event.run);
     }
   }
 
-  acceptReceiverEvent(node: NodeIdentifier, event: ConsoleEvent): void {
-    switch (event.ev) {
-      case "radio":
-        if (this.radioPending && this.#matchesPoint(event)) {
-          this.receiverRadioConfirmed = true;
-        }
-        break;
-      case "test_rx":
-        if (this.runPending && event.src === this.#sender) {
-          this.#packetsByRun.set(event.run, (this.#packetsByRun.get(event.run) ?? 0) + 1);
-        }
-        break;
-      case "run_end":
-        if (this.runPending && event.src === this.#sender) {
-          this.#endsByRun.set(event.run, event);
-        }
-        break;
-      case "error":
-        this.#acceptError(node, event.cmd, event.reason, event.detail ?? null);
-        break;
-      default:
-        break;
+  acceptReceiverEvent(event: ConsoleEvent): void {
+    if (event.ev === "test_rx" && event.src === this.#sender) {
+      this.#packetsByRun.set(event.run, (this.#packetsByRun.get(event.run) ?? 0) + 1);
+    } else if (event.ev === "run_end" && event.src === this.#sender) {
+      this.#endsByRun.set(event.run, event);
     }
   }
-
-  /** Prepares a new attempt of the `radio` command. */
-  beginRadioAttempt(): void {
-    this.radioPending = true;
-    this.radioRefusal = null;
-  }
-
-  /** Reason with which a node refused the last `radio` command, if one did. */
-  radioRefusalReason(): string | null {
-    return this.radioRefusal?.reason ?? null;
-  }
-
-  radioVerdict(): Verdict | null {
-    if (this.radioRefusal !== null) {
-      const { node, reason, detail } = this.radioRefusal;
-      return {
-        failure: `El nodo ${node} rechazó el comando radio (${describeReason(reason, detail)}).`,
-      };
-    }
-    return this.senderRadioConfirmed && this.receiverRadioConfirmed ? "confirmed" : null;
-  }
-
-  runStartVerdict(): Verdict | null {
-    if (this.runRefusal !== null) {
-      const { reason, detail } = this.runRefusal;
-      return { failure: `El emisor rechazó el comando run (${describeReason(reason, detail)}).` };
-    }
-    return this.runNumber !== null ? "confirmed" : null;
-  }
-
-  #acceptError(node: NodeIdentifier, command: string, reason: string, detail: string | null): void {
-    if (this.radioPending && command === "radio" && this.radioRefusal === null) {
-      this.radioRefusal = { node, reason, detail };
-    }
-    if (this.runPending && command === "run" && node === this.#sender && this.runRefusal === null) {
-      this.runRefusal = { reason, detail };
-    }
-  }
-
-  #matchesPoint(event: Extract<ConsoleEvent, { ev: "radio" }>): boolean {
-    const point = this.#point;
-    return (
-      frequenciesMatch(event.freq, point.freq) &&
-      event.sf === point.sf &&
-      event.bw === point.bw &&
-      event.cr === point.cr &&
-      event.preamble === point.preamble &&
-      event.sync === point.sync
-    );
-  }
-}
-
-function describeReason(reason: string, detail: string | null): string {
-  return detail === null ? reason : `${reason}: ${detail}`;
 }
 
 interface MutablePointResult {
@@ -257,28 +175,24 @@ interface MutablePointResult {
 }
 
 export class CapacityTestCampaign {
-  readonly #sender: CampaignNode;
-  readonly #receiver: CampaignNode;
+  readonly #sender: NodePort;
+  readonly #receiver: NodePort;
   readonly #points: readonly CapacityTestPoint[];
   readonly #timeSource: TimeSource;
-  readonly #radioConfirmationTimeout: number;
-  readonly #runStartTimeout: number;
-  readonly #busyRetryDelay: number;
-  readonly #maximumBusyRetries: number;
   readonly #onChange: ((snapshot: CampaignSnapshot) => void) | undefined;
   readonly #onSilentReception: CapacityTestCampaignOptions["onSilentReception"];
   readonly #results: MutablePointResult[];
   readonly #estimates: readonly number[];
   readonly #waiters = new Set<() => void>();
+  readonly #stopController = new AbortController();
   #status: CampaignStatus = "ready";
   #currentIndex: number | null = null;
   #startHostTime: number | null = null;
   #endHostTime: number | null = null;
   #pauseRequested = false;
-  #stopRequested = false;
   /** A command could not reach a node: its connection is gone, so the campaign cannot go on. */
   #transportFailed = false;
-  #observation: PointObservation | null = null;
+  #observation: RunObservation | null = null;
   #resumeWaiter: (() => void) | null = null;
   #snapshot: CampaignSnapshot;
 
@@ -290,14 +204,6 @@ export class CapacityTestCampaign {
     this.#receiver = options.receiver;
     this.#points = options.points;
     this.#timeSource = options.timeSource ?? SYSTEM_TIME_SOURCE;
-    this.#radioConfirmationTimeout =
-      options.radioConfirmationTimeoutMilliseconds ??
-      DEFAULT_RADIO_CONFIRMATION_TIMEOUT_MILLISECONDS;
-    this.#runStartTimeout =
-      options.runStartTimeoutMilliseconds ?? DEFAULT_RUN_START_TIMEOUT_MILLISECONDS;
-    this.#busyRetryDelay =
-      options.busyRetryDelayMilliseconds ?? DEFAULT_BUSY_RETRY_DELAY_MILLISECONDS;
-    this.#maximumBusyRetries = options.maximumBusyRetries ?? DEFAULT_MAXIMUM_BUSY_RETRIES;
     this.#onChange = options.onChange;
     this.#onSilentReception = options.onSilentReception;
     this.#results = options.points.map((point) => ({
@@ -325,16 +231,21 @@ export class CapacityTestCampaign {
     this.#status = "running";
     this.#startHostTime = this.#timeSource.now();
     this.#publish();
+    const stopRefreshing = scheduleRepeatedly(
+      this.#timeSource,
+      () => this.#publish(),
+      PROGRESS_REFRESH_INTERVAL_MILLISECONDS,
+    );
     const unsubscribeSender = this.#sender.subscribe((event) => {
-      this.#observation?.acceptSenderEvent(this.#sender.identifier, event);
+      this.#observation?.acceptSenderEvent(event);
       this.#wake();
     });
     const unsubscribeReceiver = this.#receiver.subscribe((event) => {
-      this.#observation?.acceptReceiverEvent(this.#receiver.identifier, event);
+      this.#observation?.acceptReceiverEvent(event);
       this.#wake();
     });
     try {
-      for (let index = 0; index < this.#points.length && !this.#stopRequested; index += 1) {
+      for (let index = 0; index < this.#points.length && !this.#stopping; index += 1) {
         if (this.#pauseRequested) {
           this.#status = "paused";
           this.#publish();
@@ -342,7 +253,7 @@ export class CapacityTestCampaign {
             this.#resumeWaiter = resolve;
           });
           this.#resumeWaiter = null;
-          if (this.#stopRequested) {
+          if (this.#stopping) {
             break;
           }
           this.#status = "running";
@@ -350,16 +261,17 @@ export class CapacityTestCampaign {
         }
         await this.#executePoint(index);
         if (this.#transportFailed) {
-          this.#stopRequested = true;
+          this.#stopController.abort();
         }
       }
     } finally {
+      stopRefreshing();
       unsubscribeSender();
       unsubscribeReceiver();
       this.#observation = null;
       this.#currentIndex = null;
     }
-    this.#status = this.#stopRequested ? "stopped" : "finished";
+    this.#status = this.#stopping ? "stopped" : "finished";
     this.#endHostTime = this.#timeSource.now();
     this.#publish();
     return this.#snapshot;
@@ -388,7 +300,7 @@ export class CapacityTestCampaign {
   /** Abandons the point in course (stopping the run of the sender) and ends the campaign. */
   stop(): void {
     if (this.#status === "ready") {
-      this.#stopRequested = true;
+      this.#stopController.abort();
       this.#status = "stopped";
       this.#publish();
       return;
@@ -396,24 +308,27 @@ export class CapacityTestCampaign {
     if (this.#status === "stopped" || this.#status === "finished" || this.#status === "stopping") {
       return;
     }
-    this.#stopRequested = true;
+    this.#stopController.abort();
     this.#status = "stopping";
     this.#publish();
     this.#resumeWaiter?.();
     this.#wake();
   }
 
+  /** True once stop() was called or a command could not reach a node. */
+  get #stopping(): boolean {
+    return this.#stopController.signal.aborted;
+  }
+
   async #executePoint(index: number): Promise<void> {
     const point = this.#points[index]!;
     const result = this.#results[index]!;
-    const observation = new PointObservation(point, this.#sender.identifier);
-    this.#observation = observation;
     this.#currentIndex = index;
     result.status = "configuring";
     result.startHostTime = this.#timeSource.now();
     this.#publish();
 
-    const configured = await this.#configureRadio(point, observation);
+    const configured = await this.#configureRadio(point);
     if (configured !== "confirmed") {
       this.#finishPoint(result, configured);
       return;
@@ -428,23 +343,18 @@ export class CapacityTestCampaign {
       });
       return;
     }
-    observation.runPending = true;
-    const sent = await this.#sendCommand(this.#sender, runCommand.command);
-    if (sent !== null) {
-      this.#finishPoint(result, { failure: sent });
-      return;
-    }
-    const started = await this.#waitFor(() => observation.runStartVerdict(), this.#runStartTimeout);
-    if (started.kind === "cancelled") {
-      this.#finishPoint(result, "stopped");
-      return;
-    }
-    if (started.kind === "timeout") {
-      this.#finishPoint(result, { failure: "El emisor no confirmó el comienzo de la corrida." });
-      return;
-    }
-    if (started.value !== "confirmed") {
-      this.#finishPoint(result, started.value);
+    const observation = new RunObservation(this.#sender.identifier);
+    this.#observation = observation;
+    try {
+      const started = await sendAndAwait(
+        this.#sender,
+        runCommand.command,
+        (event) => event.ev === "run_start",
+        this.#awaitOptions(COMMAND_CONFIRMATION_MILLISECONDS),
+      );
+      observation.runNumber = started.event.run;
+    } catch (error) {
+      this.#finishPoint(result, this.#runStartVerdict(error));
       return;
     }
     result.run = observation.runNumber;
@@ -498,78 +408,87 @@ export class CapacityTestCampaign {
     });
   }
 
-  async #configureRadio(
-    point: CapacityTestPoint,
-    observation: PointObservation,
-  ): Promise<Verdict | "stopped"> {
-    const command = buildRadioSetCommand(
-      {
-        freq: point.freq,
-        sf: point.sf,
-        bw: point.bw,
-        cr: point.cr,
-        preamble: point.preamble,
-        sync: point.sync,
-      },
-      null,
+  /** Sets the radio settings of the point on both nodes and waits until both confirm them. */
+  async #configureRadio(point: CapacityTestPoint): Promise<Verdict | "stopped"> {
+    // A refusal by one node makes the point fail: the wait for the other one ends there.
+    const pointAttempt = new AbortController();
+    const signal = AbortSignal.any([this.#stopController.signal, pointAttempt.signal]);
+    const confirm = async (node: NodePort): Promise<CommandFailure | null> => {
+      const failure = await applyRadioSettings(node, point, CHANNEL_FIELDS, {
+        timeSource: this.#timeSource,
+        signal,
+      });
+      if (failure?.kind === "refused" || failure?.kind === "unsent") {
+        pointAttempt.abort();
+      }
+      return failure;
+    };
+    const failures = (await Promise.all([confirm(this.#sender), confirm(this.#receiver)])).filter(
+      (failure) => failure !== null,
     );
-    if (!command.valid) {
-      return { failure: command.problems.map((problem) => problem.message).join(" ") };
+    const unsent = failures.find((failure) => failure.kind === "unsent");
+    if (unsent !== undefined) {
+      return { failure: this.#recordTransportFailure(unsent) };
     }
-    for (let attempt = 0; ; attempt += 1) {
-      observation.beginRadioAttempt();
-      const failures = await Promise.all([
-        observation.senderRadioConfirmed ? null : this.#sendCommand(this.#sender, command.command),
-        observation.receiverRadioConfirmed
-          ? null
-          : this.#sendCommand(this.#receiver, command.command),
-      ]);
-      const sendFailure = failures.find((failure) => failure !== null);
-      if (sendFailure !== undefined && sendFailure !== null) {
-        return { failure: sendFailure };
-      }
-      const verdict = await this.#waitFor(
-        () => observation.radioVerdict(),
-        this.#radioConfirmationTimeout,
-      );
-      if (verdict.kind === "cancelled") {
+    const refused = failures.find((failure) => failure.kind === "refused");
+    if (refused !== undefined) {
+      return { failure: describeCommandFailureSentence(refused) };
+    }
+    if (this.#stopping) {
+      return "stopped";
+    }
+    const silent = failures
+      .filter((failure) => failure.kind === "timeout")
+      .map((failure) => failure.node);
+    if (silent.length === 0) {
+      return "confirmed";
+    }
+    return {
+      failure:
+        silent.length === 1
+          ? `El nodo ${silent[0]} no confirmó los parámetros de radio a tiempo.`
+          : `Los nodos ${silent.join(" y ")} no confirmaron los parámetros de radio a tiempo.`,
+    };
+  }
+
+  #runStartVerdict(error: unknown): Verdict | "stopped" {
+    if (!(error instanceof CommandFailure)) {
+      throw error;
+    }
+    switch (error.kind) {
+      case "cancelled":
         return "stopped";
-      }
-      if (verdict.kind === "timeout") {
-        const silent = [
-          observation.senderRadioConfirmed ? null : this.#sender.identifier,
-          observation.receiverRadioConfirmed ? null : this.#receiver.identifier,
-        ].filter((node) => node !== null);
-        return {
-          failure:
-            silent.length === 1
-              ? `El nodo ${silent[0]} no confirmó los parámetros de radio a tiempo.`
-              : `Los nodos ${silent.join(" y ")} no confirmaron los parámetros de radio a tiempo.`,
-        };
-      }
-      if (
-        verdict.value === "confirmed" ||
-        observation.radioRefusalReason() !== "busy" ||
-        attempt >= this.#maximumBusyRetries
-      ) {
-        return verdict.value;
-      }
-      // A node still closing the previous run refuses radio as busy: wait and repeat.
-      const pause = await this.#waitFor(() => null, this.#busyRetryDelay);
-      if (pause.kind === "cancelled") {
-        return "stopped";
-      }
+      case "timeout":
+        return { failure: "El emisor no confirmó el comienzo de la corrida." };
+      case "refused":
+        return { failure: describeCommandFailureSentence(error) };
+      case "unsent":
+        return { failure: this.#recordTransportFailure(error) };
     }
   }
 
-  async #sendCommand(node: CampaignNode, command: string): Promise<string | null> {
+  #awaitOptions(timeoutMilliseconds: number) {
+    return {
+      timeSource: this.#timeSource,
+      timeoutMilliseconds,
+      signal: this.#stopController.signal,
+    };
+  }
+
+  /**
+   * A command that cannot reach a node means its connection is gone: marks the campaign to stop
+   * after the point and describes the failure.
+   */
+  #recordTransportFailure(failure: CommandFailure): string {
+    this.#transportFailed = true;
+    return describeCommandFailureSentence(failure);
+  }
+
+  async #sendCommand(node: NodePort, command: string): Promise<void> {
     try {
       await node.sendCommand(command);
-      return null;
-    } catch (error) {
+    } catch {
       this.#transportFailed = true;
-      const message = error instanceof Error ? error.message : String(error);
-      return `No se pudo enviar «${command}» al nodo ${node.identifier}: ${message}`;
     }
   }
 
@@ -603,7 +522,7 @@ export class CapacityTestCampaign {
         resolve(result);
       };
       const check = (): void => {
-        if (this.#stopRequested) {
+        if (this.#stopping) {
           finish({ kind: "cancelled" });
           return;
         }
@@ -690,10 +609,5 @@ export class CapacityTestCampaign {
       startHostTime: this.#startHostTime,
       endHostTime: this.#endHostTime,
     };
-  }
-
-  /** Recomputes the progress and the remaining time; the view calls it every second. */
-  refresh(): void {
-    this.#publish();
   }
 }

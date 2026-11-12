@@ -1,11 +1,12 @@
 <script lang="ts">
   import { DEFAULT_OPERATOR_PUBLIC_KEY } from "$lib/image/image-signing.ts";
   import { operatorKeyDefinition } from "$lib/image/image-preparation.ts";
-  import type { ConnectionView } from "$lib/state/control-panel.svelte.ts";
-  import type { ImageSigningSession } from "$lib/state/image-signing-session.svelte.ts";
+  import type { UpdateController } from "$lib/update/update-controller.svelte.ts";
 
-  /** `target` is the node chosen above, whose operator key the loaded one has to match. */
-  let { session, target }: { session: ImageSigningSession; target: ConnectionView | null } = $props();
+  /** The loaded key has to match the operator key of the node chosen above. */
+  let { update }: { update: UpdateController } = $props();
+
+  const session = $derived(update.session);
 
   let problem = $state<string | null>(null);
   let busy = $state(false);
@@ -19,14 +20,7 @@
    * after generating a pair: the private key to download exists only in this browser tab.
    */
   const expanded = $derived(key === null || (expandedChoice ?? session.keyOrigin === "generated"));
-  /** The operator key of the node chosen, when it differs from the loaded one. */
-  const mismatch = $derived.by(() => {
-    if (key === null || target === null || target.state.operatorKey === null) {
-      return null;
-    }
-    const nodeKeyIsDefault = target.state.operatorKey === "default";
-    return key.isDefault === nodeKeyIsDefault ? null : { node: target.state.identifier, nodeKeyIsDefault };
-  });
+  const mismatch = $derived(update.operatorKeyMismatch);
 
   async function importFile(file: File): Promise<void> {
     busy = true;
@@ -59,22 +53,6 @@
     } finally {
       busy = false;
     }
-  }
-
-  function downloadPrivateKey(): void {
-    const pem = session.generatedPrivateKeyPem;
-    if (pem === null) {
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([pem], { type: "application/x-pem-file" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = session.keyFileName ?? "operator_key.pem";
-    anchor.rel = "noopener";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
   function copy(text: string): void {
@@ -127,7 +105,7 @@
     <div id="operator-key-detail" class="flex flex-col gap-3">
       <p class="panel-hint">
         La clave privada Ed25519 queda solo en esta pestaña: al recargar el panel hay que volver a cargarla. El par
-        por defecto (keys/default_operator_key.pem) solo sirve para el banco.
+        por defecto (firmware/protocol/default_operator_key.pem) solo sirve para el banco.
       </p>
 
       <div class="flex flex-wrap items-center gap-2">
@@ -148,7 +126,7 @@
         </button>
         <button type="button" class="panel-button" disabled={busy} onclick={generate}>Generar un par nuevo</button>
         {#if key !== null}
-          <button type="button" class="panel-button-danger" disabled={busy} onclick={() => session.forgetKey()}>
+          <button type="button" class="panel-button panel-button-danger" disabled={busy} onclick={() => session.forgetKey()}>
             Olvidar la clave
           </button>
         {/if}
@@ -204,7 +182,7 @@
             </button>
           </div>
           <div>
-            <button type="button" class="panel-button-primary" onclick={downloadPrivateKey}>
+            <button type="button" class="panel-button panel-button-primary" onclick={() => session.downloadGeneratedKey()}>
               Descargar la clave privada
             </button>
           </div>

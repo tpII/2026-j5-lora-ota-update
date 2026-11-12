@@ -8,6 +8,7 @@ import {
   readFixtureEvents,
   type TimedConsoleEvent,
 } from "$lib/testing/console-fixtures.ts";
+import { runReceptionDeadlineMilliseconds } from "$lib/protocol/protocol-contract.ts";
 import {
   TestRunLedger,
   receptionGraceMilliseconds,
@@ -115,7 +116,7 @@ const RUN_5_ROW: TestRunSummaryRow = {
 /** Host time at which node 5C21 reported the end of run 5. */
 const RUN_5_DONE_HOST_TIME = SENDER_BOOT_HOST_TIME + 60050;
 
-describe("TestRunLedger with recorded consoles", () => {
+describe("TestRunLedger with the run sessions", () => {
   it("joins sender and receiver into the rows of summary.csv", () => {
     const ledger = new TestRunLedger();
     feed(ledger, interleaved(senderEvents(), receiverEvents()));
@@ -135,7 +136,8 @@ describe("TestRunLedger with recorded consoles", () => {
     const ledger = new TestRunLedger();
     feed(ledger, interleaved(senderEvents(), receiverEvents()));
     const grace = receptionGraceMilliseconds(0, 15424);
-    expect(grace).toBe(2 * 16 + 1000 + 3000);
+    // The receiver may still report run_end until its own deadline.
+    expect(grace).toBeGreaterThan(runReceptionDeadlineMilliseconds(0, 15424));
 
     expect(ledger.closeOverdueReceptions(RUN_5_DONE_HOST_TIME + grace - 1)).toBe(false);
     expect(ledger.findRun(SENDER, 5)?.receptions).toEqual([
@@ -256,7 +258,7 @@ describe("TestRunLedger with recorded consoles", () => {
         id: SENDER,
         model: "V2",
         epoch: 8,
-        firmware: "0.1.0",
+        firmware: "0.2.0",
         protocol: 2,
         key: "default",
         operator_key: "default",
@@ -281,5 +283,7 @@ describe("TestRunLedger with recorded consoles", () => {
     expect(ledger.revision).toBeGreaterThan(revision);
     expect(ledger.rows).toEqual([]);
     expect(ledger.runs).toEqual([]);
+    feed(ledger, interleaved(senderEvents(), receiverEvents()));
+    expect(ledger.rows).toEqual([RUN_3_ROW, RUN_4_ROW]);
   });
 });

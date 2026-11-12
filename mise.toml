@@ -1,4 +1,75 @@
 [tools]
 arduino-cli = "1.5.1"
+node = "26.13.1"
+# clang-format checks the firmware and formats the C++ that the generator of the protocol sources
+# writes: a different version could lay the generated headers out differently.
+"pipx:clang-format" = "23.1.3"
 typst = "0.15.1"
 viteplus = "1.0.0"
+
+# `mise run setup` once after `mise install`, and again after a change of firmware/sketch.yaml or of
+# the dependencies of the panel; `mise run check` runs every check of the repository, the board
+# builds included. libsodium and a C++ compiler come from the system (README.md).
+
+[tasks."setup:firmware"]
+description = "Install the core and the libraries of every profile of firmware/sketch.yaml"
+# A compilation database is enough for arduino-cli to download what a profile pins, ArduinoJson
+# included, which the host tests compile against.
+run = '''
+build_directory="$(mktemp -d)"
+trap 'rm -rf "${build_directory}"' EXIT
+for profile in $(node tools/list_build_profiles.mjs); do
+  arduino-cli compile --profile "${profile}" --only-compilation-database \
+    --build-path "${build_directory}/${profile}" firmware >/dev/null
+done
+'''
+
+[tasks."setup:control"]
+description = "Install the dependencies of the control panel"
+dir = "control"
+run = "vp install"
+
+[tasks.setup]
+description = "Install what the checks and the builds need beyond the tools of mise"
+depends = ["setup:firmware", "setup:control"]
+
+[tasks."check:protocol"]
+description = "Check the generated protocol sources and the values the documents repeat"
+# The generator formats the panel module with the Vite+ formatter of the panel dependencies.
+depends = ["setup:control"]
+run = "node tools/generate_protocol_sources.mjs --check"
+
+[tasks."check:firmware-format"]
+description = "Check the firmware sources against .clang-format"
+run = "find firmware -name '*.cpp' -o -name '*.h' -o -name '*.ino' | xargs clang-format --dry-run --Werror"
+
+[tasks."check:firmware"]
+description = "Run the firmware host tests"
+# The host tests also run the generator in --check mode, which needs the panel dependencies.
+depends = ["setup:firmware", "setup:control"]
+run = "bash firmware/tests/run_host_tests.sh"
+
+[tasks."check:firmware-boards"]
+description = "Compile the firmware for every board model, which covers the sources the host tests leave out"
+depends = ["build:firmware"]
+
+[tasks."check:control"]
+description = "Lint, type-check and test the control panel and the scripts of tools/"
+depends = ["setup:control"]
+dir = "control"
+run = ["vp check", "vp check {{config_root}}/tools", "vp run typecheck", "vp test run"]
+
+[tasks.check]
+description = "Run every check of the repository"
+depends = [
+  "check:protocol",
+  "check:firmware-format",
+  "check:firmware",
+  "check:firmware-boards",
+  "check:control",
+]
+
+[tasks."build:firmware"]
+description = "Compile the firmware for every board model"
+depends = ["setup:firmware"]
+run = "for profile in $(node tools/list_build_profiles.mjs); do arduino-cli compile --profile \"${profile}\" firmware; done"

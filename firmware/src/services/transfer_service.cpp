@@ -1,25 +1,34 @@
 #include "transfer_service.h"
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "../configuration.h"
-#include "../console/event_fields.h"
+#include "../encoding/hex_codec.h"
 #include "../radio/time_on_air.h"
 
 namespace firmware {
 
 static_assert(sizeof(J5_OPERATOR_PUBLIC_KEY) == 2 * OPERATOR_PUBLIC_KEY_SIZE + 1,
-              "J5_OPERATOR_PUBLIC_KEY must hold 64 hexadecimal digits");
-
-static constexpr size_t DEBUG_TEXT_CAPACITY = 64;
+              "J5_OPERATOR_PUBLIC_KEY must hold two hexadecimal digits per key byte");
 
 // The image of a load_image command, decoded before it is verified, so that a rejected image
 // leaves the available one untouched.
 static uint8_t consoleImage[MAXIMUM_IMAGE_SIZE];
 
-static void writeMissingIndices(JsonObject event, const ReportFields &report) {
+static uint32_t fragmentAirMillis(uint8_t size, const RadioSettings &settings) {
+  return roundUpToMillis(computeTimeOnAirMicros(fragmentFrameLength(size), settings));
+}
+
+static uint32_t reportAirMillis(uint8_t count, const RadioSettings &settings) {
+  return roundUpToMillis(computeTimeOnAirMicros(reportFrameLength(count), settings));
+}
+
+// The fields that report_sent and report_received share, after the node at the other end.
+static void writeReportFields(JsonObject event, const ReportMessage &report) {
+  event["version"] = report.version;
+  event["size"] = report.size;
+  event["count"] = report.count;
   JsonArray missing = event["missing"].to<JsonArray>();
   for (uint8_t index = 0; index < report.count; ++index) {
     if (isFragmentMarked(report, index)) {
@@ -28,24 +37,12 @@ static void writeMissingIndices(JsonObject event, const ReportFields &report) {
   }
 }
 
-const char *activationCauseName(ActivationCause cause) {
-  switch (cause) {
-  case ActivationCause::Console:
-    return "console";
-  case ActivationCause::Hello:
-    return "hello";
-  case ActivationCause::Neighbor:
-    return "neighbor";
-  }
-  return "console";
-}
-
-bool TransferService::begin(Console &console, DebugDisplay &display, const NeighborTable &neighbors,
-                            const RadioSettings &settings) {
-  console_ = &console;
-  display_ = &display;
+bool TransferService::begin(EventSink &events, NeighborTable &neighbors, TransferListener &listener,
+                            uint16_t nodeId) {
+  events_ = &events;
   neighbors_ = &neighbors;
-  settings_ = &settings;
+  listener_ = &listener;
+  nodeId_ = nodeId;
   reception_.reset();
   return verifier_.begin(J5_OPERATOR_PUBLIC_KEY);
 }
@@ -54,20 +51,19 @@ bool TransferService::begin(Console &console, DebugDisplay &display, const Neigh
 // Console
 
 ImageLoad TransferService::loadImage(const char *hexadecimal, char *detail, size_t detailCapacity) {
+  ImageRejection rejection(detail, detailCapacity);
   size_t length = 0;
   if (strlen(hexadecimal) > 2 * MAXIMUM_IMAGE_SIZE) {
-    snprintf(detail, detailCapacity, "format: longer than %u bytes",
-             static_cast<unsigned>(MAXIMUM_IMAGE_SIZE));
+    rejection.reject(ImageRejectionReason::Format, "longer than %u bytes",
+                     static_cast<unsigned>(MAXIMUM_IMAGE_SIZE));
     return ImageLoad::Invalid;
   }
   if (!decodeHexBytes(hexadecimal, consoleImage, sizeof(consoleImage), length)) {
-    snprintf(detail, detailCapacity, "format: not hexadecimal");
+    rejection.reject(ImageRejectionReason::Format, "not hexadecimal");
     return ImageLoad::Invalid;
   }
-  // First the format, then the version and last the signature and the program.
   ImageHeader header{};
-  if (verifier_.checkFormat(consoleImage, length, header, detail, detailCapacity) !=
-      ImageCheck::Valid) {
+  if (!verifier_.checkFormat(consoleImage, length, header, rejection)) {
     return ImageLoad::Invalid;
   }
   if (header.version <= availableVersion_) {
@@ -75,17 +71,17 @@ ImageLoad TransferService::loadImage(const char *hexadecimal, char *detail, size
              static_cast<unsigned long>(availableVersion_));
     return ImageLoad::VersionNotNewer;
   }
-  if (verifier_.checkSignatureAndProgram(consoleImage, header, detail, detailCapacity) !=
-      ImageCheck::Valid) {
+  ValidProgram program;
+  if (!verifier_.checkSignatureAndProgram(consoleImage, header, program, rejection)) {
     return ImageLoad::Invalid;
   }
-  installImage(consoleImage, length, header, false, 0);
+  installImage(consoleImage, length, header, program, ImageArrival::Console, 0);
   return ImageLoad::Accepted;
 }
 
-void TransferService::emitTransfer(uint32_t activeVersion) {
-  JsonObject event = console_->beginEvent("transfer");
-  event["active"] = activeVersion;
+void TransferService::reportTransfer() {
+  JsonObject event = events_->beginEvent(ConsoleEvent::Transfer);
+  event["active"] = listener_->activeVersion();
   event["available"] = availableVersion_;
   if (reception_.isActive()) {
     event["receiving"] = reception_.version();
@@ -95,33 +91,31 @@ void TransferService::emitTransfer(uint32_t activeVersion) {
     event["missing"] = nullptr;
   }
   event["fragment_size"] = fragmentSize_;
-  console_->writeEvent();
+  events_->writeEvent();
 }
 
 // ---------------------------------------------------------------------------------------------
 // Reception
 
-void TransferService::handleFragment(uint16_t source, const uint8_t *payload, size_t length,
-                                     float rssi, float snr, uint32_t nowMillis) {
-  FragmentFields fields{};
-  decodeFragment(payload, length, fields);
+void TransferService::handleFragment(uint16_t source, const FragmentMessage &fragment, float rssi,
+                                     float snr, const RadioSettings &settings, uint32_t nowMillis) {
   FragmentReceipt receipt{};
-  if (fields.version > availableVersion_) {
-    receipt = reception_.offer(source, fields, nowMillis, fragmentAirMillis(fields.size));
+  if (fragment.version > availableVersion_) {
+    receipt =
+        reception_.offer(source, fragment, nowMillis, fragmentAirMillis(fragment.size, settings));
   }
 
-  JsonObject event = console_->beginEvent("fragment_rx");
+  JsonObject event = events_->beginEvent(ConsoleEvent::FragmentRx);
   setNodeId(event, "src", source);
-  event["version"] = fields.version;
-  event["index"] = fields.index;
-  event["count"] = fields.count;
-  event["size"] = fields.size;
-  event["remaining"] = fields.remaining;
+  event["version"] = fragment.version;
+  event["index"] = fragment.index;
+  event["count"] = fragment.count;
+  event["size"] = fragment.size;
+  event["remaining"] = fragment.remaining;
   event["accepted"] = receipt.accepted;
   event["new"] = receipt.contributed;
-  event["rssi"] = roundToDecimals(rssi, 1);
-  event["snr"] = roundToDecimals(snr, 2);
-  console_->writeEvent();
+  setLinkQuality(event, rssi, snr);
+  events_->writeEvent();
 
   if (receipt.accepted && reception_.isComplete()) {
     completeReception(nowMillis);
@@ -130,43 +124,48 @@ void TransferService::handleFragment(uint16_t source, const uint8_t *payload, si
 
 void TransferService::completeReception(uint32_t nowMillis) {
   ImageHeader header{};
-  ImageCheck check =
-      verifier_.verify(reception_.image(), reception_.imageLength(), header, nullptr, 0);
+  ValidProgram program;
+  ImageRejection rejection;
+  bool valid =
+      verifier_.verify(reception_.image(), reception_.imageLength(), header, program, rejection);
   // The fragments name the version too; an image that claims another one is malformed.
-  if (check == ImageCheck::Valid && header.version != reception_.version()) {
-    check = ImageCheck::Format;
+  if (valid && header.version != reception_.version()) {
+    valid = rejection.reject(ImageRejectionReason::Format, "version does not match the fragments");
   }
-  if (check != ImageCheck::Valid) {
-    JsonObject event = console_->beginEvent("image_rejected");
+  if (!valid) {
+    JsonObject event = events_->beginEvent(ConsoleEvent::ImageRejected);
     event["version"] = reception_.version();
-    event["reason"] = imageCheckName(check);
+    const char *reason = imageRejectionReasonName(rejection.reason());
+    event["reason"] = reason;
     setNodeId(event, "src", reception_.lastSource());
-    console_->writeEvent();
-    debug("image v%lu %s", static_cast<unsigned long>(reception_.version()), imageCheckName(check));
+    events_->writeEvent();
+    events_->debug("image v%lu %s", static_cast<unsigned long>(reception_.version()), reason);
     // Discarded whole: the node waits for the version again.
     reception_.reset();
     return;
   }
 
-  installImage(reception_.image(), reception_.imageLength(), header, true, nowMillis);
+  installImage(reception_.image(), reception_.imageLength(), header, program, ImageArrival::Radio,
+               nowMillis);
   // A neighbor that already runs the version orders the activation without waiting for its next
   // HELLO (docs/adrs/0011-implicit-activation-without-rollback.md).
-  for (size_t index = 0; index < neighbors_->count(); ++index) {
-    const Neighbor &neighbor = neighbors_->at(index);
-    if (neighbor.version == header.version) {
-      requestActivation(ActivationCause::Neighbor, neighbor.id);
+  for (const Neighbor &neighbor : neighbors_->neighbors(nowMillis)) {
+    if (neighbor.announced.version == header.version) {
+      listener_->onActivationWanted(ActivationCause::Neighbor, neighbor.id, nowMillis);
       break;
     }
   }
 }
 
 void TransferService::installImage(const uint8_t *image, size_t length, const ImageHeader &header,
-                                   bool viaRadio, uint32_t nowMillis) {
-  JsonObject event = console_->beginEvent("image");
+                                   const ValidProgram &program, ImageArrival arrival,
+                                   uint32_t nowMillis) {
+  const bool viaRadio = arrival == ImageArrival::Radio;
+  JsonObject event = events_->beginEvent(ConsoleEvent::Image);
   event["version"] = header.version;
   event["size"] = header.programLength;
   event["image_size"] = length;
-  event["via"] = viaRadio ? "radio" : "console";
+  event["via"] = imageArrivalName(arrival);
   if (viaRadio) {
     setNodeId(event, "src", reception_.lastSource());
     event["fragments"] = reception_.fragmentCount();
@@ -178,66 +177,50 @@ void TransferService::installImage(const uint8_t *image, size_t length, const Im
     event["reports"] = 0;
     event["duration"] = 0;
   }
-  console_->writeEvent();
+  events_->writeEvent();
 
-  // The available image is the only one the node sends: the bursts of the previous one end here.
-  if (bursts_.hasStartedBurst()) {
-    emitBurstDone();
-  }
-  memcpy(availableImage_, image, length);
+  // The header and the signature as they came; the program through the copy of the valid one.
+  memcpy(availableImage_, image, IMAGE_HEADER_SIZE);
+  availableProgram_ = program.copyTo(availableImage_ + IMAGE_HEADER_SIZE);
+  memcpy(availableImage_ + IMAGE_HEADER_SIZE + program.length(),
+         image + IMAGE_HEADER_SIZE + program.length(), IMAGE_SIGNATURE_SIZE);
   availableLength_ = length;
   availableVersion_ = header.version;
-  availableHeader_ = header;
   // A reception survives only for a version newer than the available one.
   if (reception_.isActive() && reception_.version() <= availableVersion_) {
     reception_.reset();
   }
-  bursts_.setImage(availableImage_, availableLength_, availableVersion_);
-  bursts_.requestFullBurst(fragmentSize_, viaRadio ? BurstCause::Complete : BurstCause::Load, 0);
-  versionChanged_ = true;
-  debug("image v%lu %s", static_cast<unsigned long>(availableVersion_),
-        viaRadio ? "radio" : "console");
+  // The available image is the only one the node sends: the bursts of the previous one end here.
+  BurstSummary ended{};
+  if (bursts_.setImage(availableImage_, availableLength_, availableVersion_, ended)) {
+    emitBurstDone(ended);
+  }
+  bursts_.requestFullBurst(fragmentSize_, viaRadio ? BurstCause::Complete : BurstCause::Load,
+                           NO_NODE_ID);
+  listener_->onAvailableVersionChanged();
+  events_->debug("image v%lu %s", static_cast<unsigned long>(availableVersion_),
+                 imageArrivalName(arrival));
 }
 
 // ---------------------------------------------------------------------------------------------
 // Reports and HELLO
 
-void TransferService::handleReport(uint16_t source, const uint8_t *payload, size_t length) {
-  ReportFields report{};
-  decodeReport(payload, length, report);
-  emitReport("report_received", "src", source, report, 0);
-  bursts_.mergeReport(report, source);
+void TransferService::handleReport(const FrameHeader &header, const ReportMessage &report) {
+  if (header.destination != nodeId_) {
+    return;
+  }
+  emitReportReceived(header.source, report);
+  bursts_.mergeReport(report, header.source);
 }
 
-void TransferService::handleHello(uint16_t source, uint32_t activeVersion,
-                                  uint32_t availableVersion, uint32_t ownActiveVersion) {
-  if (availableVersion < availableVersion_ && !bursts_.hasBurst()) {
+void TransferService::onNeighborHello(uint16_t source, const AnnouncedState &announced,
+                                      uint32_t nowMillis) {
+  if (announced.available < availableVersion_ && !bursts_.hasBurst()) {
     bursts_.requestFullBurst(fragmentSize_, BurstCause::Hello, source);
   }
-  if (activeVersion == availableVersion_ && availableVersion_ > ownActiveVersion) {
-    requestActivation(ActivationCause::Hello, source);
+  if (announced.version == availableVersion_) {
+    listener_->onActivationWanted(ActivationCause::Hello, source, nowMillis);
   }
-}
-
-void TransferService::requestActivation(ActivationCause cause, uint16_t source) {
-  activationRequested_ = true;
-  activation_.cause = cause;
-  activation_.source = source;
-}
-
-bool TransferService::takeVersionChange() {
-  const bool changed = versionChanged_;
-  versionChanged_ = false;
-  return changed;
-}
-
-bool TransferService::takeActivationRequest(ActivationRequest &request) {
-  if (!activationRequested_) {
-    return false;
-  }
-  activationRequested_ = false;
-  request = activation_;
-  return true;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -247,106 +230,92 @@ bool TransferService::isBurstInProgress(uint32_t nowMillis) const {
   return bursts_.hasBurst() || reception_.isBurstInProgress(nowMillis);
 }
 
-size_t TransferService::buildNextFrame(uint32_t nowMillis, MessageType &type, uint16_t &destination,
-                                       uint8_t *payload) {
+size_t TransferService::buildNextFrame(uint32_t nowMillis, const RadioSettings &settings,
+                                       FrameDescription &description, uint8_t *payload) {
   // The receiver stops reporting while the node that sends is out of its neighbor table, and
   // resumes when it hears that node again.
-  if (reception_.isReportDue(nowMillis) && neighbors_->contains(reception_.lastSource())) {
-    ReportFields report{};
+  if (reception_.isReportDue(nowMillis) &&
+      neighbors_->contains(reception_.lastSource(), nowMillis)) {
+    ReportMessage report{};
     reception_.buildReport(report);
-    reception_.onReportSent(nowMillis, reportAirMillis(report.count) +
-                                           fragmentAirMillis(report.size) + TRANSFER_MARGIN_MS);
-    emitReport("report_sent", "dst", reception_.lastSource(), report, reception_.reportCount());
-    type = MessageType::Report;
-    destination = reception_.lastSource();
+    reception_.onReportSent(nowMillis, reportAirMillis(report.count, settings) +
+                                           fragmentAirMillis(report.size, settings) +
+                                           TRANSFER_MARGIN_MS);
+    emitReportSent(report);
+    description.type = MessageType::Report;
+    description.destination = reception_.lastSource();
+    description.version = report.version;
     return encodeReport(report, payload);
   }
-  if (bursts_.isFragmentDue()) {
-    bool burstStarted = false;
-    const size_t length = bursts_.buildNextFragment(payload, burstStarted);
-    if (length == 0) {
-      return 0;
-    }
-    if (burstStarted) {
-      const Burst &burst = bursts_.currentBurst();
-      JsonObject event = console_->beginEvent("burst_start");
-      event["version"] = bursts_.version();
-      event["size"] = burst.size;
-      event["count"] = burst.initialCount;
-      event["cause"] = burstCauseName(burst.cause);
-      if (burst.cause == BurstCause::Hello || burst.cause == BurstCause::Report) {
-        setNodeId(event, "trigger", burst.trigger);
-      } else {
-        event["trigger"] = nullptr;
-      }
-      console_->writeEvent();
-    }
-    type = MessageType::Fragment;
-    destination = BROADCAST_NODE_ID;
-    return length;
+  FragmentMessage fragment{};
+  bool burstStarted = false;
+  BurstSummary burst{};
+  if (!bursts_.takeNextFragment(fragment, burstStarted, burst)) {
+    return 0;
   }
-  return 0;
+  if (burstStarted) {
+    emitBurstStart(burst);
+  }
+  description.type = MessageType::Fragment;
+  description.destination = BROADCAST_NODE_ID;
+  description.version = fragment.version;
+  description.index = fragment.index;
+  return encodeFragment(fragment, payload);
 }
 
-void TransferService::onFragmentStarted(int64_t startMicros) {
-  bursts_.onFragmentStarted(startMicros);
-}
-
-void TransferService::onFragmentSent(uint32_t version, int64_t endMicros) {
-  if (bursts_.onFragmentSent(version, endMicros)) {
-    emitBurstDone();
+void TransferService::onTransmitStarted(const FrameDescription &frame,
+                                        const TransmitTiming &timing) {
+  if (frame.type == MessageType::Fragment) {
+    bursts_.onFragmentStarted(timing.startMicros);
   }
 }
 
-void TransferService::onFragmentFailed(uint32_t version) {
-  if (bursts_.onFragmentFailed(version)) {
-    emitBurstDone();
+void TransferService::onTransmitDone(const FrameDescription &frame, const TransmitTiming &timing) {
+  BurstSummary ended{};
+  if (frame.type == MessageType::Fragment && bursts_.onFragmentSent(timing.endMicros, ended)) {
+    emitBurstDone(ended);
   }
 }
 
-void TransferService::emitBurstDone() {
-  const Burst &burst = bursts_.currentBurst();
-  JsonObject event = console_->beginEvent("burst_done");
-  event["version"] = bursts_.version();
+void TransferService::onTransmitFailed(const FrameDescription &frame) {
+  BurstSummary ended{};
+  if (frame.type == MessageType::Fragment && bursts_.onFragmentFailed(ended)) {
+    emitBurstDone(ended);
+  }
+}
+
+void TransferService::emitBurstStart(const BurstSummary &burst) {
+  JsonObject event = events_->beginEvent(ConsoleEvent::BurstStart);
+  event["version"] = burst.version;
+  event["size"] = burst.size;
+  event["count"] = burst.initialCount;
+  event["cause"] = burstCauseName(burst.cause);
+  setOptionalNodeId(event, "trigger", burst.trigger);
+  events_->writeEvent();
+}
+
+void TransferService::emitBurstDone(const BurstSummary &burst) {
+  JsonObject event = events_->beginEvent(ConsoleEvent::BurstDone);
+  event["version"] = burst.version;
   event["size"] = burst.size;
   event["sent"] = burst.sent;
-  event["duration"] = burst.sent > 0 ? burst.lastEndMicros - burst.firstStartMicros : 0;
-  console_->writeEvent();
-  bursts_.finishBurst();
+  event["duration"] = burst.durationMicros;
+  events_->writeEvent();
 }
 
-void TransferService::emitReport(const char *name, const char *peerKey, uint16_t peer,
-                                 const ReportFields &report, int round) {
-  JsonObject event = console_->beginEvent(name);
-  setNodeId(event, peerKey, peer);
-  event["version"] = report.version;
-  event["size"] = report.size;
-  event["count"] = report.count;
-  writeMissingIndices(event, report);
-  if (round > 0) {
-    event["round"] = round;
-  }
-  console_->writeEvent();
+void TransferService::emitReportSent(const ReportMessage &report) {
+  JsonObject event = events_->beginEvent(ConsoleEvent::ReportSent);
+  setNodeId(event, "dst", reception_.lastSource());
+  writeReportFields(event, report);
+  event["round"] = reception_.reportCount();
+  events_->writeEvent();
 }
 
-uint32_t TransferService::fragmentAirMillis(uint8_t size) const {
-  return roundUpToMillis(
-      computeTimeOnAirMicros(FRAME_OVERHEAD + FRAGMENT_HEADER_SIZE + size, *settings_));
-}
-
-uint32_t TransferService::reportAirMillis(uint8_t count) const {
-  return roundUpToMillis(computeTimeOnAirMicros(
-      FRAME_OVERHEAD + REPORT_FIXED_SIZE + reportBitmapSize(count), *settings_));
-}
-
-void TransferService::debug(const char *format, ...) {
-  char text[DEBUG_TEXT_CAPACITY];
-  va_list arguments;
-  va_start(arguments, format);
-  vsnprintf(text, sizeof(text), format, arguments);
-  va_end(arguments);
-  console_->writeDebug(text);
-  display_->appendLine(text);
+void TransferService::emitReportReceived(uint16_t source, const ReportMessage &report) {
+  JsonObject event = events_->beginEvent(ConsoleEvent::ReportReceived);
+  setNodeId(event, "src", source);
+  writeReportFields(event, report);
+  events_->writeEvent();
 }
 
 } // namespace firmware

@@ -13,32 +13,9 @@ import {
 import type { NodeIdentifier } from "$lib/console/console-event.ts";
 import { createSimulatedPair, type SimulatedNodeBehavior } from "$lib/testing/simulated-node.ts";
 import { TestRunLedger } from "./test-run-ledger.ts";
-import { ManualTimeSource } from "$lib/utils/time-source.ts";
+import { ManualTimeSource, flushAsyncWork } from "$lib/testing/manual-time-source.ts";
 
 const START_TIME = 1_759_850_000_000;
-
-/** Lets every pending promise continuation run. */
-function flushAsyncWork(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** Runs the campaign, moving the manual clock forward whenever it waits for a timer. */
-async function runToEnd(
-  campaign: CapacityTestCampaign,
-  clock: ManualTimeSource,
-): Promise<CampaignSnapshot> {
-  let settled = false;
-  const result = campaign.run().finally(() => {
-    settled = true;
-  });
-  for (let step = 0; step < 10_000 && !settled; step += 1) {
-    await flushAsyncWork();
-    if (!settled) {
-      clock.advanceBy(250);
-    }
-  }
-  return result;
-}
 
 interface Scenario {
   readonly clock: ManualTimeSource;
@@ -73,8 +50,8 @@ function createScenario(
 
 describe("CapacityTestCampaign", () => {
   it("measures every point of the default plan", async () => {
-    const { campaign, sender, receiver } = createScenario({});
-    const snapshot = await campaign.run();
+    const { campaign, clock, sender, receiver } = createScenario({});
+    const snapshot = await clock.advanceUntilSettled(campaign.run());
 
     expect(snapshot.status).toBe("finished");
     expect(snapshot.finishedCount).toBe(6);
@@ -103,11 +80,12 @@ describe("CapacityTestCampaign", () => {
       [7, 8, 9, 10, 11, 12].map((sf) => `radio freq 915.9 sf ${sf} bw 500 cr 5 preamble 8 sync 18`),
     );
     expect(sender.commands.filter((command) => command.startsWith("run"))).toHaveLength(6);
-  });
+    // 1800 packets on the manual clock, one timer call each and its pauses.
+  }, 30_000);
 
   it("feeds a ledger that yields one summary row per point", async () => {
-    const { campaign, sender, receiver } = createScenario(
-      { spreadingFactors: [7, 9], packetCount: 20 },
+    const { campaign, clock, sender, receiver } = createScenario(
+      { spreadingFactorRange: { first: 7, last: 8 }, packetCount: 20 },
       {},
       { losesPacket: (_run, index) => index === 3 },
     );
@@ -120,7 +98,7 @@ describe("CapacityTestCampaign", () => {
     await sender.sendCommand("status");
     await receiver.sendCommand("status");
     await flushAsyncWork();
-    await campaign.run();
+    await clock.advanceUntilSettled(campaign.run());
 
     expect(
       ledger.rows.map((row) => [
@@ -136,7 +114,7 @@ describe("CapacityTestCampaign", () => {
       ]),
     ).toEqual([
       [1, 7, 500, 239, 20, 20, 19, 0.95, "complete"],
-      [2, 9, 500, 239, 20, 20, 19, 0.95, "complete"],
+      [2, 8, 500, 239, 20, 20, 19, 0.95, "complete"],
     ]);
     expect(ledger.rows[0]).toMatchObject({
       sender_model: "V2",
@@ -148,32 +126,38 @@ describe("CapacityTestCampaign", () => {
   });
 
   it("marks a point failed when a node refuses the radio settings and continues", async () => {
-    const { campaign } = createScenario(
-      { spreadingFactors: [7, 8] },
+    const { campaign, clock } = createScenario(
+      { spreadingFactorRange: { first: 7, last: 8 } },
       {},
       { radioRefusal: { reason: "out_of_range", times: 1 } },
     );
-    const snapshot = await campaign.run();
+    const snapshot = await clock.advanceUntilSettled(campaign.run());
     expect(snapshot.results.map((result) => [result.status, result.failure])).toEqual([
-      ["failed", "El nodo 3A7F rechazó el comando radio (out_of_range)."],
+      [
+        "failed",
+        "El nodo 3A7F rechazó «radio freq 915.9 sf 7 bw 500 cr 5 preamble 8 sync 18» (out_of_range).",
+      ],
       ["completed", null],
     ]);
   });
 
   it("repeats the radio command while a node answers busy", async () => {
     const { campaign, clock, receiver } = createScenario(
-      { spreadingFactors: [7] },
+      { spreadingFactorRange: { first: 7, last: 7 } },
       {},
       { radioRefusal: { reason: "busy", times: 2 } },
     );
-    const snapshot = await runToEnd(campaign, clock);
+    const snapshot = await clock.advanceUntilSettled(campaign.run());
     expect(snapshot.results[0]?.status).toBe("completed");
     expect(receiver.commands.filter((command) => command.startsWith("radio"))).toHaveLength(3);
   });
 
   it("marks a point failed when a node does not confirm the radio settings in time", async () => {
-    const { campaign, clock } = createScenario({ spreadingFactors: [7] }, { ignoresRadio: true });
-    const snapshot = await runToEnd(campaign, clock);
+    const { campaign, clock } = createScenario(
+      { spreadingFactorRange: { first: 7, last: 7 } },
+      { ignoresRadio: true },
+    );
+    const snapshot = await clock.advanceUntilSettled(campaign.run());
     expect(snapshot.results[0]).toMatchObject({
       status: "failed",
       failure: "El nodo 5C21 no confirmó los parámetros de radio a tiempo.",
@@ -182,22 +166,22 @@ describe("CapacityTestCampaign", () => {
 
   it("records a run the receiver did not hear at all", async () => {
     const { campaign, clock, silentReceptions } = createScenario(
-      { spreadingFactors: [7], packetCount: 10 },
+      { spreadingFactorRange: { first: 7, last: 7 }, packetCount: 10 },
       {},
       { losesPacket: () => true },
     );
-    const snapshot = await runToEnd(campaign, clock);
+    const snapshot = await clock.advanceUntilSettled(campaign.run());
     expect(snapshot.results[0]).toMatchObject({ status: "completed", run: 1, received: 0 });
     expect(silentReceptions).toEqual([["5C21", 1, "3A7F"]]);
   });
 
   it("marks a point failed when the receiver heard packets but never reported run_end", async () => {
     const { campaign, clock } = createScenario(
-      { spreadingFactors: [7], packetCount: 10 },
+      { spreadingFactorRange: { first: 7, last: 7 }, packetCount: 10 },
       {},
       { omitsRunEnd: true },
     );
-    const snapshot = await runToEnd(campaign, clock);
+    const snapshot = await clock.advanceUntilSettled(campaign.run());
     expect(snapshot.results[0]).toMatchObject({
       status: "failed",
       failure: "El receptor recibió 10 paquetes, pero no informó el fin de la corrida.",
@@ -205,11 +189,17 @@ describe("CapacityTestCampaign", () => {
   });
 
   it("pauses after the point in course and resumes", async () => {
-    const { campaign } = createScenario({ spreadingFactors: [7, 8, 9], packetCount: 5 });
+    const { campaign, clock } = createScenario({
+      spreadingFactorRange: { first: 7, last: 9 },
+      packetCount: 5,
+    });
     const finished = campaign.run();
     campaign.pause();
     expect(campaign.snapshot.status).toBe("pausing");
-    await flushAsyncWork();
+    while (campaign.snapshot.status === "pausing") {
+      await flushAsyncWork();
+      clock.advanceToNextCall();
+    }
     expect(campaign.snapshot.status).toBe("paused");
     expect(campaign.snapshot.results.map((result) => result.status)).toEqual([
       "completed",
@@ -217,14 +207,14 @@ describe("CapacityTestCampaign", () => {
       "pending",
     ]);
     campaign.resume();
-    const snapshot = await finished;
+    const snapshot = await clock.advanceUntilSettled(finished);
     expect(snapshot.status).toBe("finished");
     expect(snapshot.finishedCount).toBe(3);
   });
 
   it("stops the run in course and leaves the remaining points pending", async () => {
     const { campaign, sender } = createScenario(
-      { spreadingFactors: [7, 8], packetCount: 5 },
+      { spreadingFactorRange: { first: 7, last: 8 }, packetCount: 5 },
       { holdsRun: true },
     );
     const finished = campaign.run();
@@ -238,14 +228,14 @@ describe("CapacityTestCampaign", () => {
   });
 
   it("estimates the remaining time from the plan and from the points already measured", async () => {
-    const configuration = { spreadingFactors: [7, 8, 9], packetCount: 50 };
-    const { campaign, snapshots } = createScenario(configuration);
+    const configuration = { spreadingFactorRange: { first: 7, last: 9 }, packetCount: 50 } as const;
+    const { campaign, clock, snapshots } = createScenario(configuration);
     const total = estimatePlanDurationMilliseconds(
       buildCapacityTestPlan({ ...DEFAULT_CAPACITY_TEST_CONFIGURATION, ...configuration }),
     );
     expect(campaign.snapshot.estimatedRemainingMilliseconds).toBe(Math.round(total));
     expect(campaign.snapshot.progress).toBe(0);
-    await campaign.run();
+    await clock.advanceUntilSettled(campaign.run());
     const remaining = snapshots.map((snapshot) => snapshot.estimatedRemainingMilliseconds);
     expect(remaining.at(-1)).toBe(0);
     const afterFirstPoint = snapshots.find((snapshot) => snapshot.finishedCount === 1);
@@ -253,8 +243,26 @@ describe("CapacityTestCampaign", () => {
     expect(afterFirstPoint?.progress).toBeGreaterThan(0);
   });
 
+  it("publishes its progress every second while a point transmits, without being asked", async () => {
+    const { campaign, clock, snapshots } = createScenario({
+      spreadingFactorRange: { first: 12, last: 12 },
+      packetCount: 20,
+    });
+    await clock.advanceUntilSettled(campaign.run());
+    const transmitting = snapshots.filter(
+      (snapshot) => snapshot.results[0]?.status === "transmitting",
+    );
+    const progress = transmitting.map((snapshot) => snapshot.progress);
+    // The run of the point takes several seconds at SF12, and no event moves the progress.
+    expect(new Set(progress).size).toBeGreaterThan(3);
+    expect(progress).toEqual([...progress].sort((first, second) => first - second));
+  });
+
   it("stops when a command cannot reach a node", async () => {
-    const { campaign, receiver } = createScenario({ spreadingFactors: [7, 8, 9], packetCount: 5 });
+    const { campaign, clock, receiver } = createScenario({
+      spreadingFactorRange: { first: 7, last: 9 },
+      packetCount: 5,
+    });
     const sendCommand = receiver.sendCommand.bind(receiver);
     let radioCommands = 0;
     receiver.sendCommand = (command) => {
@@ -263,7 +271,7 @@ describe("CapacityTestCampaign", () => {
       }
       return sendCommand(command);
     };
-    const snapshot = await campaign.run();
+    const snapshot = await clock.advanceUntilSettled(campaign.run());
     expect(snapshot.status).toBe("stopped");
     expect(snapshot.results.map((result) => result.status)).toEqual([
       "completed",
@@ -284,7 +292,7 @@ describe("CapacityTestCampaign", () => {
   });
 
   it("can be stopped before it starts", async () => {
-    const { campaign } = createScenario({ spreadingFactors: [7] });
+    const { campaign } = createScenario({ spreadingFactorRange: { first: 7, last: 7 } });
     campaign.stop();
     expect(campaign.snapshot.status).toBe("stopped");
     await expect(campaign.run()).rejects.toThrow();

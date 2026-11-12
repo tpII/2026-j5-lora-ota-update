@@ -1,29 +1,20 @@
 <script lang="ts">
   import MeasurementExportAction from "./MeasurementExportAction.svelte";
   import MeasurementSheetForm from "./MeasurementSheetForm.svelte";
-  import type { UpdatePhase } from "$lib/measurements/update-metrics.ts";
-  import { formatNumber, formatShortClockTime } from "$lib/utils/format.ts";
-  import { countWithNoun } from "$lib/utils/labels.ts";
+  import type { UpdatePhase } from "$lib/update/update-metrics.ts";
+  import { countWithNoun, formatNumber, formatShortClockTime } from "$lib/utils/format.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
-  let { panel, active }: { panel: ControlPanel; active: boolean } = $props();
+  let { panel }: { panel: ControlPanel } = $props();
 
   /** Null follows the last version loaded. */
   let chosenVersion = $state<number | null>(null);
 
-  const versions = $derived(panel.updateVersions);
+  const versions = $derived(panel.update.record.versions);
   const version = $derived(
     chosenVersion !== null && versions.includes(chosenVersion) ? chosenVersion : (versions.at(-1) ?? null),
   );
-  // Computed again every second while the section is visible: the journal can hold many events.
-  const metrics = $derived.by(() => {
-    if (!active || version === null) {
-      return null;
-    }
-    void panel.now;
-    void panel.journalSize;
-    return panel.measureUpdate(version);
-  });
+  const metrics = $derived(panel.update.record.metrics.find((measured) => measured.version === version) ?? null);
 
   function formatSeconds(milliseconds: number | null | undefined): string {
     return milliseconds === null || milliseconds === undefined ? "—" : `${formatNumber(milliseconds / 1000, 3)} s`;
@@ -80,13 +71,13 @@
 
         <dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2">
           <div class="panel-rule pt-2">
-            <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">M1, convergencia</dt>
+            <dt class="panel-term">M1, convergencia</dt>
             <dd class="text-lg font-semibold">{describePhase(convergence.total)}</dd>
             <dd class="text-xs text-muted">distribución: {describePhase(convergence.distribution)}</dd>
             <dd class="text-xs text-muted">activación: {describePhase(convergence.activation)}</dd>
           </div>
           <div class="panel-rule pt-2">
-            <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">M2, eficiencia de la inundación</dt>
+            <dt class="panel-term">M2, eficiencia de la inundación</dt>
             <dd class="text-lg font-semibold">
               {efficiency.ratio === null ? "—" : `${formatNumber(efficiency.ratio, 2)} veces el mínimo`}
             </dd>
@@ -159,17 +150,11 @@
         </div>
       {/if}
 
-      <MeasurementExportAction
-        {panel}
-        test="update"
-        files="metadata.json (con las órdenes load_image y activate del panel), events.jsonl (todos los eventos del registro) y summary.csv (una fila por receptor de cada actualización cargada desde que se descartó el registro)"
-        fileCount="tres"
-        exportFiles={(description) => panel.exportUpdates(description)}
-      />
+      <MeasurementExportAction {panel} kind="update" />
     {/if}
   </div>
 
   {#if versions.length > 0}
-    <MeasurementSheetForm {panel} />
+    <MeasurementSheetForm sheet={panel.measurementSheet} />
   {/if}
 </div>

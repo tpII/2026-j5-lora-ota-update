@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { countWithNoun } from "$lib/utils/labels.ts";
-  import { PROGRAM_CAPACITY } from "$lib/vm/instruction-set.ts";
+  import { countWithNoun } from "$lib/utils/format.ts";
+  import { PROGRAM_CAPACITY, REGISTER_COUNT } from "$lib/protocol/protocol-contract.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
 
   let { draft }: { draft: ProgramDraft } = $props();
@@ -19,7 +19,7 @@
     ></textarea>
   </label>
   <p class="panel-hint">
-    Una instrucción por línea, operandos separados por comas o espacios, registros R1 a R4, enteros en
+    Una instrucción por línea, operandos separados por comas o espacios, registros R1 a R{REGISTER_COUNT}, enteros en
     decimal o con 0x y comentarios después de «;;».
   </p>
   {#if assembly.valid}

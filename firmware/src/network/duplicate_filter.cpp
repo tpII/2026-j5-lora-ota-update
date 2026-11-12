@@ -1,5 +1,7 @@
 #include "duplicate_filter.h"
 
+#include "least_recently_heard.h"
+
 namespace firmware {
 
 bool DuplicateFilter::acceptIfNew(uint16_t source, uint8_t epoch, uint16_t sequence,
@@ -34,16 +36,12 @@ DuplicateFilter::Entry *DuplicateFilter::findEntry(uint16_t source) {
 }
 
 DuplicateFilter::Entry *DuplicateFilter::allocateEntry() {
-  Entry *oldest = &entries_[0];
   for (Entry &entry : entries_) {
     if (!entry.used) {
       return &entry;
     }
-    if (static_cast<int32_t>(entry.lastHeardMillis - oldest->lastHeardMillis) < 0) {
-      oldest = &entry;
-    }
   }
-  return oldest;
+  return leastRecentlyHeard(entries_, MAXIMUM_TRACKED_SOURCES);
 }
 
 } // namespace firmware

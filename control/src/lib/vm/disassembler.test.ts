@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import { assemble } from "./assembler.ts";
 import { disassemble } from "./disassembler.ts";
-import { parseHex } from "$lib/image/image-format.ts";
-import { TEST_VECTOR_PROGRAM } from "$lib/testing/image-test-vector.ts";
+import { parseHex } from "$lib/utils/hex.ts";
+import signedImageVector from "../../../../firmware/protocol/test-vectors/signed-image.json";
 
 function codeOf(source: string): Uint8Array {
   const result = assemble(source);
@@ -24,7 +24,7 @@ describe("disassemble", () => {
   it("gives back the same bytes when the source is assembled again", () => {
     for (const code of [
       codeOf("LOAD R4, -2147483648\nSHRR R4, R1\nMODI R2, 7"),
-      parseHex(TEST_VECTOR_PROGRAM) ?? new Uint8Array(),
+      parseHex(signedImageVector.program) ?? new Uint8Array(),
     ]) {
       const result = disassemble(code);
       if (!result.valid) {

@@ -42,7 +42,6 @@ const PROGRESSIVE_WEB_APPLICATION_OPTIONS: Partial<VitePWAOptions> = {
   },
 };
 
-// https://vite.dev/config/
 export default defineConfig({
   // Relative asset paths, so the panel works from any directory of the HTTPS host.
   base: "./",
@@ -56,16 +55,17 @@ export default defineConfig({
     __PANEL_VERSION__: JSON.stringify(packageManifest.version),
   },
   fmt: {
-    ignorePatterns: ["dist/**"],
+    ignorePatterns: ["dist/**", "dist-simulation/**"],
   },
   lint: {
-    ignorePatterns: ["dist/**"],
+    ignorePatterns: ["dist/**", "dist-simulation/**"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     options: { typeAware: true, typeCheck: true },
   },
   test: {
     include: ["src/**/*.test.ts"],
+    setupFiles: ["src/lib/testing/event-shape-check.setup.ts"],
   },
   plugins: lazyPlugins(() => [
     tailwindcss(),

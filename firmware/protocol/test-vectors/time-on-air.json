@@ -1,0 +1,12 @@
+{
+  "cases": [
+    { "frameLength": 33, "spreadingFactor": 7, "bandwidthKilohertz": 125, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 71.9, "expectedMicroseconds": 71936 },
+    { "frameLength": 33, "spreadingFactor": 9, "bandwidthKilohertz": 125, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 246.8, "expectedMicroseconds": 246784 },
+    { "frameLength": 33, "spreadingFactor": 12, "bandwidthKilohertz": 125, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 1810.4, "expectedMicroseconds": 1810432 },
+    { "frameLength": 81, "spreadingFactor": 7, "bandwidthKilohertz": 125, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 143.6, "expectedMicroseconds": 143616 },
+    { "frameLength": 255, "spreadingFactor": 7, "bandwidthKilohertz": 125, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 399.6, "expectedMicroseconds": 399616 },
+    { "frameLength": 255, "spreadingFactor": 12, "bandwidthKilohertz": 125, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 9019.4, "expectedMicroseconds": 9019392 },
+    { "frameLength": 32, "spreadingFactor": 7, "bandwidthKilohertz": 500, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 18.0, "expectedMicroseconds": 17984 },
+    { "frameLength": 255, "spreadingFactor": 7, "bandwidthKilohertz": 500, "codingRateDenominator": 5, "preambleLength": 8, "expectedMilliseconds": 99.9, "expectedMicroseconds": 99904 }
+  ]
+}

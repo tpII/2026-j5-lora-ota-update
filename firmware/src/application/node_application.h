@@ -1,173 +1,75 @@
 #ifndef J5_NODE_APPLICATION_H
 #define J5_NODE_APPLICATION_H
 
-#include <SimpleCLI.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "../board/board_support.h"
-#include "../configuration.h"
+#include "../console/command_line.h"
 #include "../console/console.h"
+#include "../console/event_sink.h"
 #include "../console/serial_transport.h"
 #include "../console/wireless_transport.h"
 #include "../display/debug_display.h"
-#include "../network/duplicate_filter.h"
-#include "../network/frame.h"
-#include "../network/neighbor_table.h"
 #include "../network/node_identity.h"
+#include "../protocol/protocol_contract.h"
 #include "../radio/radio_link.h"
 #include "../radio/radio_settings.h"
-#include "../services/echo_service.h"
-#include "../services/presence_service.h"
-#include "../services/test_run_service.h"
-#include "../services/transfer_service.h"
-#include "../vm/virtual_machine.h"
+#include "console_commands.h"
+#include "node_services.h"
 
 namespace firmware {
 
-// The node: a single main loop that serves the radio first, then the transmission queue, the
-// console, the timers, a slice of the virtual machine and finally the display.
-class NodeApplication {
+// The node: the hardware, the services and the main loop. Each pass reads the clock once and
+// hands that reading to every module it serves.
+class NodeApplication : private CommandTarget {
 public:
   void begin();
   void poll();
 
 private:
-  struct OutgoingFrame {
-    uint8_t data[MAXIMUM_FRAME_SIZE];
-    size_t length;
-  };
-
-  struct EchoReplyRecord {
-    bool pending;
-    uint16_t source;
-    uint16_t number;
-    uint16_t size;
-    float rssi;
-    float snr;
-  };
-
-  // Radio.
+  // Radio. What goes out and what a received frame does are the rules of NodeServices; the node
+  // moves the frames between them and the radio.
   void serviceRadio(uint32_t nowMillis);
   void serviceTransmitter(uint32_t nowMillis);
-  void onTransmitStarted(uint32_t nowMillis);
-  void onTransmitDone(uint32_t nowMillis);
-  void onFrameReceived(const ReceivedFrame &frame, uint32_t nowMillis);
-  bool isPayloadValid(uint8_t type, const uint8_t *payload, size_t length) const;
-  void handleHello(const FrameHeader &header, const uint8_t *payload, size_t length,
-                   const ReceivedFrame &frame);
-  void handleEchoRequest(const FrameHeader &header, const uint8_t *payload, size_t length,
-                         const ReceivedFrame &frame);
-  void handleEchoReply(const FrameHeader &header, const uint8_t *payload, size_t length,
-                       const ReceivedFrame &frame);
-  void handleTestFrame(const FrameHeader &header, const uint8_t *payload, size_t length,
-                       const ReceivedFrame &frame, uint32_t nowMillis);
+  void reportSettingsChange(const SettingsResult &result);
+  // The radio did not go back to reception after a transmission or a refused one.
+  void reportReceptionFailure(const RadioStatus &reception);
 
-  // Image transfer: activations and the immediate HELLO that the transfer service asks for.
-  void serviceTransferRequests();
-  void activateAvailableImage(ActivationCause cause, uint16_t source);
+  // A redraw of the display blocks for about 30 ms, so it waits while the node is suspended or the
+  // radio has work: a transmission, frames queued, an echo reply expected or a burst.
+  bool isDisplayRedrawAllowed(uint32_t nowMillis) const;
 
-  // Transmission queue.
-  bool enqueueFrame(MessageType type, uint16_t destination, const uint8_t *payload,
-                    size_t payloadLength, bool priority);
-  bool enqueueRawFrame(const uint8_t *data, size_t length, bool priority);
-  OutgoingFrame *reserveQueueSlot(bool priority);
-  void enqueueHello();
-  void enqueueTestFrame();
-  void enqueueTransferFrame(uint32_t nowMillis);
+  // Console. The commands themselves are in console_commands.cpp; they act on the services and
+  // ask the node, through CommandTarget, for what spans the hardware.
+  void serviceConsole(uint32_t nowMillis);
+  bool isRadioStarted() const override;
+  RadioSettings requestedRadioSettings() const override;
+  void reportStatus(uint32_t nowMillis) override;
+  void reportRadio() override;
+  void requestRadioSettings(const RadioSettings &settings) override;
+  void setWirelessEnabled(bool enabled) override;
 
-  // Console.
-  void registerCommands();
-  void serviceConsole();
-  void executeCommand(const char *line);
-  void reportCommandError(const CommandError &error, const char *line);
-  void commandHelp();
-  void commandStatus();
-  void commandRadio(const Command &command);
-  void commandEcho(const Command &command);
-  void commandRun(const Command &command);
-  void commandWifi(const Command &command);
-  void commandResend();
-  void commandPresence(const Command &command);
-  void commandLoadRegisters(const Command &command);
-  void commandLoadImage(const Command &command);
-  void commandActivate(const Command &command);
-  void commandFragmentSize(const Command &command);
-  void commandProgram();
-  bool isRunActive() const;
-  void requestRadioSettings(const RadioSettings &settings);
-  void applyRadioSettings(const RadioSettings &settings);
+  // The wifi event and its debug text, after any change of the access point.
+  void serviceWirelessChange();
 
-  // Timers.
-  void serviceTimers(uint32_t nowMillis);
-  void finishSenderRun(bool aborted);
-  void finishReceiverRun(ReceiverRun &run, const char *reason);
-  void updateSuspension(uint32_t nowMillis);
-
-  // Virtual machine.
-  void serviceVirtualMachine(uint32_t nowMillis);
-
-  // Events and debug text.
-  void emitBoot();
-  void emitRadio();
-  void emitWifi();
-  void emitPresence(uint32_t nowMillis);
-  void emitVirtualMachine();
-  void emitError(const char *command, const char *reason, const char *detail = nullptr,
-                 int16_t code = 0);
-  void emitDrop(const char *reason, const ReceivedFrame &frame);
-  void debug(const char *format, ...);
+  void reportWireless();
   void updateStatusLine();
 
   BoardSupport board_;
   NodeIdentity identity_;
   RadioLink radio_;
-  DuplicateFilter duplicates_;
-  NeighborTable neighbors_;
-  PresenceService presence_;
-  EchoService echo_;
-  TestRunService runs_;
-  TransferService transfer_;
+  NodeServices services_;
   SerialTransport serial_;
   WirelessTransport wireless_;
-  Console console_;
   DebugDisplay display_;
-  VirtualMachine vm_;
+  Console console_;
+  EventSink events_;
 
-  SimpleCLI commandInterpreter_;
-  Command helpCommand_;
-  Command statusCommand_;
-  Command radioCommand_;
-  Command echoCommand_;
-  Command runCommand_;
-  Command wifiCommand_;
-  Command resendCommand_;
-  Command presenceCommand_;
-  Command loadRegistersCommand_;
-  Command loadImageCommand_;
-  Command activateCommand_;
-  Command fragmentSizeCommand_;
-  Command programCommand_;
-
-  OutgoingFrame queue_[TRANSMIT_QUEUE_CAPACITY] = {};
-  size_t queueHead_ = 0;
-  size_t queueCount_ = 0;
-  OutgoingFrame inFlight_ = {};
-  OutgoingFrame lastTransmitted_ = {};
-  bool hasLastTransmitted_ = false;
-  RadioSettings pendingSettings_ = {};
-  bool hasPendingSettings_ = false;
-  EchoReplyRecord echoReply_ = {};
   ReceivedFrame receivedFrame_ = {};
 
   bool radioReady_ = false;
-  uint32_t transmittedCount_ = 0;
-  uint32_t receivedCount_ = 0;
-  uint16_t echoCounter_ = 0;
-  uint32_t lastExpiryMillis_ = 0;
-  uint32_t lastTickMillis_ = 0;
-  char commandLine_[IMAGE_LINE_CAPACITY + 1] = {};
-  char accessPointName_[12] = {};
+  char commandLine_[MAXIMUM_COMMAND_LINE_LENGTH + 1] = {};
 };
 
 } // namespace firmware

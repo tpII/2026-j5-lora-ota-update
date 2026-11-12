@@ -2,7 +2,6 @@
  * Formatting of values for the user interface, in Argentine Spanish: decimal comma, thousands
  * separated with a dot and a space before the unit.
  */
-import { formatCodingRate, type RadioSettings } from "$lib/radio/radio-settings.ts";
 
 const LOCALE = "es-AR";
 
@@ -26,6 +25,42 @@ export function formatNumber(value: number | null | undefined, decimals = 0): st
     return "—";
   }
   return numberFormatWith(decimals).format(value);
+}
+
+const limitFormats = new Map<number, Intl.NumberFormat>();
+
+/**
+ * A bound of a range, as the messages about limits write it: thousands separated only from five
+ * digits on (3600, 65.535), as the RAE recommends, and negative values with the minus sign (−).
+ */
+export function formatLimit(value: number, decimals = 0): string {
+  let format = limitFormats.get(decimals);
+  if (format === undefined) {
+    format = new Intl.NumberFormat(LOCALE, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      useGrouping: "min2",
+    });
+    limitFormats.set(decimals, format);
+  }
+  return format.format(value).replace("-", "−");
+}
+
+/** An integer with the typographic minus sign: "−87". */
+export function formatSignedInteger(value: number): string {
+  const rounded = Math.round(value);
+  return rounded < 0 ? `−${-rounded}` : String(rounded);
+}
+
+/** The extremes of a set of samples, "-90,0 dBm a -71,5 dBm"; a dash without samples. */
+export function formatRange(
+  range: { readonly minimum: number | null; readonly maximum: number | null },
+  format: (value: number) => string,
+): string {
+  if (range.minimum === null || range.maximum === null) {
+    return "—";
+  }
+  return `${format(range.minimum)} a ${format(range.maximum)}`;
 }
 
 export function formatWithUnit(
@@ -64,7 +99,6 @@ export function formatBitRate(bitsPerSecond: number | null | undefined): string 
   return formatWithUnit(bitsPerSecond, 0, "bit/s");
 }
 
-/** Microseconds shown in milliseconds. */
 export function formatMicrosecondsAsMilliseconds(
   microseconds: number | null | undefined,
   decimals = 1,
@@ -74,7 +108,18 @@ export function formatMicrosecondsAsMilliseconds(
     : formatWithUnit(microseconds / 1000, decimals, "ms");
 }
 
-function pad(value: number, length = 2): string {
+/**
+ * `value` rounded to `decimals` places, as the CSV files of the exports write numbers: the decimal
+ * nearest to the stored binary value, half away from zero, as `toFixed` does.
+ */
+export function roundToDecimals<Value extends number | null>(
+  value: Value,
+  decimals: number,
+): Value {
+  return (value === null ? null : Number(value.toFixed(decimals))) as Value;
+}
+
+export function pad(value: number, length = 2): string {
   return String(value).padStart(length, "0");
 }
 
@@ -108,8 +153,17 @@ export function formatDuration(milliseconds: number | null | undefined): string 
   return `${seconds} s`;
 }
 
+/** Coding rate as written in the documentation, for example "4/5". */
+export function formatCodingRate(denominator: number): string {
+  return `4/${denominator}`;
+}
+
 /** Modulation as SF, bandwidth and coding rate, for example "SF7 · 500 kHz · 4/5". */
-export function formatModulation(settings: Pick<RadioSettings, "sf" | "bw" | "cr">): string {
+export function formatModulation(settings: {
+  readonly sf: number;
+  readonly bw: number;
+  readonly cr: number;
+}): string {
   return `SF${settings.sf} · ${settings.bw} kHz · ${formatCodingRate(settings.cr)}`;
 }
 
@@ -133,17 +187,39 @@ export function formatImageVersion(version: number | null | undefined): string {
   return version === 0 ? "0 (fábrica)" : String(version);
 }
 
-/**
- * Date and time on the computer that a version proposed by the panel stands for, since the panel
- * proposes the Unix time in seconds; null for version 0.
- */
-export function formatVersionDate(version: number): string | null {
-  if (version <= 0) {
-    return null;
-  }
-  const date = new Date(version * 1000);
-  return (
-    `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  );
+const conjunctions = new Intl.ListFormat(LOCALE, { type: "conjunction" });
+const disjunctions = new Intl.ListFormat(LOCALE, { type: "disjunction" });
+
+/** "125, 250 y 500". */
+export function formatConjunction(items: readonly string[]): string {
+  return conjunctions.format(items);
+}
+
+/** "125, 250 o 500". */
+export function formatDisjunction(items: readonly string[]): string {
+  return disjunctions.format(items);
+}
+
+const CARDINAL_WORDS = [
+  "cero",
+  "uno",
+  "dos",
+  "tres",
+  "cuatro",
+  "cinco",
+  "seis",
+  "siete",
+  "ocho",
+  "nueve",
+  "diez",
+];
+
+/** A count before a plural noun, in words up to ten: "los tres archivos". */
+export function formatCardinal(count: number): string {
+  return CARDINAL_WORDS[count] ?? formatNumber(count);
+}
+
+/** "1 cliente", "2 clientes". */
+export function countWithNoun(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }

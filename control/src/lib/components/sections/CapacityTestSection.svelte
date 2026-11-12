@@ -1,27 +1,47 @@
 <script lang="ts">
   import {
     DEFAULT_CAPACITY_TEST_CONFIGURATION,
+    SERIES_LABELS,
     buildCapacityTestPlan,
     estimatePlanDurationMilliseconds,
     estimatePointDurationMilliseconds,
+    usesBenchBandwidths,
     validateCapacityTestConfiguration,
-    type CapacityTestConfiguration,
-    type Modulation,
   } from "$lib/measurements/capacity-test-plan.ts";
+  import {
+    capacityTestConfigurationOf,
+    capacityTestFormOf,
+    type CapacityTestForm,
+  } from "$lib/measurements/capacity-test-form.ts";
   import {
     BANDWIDTHS_KILOHERTZ,
     CODING_RATE_DENOMINATORS,
+    FREQUENCY_DECIMALS,
+    MAXIMUM_FREQUENCY_MEGAHERTZ,
+    MAXIMUM_PREAMBLE_LENGTH,
+    MAXIMUM_RUN_COUNT,
+    MAXIMUM_SYNC_WORD,
+    MAXIMUM_TEST_SIZE,
+    MINIMUM_FREQUENCY_MEGAHERTZ,
+    MINIMUM_PREAMBLE_LENGTH,
+    MINIMUM_RUN_COUNT,
+    MINIMUM_SYNC_WORD,
+    MINIMUM_TEST_SIZE,
     ON_AIR_BANDWIDTH_KILOHERTZ,
     SPREADING_FACTORS,
-    formatCodingRate,
-    isBandwidth,
-    type BandwidthKilohertz,
-  } from "$lib/radio/radio-settings.ts";
-  import type { TestRunSummaryRow } from "$lib/measurements/test-run-ledger.ts";
+  } from "$lib/protocol/protocol-contract.ts";
+  import {
+    CAMPAIGN_STATUS_LABELS,
+    POINT_STATUS_LABELS,
+  } from "$lib/measurements/capacity-test-campaign.ts";
+  import { BENCH_BANDWIDTHS_KILOHERTZ } from "$lib/radio/radio-settings.ts";
+  import { findSummaryRow, type TestRunSummaryRow } from "$lib/measurements/test-run-ledger.ts";
   import TargetNodeLine from "$lib/components/TargetNodeLine.svelte";
   import TestProgress from "$lib/components/TestProgress.svelte";
   import {
     formatBitRate,
+    formatCodingRate,
+    formatDisjunction,
     formatDeliveryRatio,
     formatDuration,
     formatModulation,
@@ -29,41 +49,22 @@
     formatRssi,
     formatSnr,
   } from "$lib/utils/format.ts";
-  import { CAMPAIGN_STATUS_LABELS, POINT_STATUS_LABELS, SERIES_LABELS } from "$lib/utils/labels.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   let { panel }: { panel: ControlPanel } = $props();
 
-  const defaults = DEFAULT_CAPACITY_TEST_CONFIGURATION;
-
   let receiverKey = $state("");
-  let frequency = $state<number>(defaults.freq);
-  let preamble = $state<number>(defaults.preamble);
-  let syncWord = $state<number>(defaults.sync);
-  let selectedBandwidths = $state<number[]>([...defaults.bandwidths]);
-  let minimumSpreadingFactor = $state<number>(SPREADING_FACTORS[0]);
-  let maximumSpreadingFactor = $state<number>(SPREADING_FACTORS[SPREADING_FACTORS.length - 1] ?? 12);
-  let codingRate = $state<number>(defaults.codingRate);
-  let payloadSize = $state<number>(defaults.payloadSize);
-  let packetCount = $state<number>(defaults.packetCount);
-  let payloadSweepEnabled = $state(defaults.payloadSweep.enabled);
-  let payloadSweepSizes = $state(defaults.payloadSweep.sizes.join(", "));
-  let payloadSweepModulations = $state(defaults.payloadSweep.modulations.map((modulation) => ({ ...modulation })));
-  let codingRateSweepEnabled = $state(defaults.codingRateSweep.enabled);
-  let codingRateSweepModulation = $state({ ...defaults.codingRateSweep.modulation });
+  let form = $state<CapacityTestForm>(capacityTestFormOf(DEFAULT_CAPACITY_TEST_CONFIGURATION));
 
-  const candidates = $derived(panel.identifiedConnections);
-  const campaign = $derived(panel.campaign);
-  const campaignActive = $derived(panel.isCampaignActive);
+  const candidates = $derived(panel.nodes.identified);
+  const campaign = $derived(panel.campaign.snapshot);
+  const campaignActive = $derived(panel.campaign.isActive);
   /**
    * The sender is the node chosen above. While a test runs, the form shows its own sender, which
    * choosing another node does not move, and keeps its receiver.
    */
-  const sender = $derived(
-    campaignActive && campaign !== null
-      ? (panel.connections.find((connection) => connection.state.identifier === campaign.sender) ?? null)
-      : panel.selectedIdentifiedConnection,
-  );
+  const target = $derived(panel.testTarget("capacity-test"));
+  const sender = $derived(target.connection);
   const senderKey = $derived(sender?.key ?? "");
   const receiverCandidates = $derived(candidates.filter((connection) => connection.key !== senderKey));
 
@@ -76,62 +77,15 @@
     }
   });
 
-  function parseSizes(text: string): number[] {
-    return text
-      .split(/[\s,;]+/)
-      .filter((part) => part !== "")
-      .map(Number);
-  }
-
-  function toModulation(modulation: { sf: number; bw: number; cr: number }): Modulation {
-    const bandwidth: BandwidthKilohertz = isBandwidth(modulation.bw) ? modulation.bw : ON_AIR_BANDWIDTH_KILOHERTZ;
-    return { sf: modulation.sf, bw: bandwidth, cr: modulation.cr };
-  }
-
-  const configuration = $derived<CapacityTestConfiguration>({
-    freq: frequency,
-    preamble,
-    sync: syncWord,
-    bandwidths: BANDWIDTHS_KILOHERTZ.filter((bandwidth) => selectedBandwidths.includes(bandwidth)),
-    spreadingFactors: SPREADING_FACTORS.filter(
-      (value) => value >= minimumSpreadingFactor && value <= maximumSpreadingFactor,
-    ),
-    codingRate,
-    payloadSize,
-    packetCount,
-    payloadSweep: {
-      enabled: payloadSweepEnabled,
-      sizes: parseSizes(payloadSweepSizes),
-      modulations: payloadSweepModulations.map(toModulation),
-    },
-    codingRateSweep: {
-      enabled: codingRateSweepEnabled,
-      codingRates: [...CODING_RATE_DENOMINATORS],
-      modulation: toModulation(codingRateSweepModulation),
-    },
-  });
-
-  const problems = $derived.by(() => {
-    const list = validateCapacityTestConfiguration(configuration);
-    if (minimumSpreadingFactor > maximumSpreadingFactor) {
-      list.unshift("El factor de dispersión inicial no puede superar al final.");
-    }
-    return list;
-  });
+  const configuration = $derived(capacityTestConfigurationOf(form));
+  const problems = $derived(validateCapacityTestConfiguration(configuration));
   const plan = $derived(problems.length === 0 ? buildCapacityTestPlan(configuration) : []);
   const planDuration = $derived(estimatePlanDurationMilliseconds(plan));
-  const usesBenchBandwidths = $derived(
-    configuration.bandwidths.some((bandwidth) => bandwidth !== ON_AIR_BANDWIDTH_KILOHERTZ) ||
-      (payloadSweepEnabled &&
-        configuration.payloadSweep.modulations.some((modulation) => modulation.bw !== ON_AIR_BANDWIDTH_KILOHERTZ)) ||
-      (codingRateSweepEnabled && configuration.codingRateSweep.modulation.bw !== ON_AIR_BANDWIDTH_KILOHERTZ),
-  );
-  const nodesReady = $derived(
-    senderKey !== "" && receiverKey !== "" && senderKey !== receiverKey,
-  );
+  const benchBandwidthsInUse = $derived(usesBenchBandwidths(configuration));
+  const refusal = $derived(panel.refusal("capacity-test", senderKey, receiverKey));
 
   function startCampaign(): void {
-    if (problems.length === 0 && nodesReady) {
+    if (problems.length === 0 && refusal === null) {
       panel.startCampaign(configuration, senderKey, receiverKey);
     }
   }
@@ -140,11 +94,7 @@
     if (campaign === null || run === null) {
       return null;
     }
-    return (
-      panel.summaryRows.findLast(
-        (row) => row.sender === campaign.sender && row.receiver === campaign.receiver && row.run === run,
-      ) ?? null
-    );
+    return findSummaryRow(panel.runs, campaign.sender, run, campaign.receiver);
   }
 
 </script>
@@ -166,7 +116,7 @@
         de transmisión y el LNA quedan como estén: se ajustan en la radio del nodo elegido, en la pestaña Red.
       </p>
     </div>
-    <TargetNodeLine {panel} role="Emisor" connection={campaignActive ? sender : undefined} />
+    <TargetNodeLine {target} role="Emisor" />
 
     <fieldset class="flex flex-col gap-4" disabled={campaignActive}>
       <div class="flex flex-wrap items-end gap-3">
@@ -174,7 +124,7 @@
           Receptor
           <select class="panel-input" bind:value={receiverKey} disabled={receiverCandidates.length === 0}>
             {#each receiverCandidates as connection (connection.key)}
-              <option value={connection.key}>{connection.state.identifier} ({connection.state.model})</option>
+              <option value={connection.key}>{connection.state.identifier} ({connection.state.model ?? "placa desconocida"})</option>
             {/each}
           </select>
         </label>
@@ -186,19 +136,40 @@
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <label class="panel-label">
           Frecuencia (MHz)
-          <input class="panel-input" type="number" min="915" max="928" step="0.001" bind:value={frequency} />
+          <input
+            class="panel-input"
+            type="number"
+            min={MINIMUM_FREQUENCY_MEGAHERTZ}
+            max={MAXIMUM_FREQUENCY_MEGAHERTZ}
+            step={10 ** -FREQUENCY_DECIMALS}
+            bind:value={form.freq}
+          />
         </label>
         <label class="panel-label">
           Preámbulo (símbolos)
-          <input class="panel-input" type="number" min="6" max="65535" step="1" bind:value={preamble} />
+          <input
+            class="panel-input"
+            type="number"
+            min={MINIMUM_PREAMBLE_LENGTH}
+            max={MAXIMUM_PREAMBLE_LENGTH}
+            step="1"
+            bind:value={form.preamble}
+          />
         </label>
         <label class="panel-label">
           Palabra de sincronismo
-          <input class="panel-input" type="number" min="0" max="255" step="1" bind:value={syncWord} />
+          <input
+            class="panel-input"
+            type="number"
+            min={MINIMUM_SYNC_WORD}
+            max={MAXIMUM_SYNC_WORD}
+            step="1"
+            bind:value={form.sync}
+          />
         </label>
         <label class="panel-label">
           Tasa de código
-          <select class="panel-input" bind:value={codingRate}>
+          <select class="panel-input" bind:value={form.codingRate}>
             {#each CODING_RATE_DENOMINATORS as value (value)}
               <option {value}>{formatCodingRate(value)}</option>
             {/each}
@@ -206,11 +177,25 @@
         </label>
         <label class="panel-label">
           Largo del cuerpo (bytes)
-          <input class="panel-input" type="number" min="8" max="239" step="1" bind:value={payloadSize} />
+          <input
+            class="panel-input"
+            type="number"
+            min={MINIMUM_TEST_SIZE}
+            max={MAXIMUM_TEST_SIZE}
+            step="1"
+            bind:value={form.payloadSize}
+          />
         </label>
         <label class="panel-label">
           Paquetes por punto
-          <input class="panel-input" type="number" min="1" max="65535" step="1" bind:value={packetCount} />
+          <input
+            class="panel-input"
+            type="number"
+            min={MINIMUM_RUN_COUNT}
+            max={MAXIMUM_RUN_COUNT}
+            step="1"
+            bind:value={form.packetCount}
+          />
         </label>
       </div>
 
@@ -220,7 +205,7 @@
           <div class="flex gap-3">
             {#each BANDWIDTHS_KILOHERTZ as bandwidth (bandwidth)}
               <label class="flex items-center gap-1 text-sm">
-                <input type="checkbox" value={bandwidth} bind:group={selectedBandwidths} />
+                <input type="checkbox" value={bandwidth} bind:group={form.bandwidths} />
                 {bandwidth} kHz
               </label>
             {/each}
@@ -228,7 +213,7 @@
         </div>
         <label class="panel-label">
           Desde
-          <select class="panel-input" bind:value={minimumSpreadingFactor}>
+          <select class="panel-input" bind:value={form.firstSpreadingFactor}>
             {#each SPREADING_FACTORS as value (value)}
               <option {value}>SF{value}</option>
             {/each}
@@ -236,7 +221,7 @@
         </label>
         <label class="panel-label">
           Hasta
-          <select class="panel-input" bind:value={maximumSpreadingFactor}>
+          <select class="panel-input" bind:value={form.lastSpreadingFactor}>
             {#each SPREADING_FACTORS as value (value)}
               <option {value}>SF{value}</option>
             {/each}
@@ -246,16 +231,16 @@
 
       <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm font-medium">
-          <input type="checkbox" bind:checked={payloadSweepEnabled} />
+          <input type="checkbox" bind:checked={form.payloadSweepEnabled} />
           Agregar un barrido de largos del cuerpo en dos modulaciones
         </label>
-        {#if payloadSweepEnabled}
+        {#if form.payloadSweepEnabled}
           <div class="flex flex-wrap items-end gap-3 pl-6">
             <label class="panel-label">
               Largos (bytes, separados por coma)
-              <input class="panel-input w-56" type="text" bind:value={payloadSweepSizes} />
+              <input class="panel-input w-56" type="text" bind:value={form.payloadSweepSizes} />
             </label>
-            {#each payloadSweepModulations as modulation, index (index)}
+            {#each form.payloadSweepModulations as modulation, index (index)}
               <div class="flex items-end gap-2">
                 <label class="panel-label">
                   Modulación {index + 1}
@@ -283,14 +268,14 @@
 
       <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 text-sm font-medium">
-          <input type="checkbox" bind:checked={codingRateSweepEnabled} />
+          <input type="checkbox" bind:checked={form.codingRateSweepEnabled} />
           Agregar un barrido de tasas de código, de 4/5 a 4/8, en una modulación
         </label>
-        {#if codingRateSweepEnabled}
+        {#if form.codingRateSweepEnabled}
           <div class="flex flex-wrap items-end gap-2 pl-6">
             <label class="panel-label">
               Factor de dispersión
-              <select class="panel-input" bind:value={codingRateSweepModulation.sf}>
+              <select class="panel-input" bind:value={form.codingRateSweepModulation.sf}>
                 {#each SPREADING_FACTORS as value (value)}
                   <option {value}>SF{value}</option>
                 {/each}
@@ -298,7 +283,7 @@
             </label>
             <label class="panel-label">
               Ancho de banda
-              <select class="panel-input" bind:value={codingRateSweepModulation.bw}>
+              <select class="panel-input" bind:value={form.codingRateSweepModulation.bw}>
                 {#each BANDWIDTHS_KILOHERTZ as value (value)}
                   <option {value}>{value} kHz</option>
                 {/each}
@@ -309,11 +294,14 @@
       </div>
     </fieldset>
 
-    {#if usesBenchBandwidths}
+    {#if benchBandwidthsInUse}
       <p class="panel-note">
-        El plan usa canales de 125 o 250 kHz, que según la nota del comienzo quedan para el banco. Sin
-        atenuadores, la prueba se hace solo con 500 kHz.
+        El plan usa canales de {formatDisjunction(BENCH_BANDWIDTHS_KILOHERTZ.map(String))} kHz, que según la nota del comienzo
+        quedan para el banco. Sin atenuadores, la prueba se hace solo con {ON_AIR_BANDWIDTH_KILOHERTZ} kHz.
       </p>
+    {/if}
+    {#if refusal !== null && refusal.cause === "activity" && !campaignActive}
+      <p class="panel-note">{refusal.message}</p>
     {/if}
     {#if problems.length > 0}
       <ul class="flex flex-col gap-1">
@@ -328,7 +316,7 @@
             <thead>
               <tr>
                 <th>N.º</th>
-                {#if payloadSweepEnabled || codingRateSweepEnabled}<th>Serie</th>{/if}
+                {#if form.payloadSweepEnabled || form.codingRateSweepEnabled}<th>Serie</th>{/if}
                 <th>Modulación</th>
                 <th>Largo</th>
                 <th>Paquetes</th>
@@ -339,7 +327,7 @@
               {#each plan as point (point.index)}
                 <tr>
                   <td>{point.index + 1}</td>
-                  {#if payloadSweepEnabled || codingRateSweepEnabled}<td>{SERIES_LABELS[point.series]}</td>{/if}
+                  {#if form.payloadSweepEnabled || form.codingRateSweepEnabled}<td>{SERIES_LABELS[point.series]}</td>{/if}
                   <td class="whitespace-nowrap">{formatModulation(point)}</td>
                   <td>{point.size} B</td>
                   <td>{formatNumber(point.count)}</td>
@@ -351,7 +339,7 @@
         </div>
       {/if}
       <p class="text-sm text-muted">
-        Plan: {plan.length} {plan.length === 1 ? "punto" : "puntos"} de {formatNumber(packetCount)} {packetCount === 1 ? "paquete" : "paquetes"}, con una
+        Plan: {plan.length} {plan.length === 1 ? "punto" : "puntos"} de {formatNumber(form.packetCount)} {form.packetCount === 1 ? "paquete" : "paquetes"}, con una
         duración estimada de {formatDuration(planDuration)}.
       </p>
     {/if}
@@ -360,8 +348,8 @@
       {#if !campaignActive}
         <button
           type="submit"
-          class="panel-button-primary"
-          disabled={problems.length > 0 || plan.length === 0 || !nodesReady}
+          class="panel-button panel-button-primary"
+          disabled={problems.length > 0 || plan.length === 0 || refusal !== null}
         >
           Iniciar la prueba
         </button>
@@ -373,7 +361,7 @@
         {/if}
         <button
           type="button"
-          class="panel-button-danger"
+          class="panel-button panel-button-danger"
           disabled={campaign?.status === "stopping"}
           onclick={() => panel.stopCampaign()}
         >

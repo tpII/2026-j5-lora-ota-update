@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../configuration.h"
+#include "command_line.h"
 
 namespace firmware {
 
@@ -14,15 +14,15 @@ class SerialTransport {
 public:
   void begin(uint32_t baudRate);
 
-  // Returns true when a complete line is available. Lines longer than consoleLineLimit() allows
-  // are discarded and reported with overflowed set.
+  // Returns true when a complete line is available. A line longer than MAXIMUM_COMMAND_LINE_LENGTH
+  // keeps its first characters and is reported with overflowed set.
   bool readLine(char *buffer, size_t capacity, bool &overflowed);
 
   // Returns false when the line was dropped.
   bool writeLine(const char *line, size_t length);
 
 private:
-  char pending_[IMAGE_LINE_CAPACITY + 1] = {};
+  char pending_[MAXIMUM_COMMAND_LINE_LENGTH + 1] = {};
   size_t pendingLength_ = 0;
   bool pendingOverflowed_ = false;
 };

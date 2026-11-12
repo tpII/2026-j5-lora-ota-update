@@ -21,11 +21,8 @@ export function disassemble(code: Uint8Array): DisassemblyResult {
   const view = new DataView(code.buffer, code.byteOffset, code.byteLength);
   const lines: string[] = [];
   for (let address = 0; address < code.length;) {
-    const instruction = INSTRUCTION_BY_OPCODE.get(code[address] ?? 0);
-    if (instruction === undefined) {
-      // checkProgram() already rejects unknown opcodes.
-      return { valid: false, address, fault: "invalid_opcode" };
-    }
+    // checkProgram() accepted every opcode of the code.
+    const instruction = INSTRUCTION_BY_OPCODE.get(code[address]!)!;
     const target = `R${code[address + 1] ?? 0}`;
     switch (instruction.form) {
       case "none":

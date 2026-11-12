@@ -1,0 +1,438 @@
+{
+  "versions": {
+    "frameProtocol": 2,
+    "consoleContract": 2
+  },
+  "nodeIdentifiers": {
+    "broadcast": "0xFFFF",
+    "none": "0x0000",
+    "hexadecimalDigits": 4
+  },
+  "frame": {
+    "headerSize": 8,
+    "tagSize": 8,
+    "maximumFrameSize": 255,
+    "trackedSources": 16,
+    "headerOffsets": {
+      "type": 0,
+      "source": 1,
+      "destination": 3,
+      "epoch": 5,
+      "sequence": 6
+    },
+    "messageTypes": [
+      { "name": "hello", "code": "0x01" },
+      { "name": "echo_request", "code": "0x02" },
+      { "name": "echo_reply", "code": "0x03" },
+      { "name": "test", "code": "0x10" },
+      { "name": "fragment", "code": "0x20" },
+      { "name": "report", "code": "0x21" }
+    ]
+  },
+  "boardModels": [
+    {
+      "name": "V2",
+      "identifier": "HeltecV2",
+      "buildProfile": "heltec_v2",
+      "code": 1,
+      "transceiver": "SX1276",
+      "hasLowNoiseAmplifier": false,
+      "transmitPowerDbm": { "minimum": 2, "maximum": 17, "additionalValues": [20] },
+      "dutyCycleLimits": [
+        { "minimumAntennaDbm": 20, "maximumAntennaDbm": 20, "maximumDutyCyclePercent": 1 }
+      ],
+      "frontEndGainSteps": [{ "minimumAntennaDbm": 2, "maximumAntennaDbm": 20, "gainDb": 0 }]
+    },
+    {
+      "name": "V4.3",
+      "identifier": "HeltecV43",
+      "buildProfile": "heltec_v4_3",
+      "code": 2,
+      "transceiver": "SX1262",
+      "hasLowNoiseAmplifier": true,
+      "transmitPowerDbm": { "minimum": 4, "maximum": 28, "additionalValues": [] },
+      "dutyCycleLimits": [],
+      "frontEndGainSteps": [
+        { "minimumAntennaDbm": 4, "maximumAntennaDbm": 26, "gainDb": 13 },
+        { "minimumAntennaDbm": 27, "maximumAntennaDbm": 27, "gainDb": 12 },
+        { "minimumAntennaDbm": 28, "maximumAntennaDbm": 28, "gainDb": 11 }
+      ]
+    }
+  ],
+  "hello": {
+    "fixedSize": 15,
+    "neighborSize": 4,
+    "maximumNeighbors": 16,
+    "offsets": {
+      "model": 0,
+      "version": 1,
+      "available": 5,
+      "vmStatus": 9,
+      "transmitted": 10,
+      "neighborCount": 14
+    },
+    "neighborOffsets": {
+      "id": 0,
+      "rssi": 2,
+      "snr": 3
+    },
+    "vmStatus": {
+      "faultMask": "0x07",
+      "failingBit": "0x08"
+    }
+  },
+  "echo": {
+    "replyFieldsSize": 4,
+    "defaultSize": 16,
+    "offsets": {
+      "number": 0,
+      "rssi": 2,
+      "snr": 3
+    }
+  },
+  "test": {
+    "fieldsSize": 8,
+    "minimumRunCount": 1,
+    "maximumRunCount": 65535,
+    "minimumRunIntervalMilliseconds": 0,
+    "maximumRunIntervalMilliseconds": 60000,
+    "offsets": {
+      "run": 0,
+      "index": 2,
+      "count": 4,
+      "interval": 6
+    }
+  },
+  "fragment": {
+    "headerSize": 8,
+    "minimumSize": 32,
+    "offsets": {
+      "version": 0,
+      "index": 4,
+      "count": 5,
+      "size": 6,
+      "remaining": 7
+    }
+  },
+  "report": {
+    "fixedSize": 6,
+    "offsets": {
+      "version": 0,
+      "size": 4,
+      "count": 5
+    }
+  },
+  "image": {
+    "magic": ["0x4A", "0x35"],
+    "flags": 0,
+    "headerSize": 9,
+    "signatureSize": 64,
+    "programDigestSize": 32,
+    "operatorPublicKeySize": 32,
+    "minimumProgramSize": 1,
+    "minimumVersion": 1,
+    "maximumVersion": 4294967295,
+    "offsets": {
+      "magic": 0,
+      "flags": 2,
+      "version": 3,
+      "programLength": 7
+    },
+    "formatDefects": [
+      { "name": "shorterThanHeader", "detail": "shorter than the header" },
+      { "name": "lengthMismatch", "detail": "length does not match the header" },
+      { "name": "badMagic", "detail": "bad magic number" },
+      { "name": "badFlags", "detail": "flags are not 0" },
+      { "name": "factoryVersion", "detail": "version 0" },
+      { "name": "programLengthOutOfRange", "detail": "program length out of range" }
+    ]
+  },
+  "virtualMachine": {
+    "programCapacity": 1024,
+    "registerCount": 4,
+    "registerValue": { "minimum": -2147483648, "maximum": 4294967295 },
+    "tickPeriodMilliseconds": 10000,
+    "instructionsPerPoll": 64,
+    "maximumInstructionsPerTick": 10000,
+    "operandForms": [
+      { "name": "none", "length": 1 },
+      { "name": "register", "length": 2 },
+      { "name": "register-immediate", "length": 6 },
+      { "name": "register-register", "length": 3 }
+    ],
+    "instructionEffects": [
+      { "name": "halt", "forms": ["none"] },
+      { "name": "print", "forms": ["register"] },
+      { "name": "write", "forms": ["register", "register-immediate", "register-register"] },
+      { "name": "divide", "forms": ["register-immediate", "register-register"] }
+    ],
+    "instructions": [
+      { "mnemonic": "HALT", "identifier": "Halt", "opcode": "0x00", "form": "none", "effect": "halt" },
+      { "mnemonic": "PRINT", "identifier": "Print", "opcode": "0x01", "form": "register", "effect": "print" },
+      { "mnemonic": "LOAD", "identifier": "Load", "opcode": "0x02", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "ADDI", "identifier": "AddImmediate", "opcode": "0x10", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "ADDR", "identifier": "AddRegister", "opcode": "0x11", "form": "register-register", "effect": "write" },
+      { "mnemonic": "SUBI", "identifier": "SubtractImmediate", "opcode": "0x12", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "SUBR", "identifier": "SubtractRegister", "opcode": "0x13", "form": "register-register", "effect": "write" },
+      { "mnemonic": "MULI", "identifier": "MultiplyImmediate", "opcode": "0x14", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "MULR", "identifier": "MultiplyRegister", "opcode": "0x15", "form": "register-register", "effect": "write" },
+      { "mnemonic": "DIVI", "identifier": "DivideImmediate", "opcode": "0x16", "form": "register-immediate", "effect": "divide" },
+      { "mnemonic": "DIVR", "identifier": "DivideRegister", "opcode": "0x17", "form": "register-register", "effect": "divide" },
+      { "mnemonic": "MODI", "identifier": "ModuloImmediate", "opcode": "0x18", "form": "register-immediate", "effect": "divide" },
+      { "mnemonic": "MODR", "identifier": "ModuloRegister", "opcode": "0x19", "form": "register-register", "effect": "divide" },
+      { "mnemonic": "ANDI", "identifier": "AndImmediate", "opcode": "0x20", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "ANDR", "identifier": "AndRegister", "opcode": "0x21", "form": "register-register", "effect": "write" },
+      { "mnemonic": "ORI", "identifier": "OrImmediate", "opcode": "0x22", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "ORR", "identifier": "OrRegister", "opcode": "0x23", "form": "register-register", "effect": "write" },
+      { "mnemonic": "XORI", "identifier": "ExclusiveOrImmediate", "opcode": "0x24", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "XORR", "identifier": "ExclusiveOrRegister", "opcode": "0x25", "form": "register-register", "effect": "write" },
+      { "mnemonic": "SHLI", "identifier": "ShiftLeftImmediate", "opcode": "0x26", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "SHLR", "identifier": "ShiftLeftRegister", "opcode": "0x27", "form": "register-register", "effect": "write" },
+      { "mnemonic": "SHRI", "identifier": "ShiftRightImmediate", "opcode": "0x28", "form": "register-immediate", "effect": "write" },
+      { "mnemonic": "SHRR", "identifier": "ShiftRightRegister", "opcode": "0x29", "form": "register-register", "effect": "write" },
+      { "mnemonic": "NOT", "identifier": "Not", "opcode": "0x2A", "form": "register", "effect": "write" }
+    ],
+    "faults": [
+      { "name": "none", "code": 0 },
+      { "name": "division_by_zero", "code": 1 },
+      { "name": "instruction_limit", "code": 2 },
+      { "name": "end_of_program", "code": 3 },
+      { "name": "invalid_opcode", "code": 4 },
+      { "name": "invalid_register", "code": 5 },
+      { "name": "truncated_instruction", "code": 6 }
+    ]
+  },
+  "radio": {
+    "frequencyMegahertz": { "minimum": 915.0, "maximum": 928.0, "default": 915.9, "rangeDecimals": 1 },
+    "spreadingFactor": { "minimum": 7, "maximum": 12, "default": 7 },
+    "bandwidthsKilohertz": [125, 250, 500],
+    "defaultBandwidthKilohertz": 500,
+    "codingRateDenominator": { "minimum": 5, "maximum": 8, "default": 5 },
+    "preambleLength": { "minimum": 6, "maximum": 65535, "default": 8 },
+    "syncWord": { "minimum": 0, "maximum": 255, "default": "0x12" },
+    "defaultTransmitPowerDbm": 4,
+    "defaultLnaMode": "bypass",
+    "settingKeys": ["freq", "sf", "bw", "cr", "preamble", "sync", "power", "lna"],
+    "onAir": {
+      "bandwidthKilohertz": 500,
+      "maximumPowerDbm": 26,
+      "minimumCenterMegahertz": 915.25,
+      "maximumCenterMegahertz": 927.75
+    }
+  },
+  "console": {
+    "baudRate": 921600,
+    "lineCapacity": 200,
+    "imageLine": {
+      "hexadecimalDigitsPerByte": 2,
+      "commandWordAllowance": 32
+    },
+    "webSocket": {
+      "host": "192.168.4.1",
+      "path": "/console"
+    },
+    "accessPointNamePrefix": "J5-",
+    "errorCommandWordLength": 15,
+    "commandPreconditions": [
+      {
+        "name": "rejectedDuringRun",
+        "description": "no run of the node is in progress",
+        "refusal": { "reason": "busy", "detail": null }
+      },
+      {
+        "name": "rejectedDuringEcho",
+        "description": "no echo of the node waits for its reply",
+        "refusal": { "reason": "busy", "detail": null }
+      },
+      {
+        "name": "needsRadio",
+        "description": "the radio started at boot",
+        "refusal": { "reason": "radio_failure", "detail": "radio not started" }
+      }
+    ],
+    "commands": [
+      {
+        "name": "help",
+        "usage": "help",
+        "forms": [{ "action": "listCommands", "arguments": [0, 0] }]
+      },
+      {
+        "name": "status",
+        "usage": "status",
+        "forms": [{ "action": "reportStatus", "arguments": [0, 0] }]
+      },
+      {
+        "name": "radio",
+        "usage": "radio | radio reset | radio <key> <value> ... (freq sf bw cr preamble sync power lna)",
+        "forms": [
+          { "action": "reportRadio", "arguments": [0, 0] },
+          {
+            "action": "resetRadio",
+            "selector": "reset",
+            "arguments": [1, 1],
+            "preconditions": ["rejectedDuringRun", "needsRadio"]
+          },
+          {
+            "action": "changeRadio",
+            "arguments": [1, "settingKeyPairs"],
+            "preconditions": ["rejectedDuringRun", "needsRadio"]
+          }
+        ]
+      },
+      {
+        "name": "echo",
+        "usage": "echo <id> [size]",
+        "forms": [
+          {
+            "action": "requestEcho",
+            "arguments": [1, 2],
+            "preconditions": ["rejectedDuringRun", "rejectedDuringEcho", "needsRadio"]
+          }
+        ]
+      },
+      {
+        "name": "run",
+        "usage": "run <count> <size> <interval_ms> | run stop",
+        "forms": [
+          { "action": "stopRun", "selector": "stop", "arguments": [1, 1] },
+          {
+            "action": "startRun",
+            "arguments": [3, 3],
+            "preconditions": ["rejectedDuringRun", "rejectedDuringEcho", "needsRadio"]
+          }
+        ]
+      },
+      {
+        "name": "wifi",
+        "usage": "wifi on|off",
+        "forms": [
+          { "action": "enableWireless", "selector": "on", "arguments": [1, 1] },
+          { "action": "disableWireless", "selector": "off", "arguments": [1, 1] }
+        ]
+      },
+      {
+        "name": "resend",
+        "usage": "resend",
+        "forms": [
+          {
+            "action": "resendLastFrame",
+            "arguments": [0, 0],
+            "preconditions": ["rejectedDuringRun", "needsRadio"]
+          }
+        ]
+      },
+      {
+        "name": "presence",
+        "usage": "presence on | presence off <seconds>",
+        "forms": [
+          { "action": "releasePresence", "selector": "on", "arguments": [1, 1] },
+          { "action": "holdPresence", "selector": "off", "arguments": [2, 2] }
+        ]
+      },
+      {
+        "name": "load_registers",
+        "usage": "load_registers <r1> <r2> <r3> <r4>",
+        "forms": [{ "action": "loadRegisters", "arguments": ["registerCount", "registerCount"] }]
+      },
+      {
+        "name": "load_image",
+        "usage": "load_image <hex>",
+        "carriesImage": true,
+        "forms": [{ "action": "loadImage", "arguments": [1, 1] }]
+      },
+      {
+        "name": "activate",
+        "usage": "activate <version>",
+        "forms": [{ "action": "activateAvailableVersion", "arguments": [1, 1] }]
+      },
+      {
+        "name": "fragment_size",
+        "usage": "fragment_size [bytes]",
+        "forms": [{ "action": "changeFragmentSize", "arguments": [0, 1] }]
+      },
+      {
+        "name": "program",
+        "usage": "program",
+        "forms": [{ "action": "reportProgram", "arguments": [0, 0] }]
+      }
+    ],
+    "decimals": {
+      "rssi": 1,
+      "snr": 2,
+      "frequency": 3,
+      "packetDeliveryRatio": 4
+    }
+  },
+  "timings": {
+    "helloPeriodMilliseconds": 10000,
+    "helloJitterMilliseconds": 2000,
+    "firstHelloMinimumDelayMilliseconds": 1000,
+    "firstHelloMaximumDelayMilliseconds": 3000,
+    "neighborExpiry": { "milliseconds": 60000, "expiresAtBoundary": true },
+    "minimumPresenceHoldSeconds": 1,
+    "maximumPresenceHoldSeconds": 3600,
+    "responseMarginMilliseconds": 1000,
+    "transferMarginMilliseconds": 500
+  },
+  "vocabularies": {
+    "events": [
+      "boot",
+      "radio",
+      "wifi",
+      "presence",
+      "status",
+      "neighbor",
+      "tx",
+      "hello",
+      "echo_served",
+      "echo",
+      "echo_lost",
+      "run_start",
+      "run_done",
+      "test_rx",
+      "run_end",
+      "duplicate",
+      "drop",
+      "id_conflict",
+      "vm",
+      "vm_print",
+      "vm_fault",
+      "transfer",
+      "image",
+      "image_rejected",
+      "fragment_rx",
+      "burst_start",
+      "burst_done",
+      "report_sent",
+      "report_received",
+      "activation",
+      "program",
+      "error"
+    ],
+    "lnaModes": ["on", "bypass"],
+    "imageArrivals": ["console", "radio"],
+    "burstCauses": ["load", "complete", "hello", "report"],
+    "activationCauses": ["console", "hello", "neighbor"],
+    "imageRejectionReasons": ["format", "signature", "program"],
+    "dropReasons": ["crc", "short", "tag", "type", "body"],
+    "errorReasons": [
+      "unknown_command",
+      "usage",
+      "out_of_range",
+      "unreachable_power",
+      "not_supported",
+      "busy",
+      "not_available",
+      "radio_failure",
+      "wifi_failure",
+      "line_too_long",
+      "version_not_newer",
+      "invalid_image"
+    ],
+    "settingUpdateReasons": ["usage", "out_of_range", "unreachable_power", "not_supported"],
+    "runEndReasons": ["complete", "timeout"],
+    "wifiStates": ["on", "off"],
+    "presenceStates": ["on", "off"],
+    "keyKinds": ["default", "custom"]
+  }
+}

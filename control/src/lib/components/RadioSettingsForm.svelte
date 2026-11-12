@@ -1,144 +1,85 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import {
+    BANDWIDTHS_KILOHERTZ,
+    CODING_RATE_DENOMINATORS,
+    DEFAULT_RADIO_SETTINGS,
+    FREQUENCY_DECIMALS,
+    MAXIMUM_FREQUENCY_MEGAHERTZ,
+    MAXIMUM_PREAMBLE_LENGTH,
+    MAXIMUM_SYNC_WORD,
+    MINIMUM_FREQUENCY_MEGAHERTZ,
+    MINIMUM_PREAMBLE_LENGTH,
+    MINIMUM_SYNC_WORD,
+    SPREADING_FACTORS,
+  } from "$lib/protocol/protocol-contract.ts";
+  import {
     RADIO_QUERY_COMMAND,
     RADIO_RESET_COMMAND,
     buildRadioSetCommand,
     type CommandProblem,
-    type RadioSettingChanges,
-  } from "$lib/console/console-command.ts";
+  } from "$lib/commands/console-command.ts";
   import type { LnaMode } from "$lib/console/console-event.ts";
-  import { isRunActive } from "$lib/nodes/node-state.ts";
   import {
-    BANDWIDTHS_KILOHERTZ,
-    CODING_RATE_DENOMINATORS,
-    DEFAULT_RADIO_SETTINGS,
-    ON_AIR_BANDWIDTH_KILOHERTZ,
-    ON_AIR_MAXIMUM_CENTER_MEGAHERTZ,
-    ON_AIR_MINIMUM_CENTER_MEGAHERTZ,
-    SPREADING_FACTORS,
-    frequenciesMatch,
-    listTransmitPowerWarnings,
+    ALL_RADIO_SETTING_FIELDS,
     hasLowNoiseAmplifier,
-    formatCodingRate,
     listTransmitPowerValues,
-    radioSettingsMatch,
+    settingsMatch,
     type RadioSettings,
   } from "$lib/radio/radio-settings.ts";
-  import { formatPower, formatSyncWord } from "$lib/utils/format.ts";
-  import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import {
+    formShowsSettings,
+    listRadioFormWarnings,
+    radioFormChanges,
+    radioFormChannel,
+    radioFormValuesOf,
+    type RadioFormValues,
+  } from "$lib/radio/radio-settings-form.ts";
+  import { formatCodingRate, formatPower, formatSyncWord } from "$lib/utils/format.ts";
+  import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import type { IdentifiedConnection } from "$lib/node-session/connection-view.ts";
 
-  let { panel, connection }: { panel: ControlPanel; connection: ConnectionView } = $props();
+  let { panel, connection }: { panel: ControlPanel; connection: IdentifiedConnection } = $props();
 
   const node = $derived(connection.state);
   const current = $derived(node.radio);
   const model = $derived(node.model);
   const withLowNoiseAmplifier = $derived(hasLowNoiseAmplifier(model));
-  /** The form only shows the LNA mode the node reports. */
   const lowNoiseAmplifier = $derived<LnaMode>(current?.lna ?? DEFAULT_RADIO_SETTINGS.lna);
   const powerValues = $derived(listTransmitPowerValues(model));
-  const busy = $derived(isRunActive(node));
-  const open = $derived(connection.status === "open");
+  /** Why the node takes no radio change now: a run in progress or a test that holds its radio. */
+  const radioRefusal = $derived(panel.refusal("radio-settings", connection.key));
+  const radioHeld = $derived(radioRefusal !== null && radioRefusal.cause !== "unready");
 
-  let frequency = $state<number>(DEFAULT_RADIO_SETTINGS.freq);
-  let spreadingFactor = $state<number>(DEFAULT_RADIO_SETTINGS.sf);
-  let bandwidth = $state<number>(DEFAULT_RADIO_SETTINGS.bw);
-  let codingRate = $state<number>(DEFAULT_RADIO_SETTINGS.cr);
-  let preamble = $state<number>(DEFAULT_RADIO_SETTINGS.preamble);
-  let syncWord = $state<number>(DEFAULT_RADIO_SETTINGS.sync);
-  let power = $state<number>(DEFAULT_RADIO_SETTINGS.power);
+  let values = $state<RadioFormValues>(radioFormValuesOf(DEFAULT_RADIO_SETTINGS));
   let problems = $state<readonly CommandProblem[]>([]);
-  /** Settings the form was last filled with. */
   let loadedSettings = $state.raw<RadioSettings | null>(null);
 
   function loadCurrentSettings(settings: RadioSettings): void {
-    frequency = settings.freq;
-    spreadingFactor = settings.sf;
-    bandwidth = settings.bw;
-    codingRate = settings.cr;
-    preamble = settings.preamble;
-    syncWord = settings.sync;
-    power = settings.power;
+    values = radioFormValuesOf(settings);
     problems = [];
     loadedSettings = settings;
   }
 
-  /** True while the operator has not edited the values loaded from `settings`. */
-  function formShows(settings: RadioSettings): boolean {
-    return (
-      frequenciesMatch(frequency, settings.freq) &&
-      spreadingFactor === settings.sf &&
-      bandwidth === settings.bw &&
-      codingRate === settings.cr &&
-      preamble === settings.preamble &&
-      syncWord === settings.sync &&
-      power === settings.power
-    );
-  }
-
   $effect(() => {
-    // Follow the settings the node reports, unless the operator has edits pending.
     const settings = current;
     if (settings === null) {
       return;
     }
     untrack(() => {
-      if (loadedSettings === null || formShows(loadedSettings)) {
+      if (loadedSettings === null || formShowsSettings(values, loadedSettings)) {
         loadCurrentSettings(settings);
       }
     });
   });
 
   const outdated = $derived(
-    current !== null && loadedSettings !== null && !radioSettingsMatch(current, loadedSettings),
+    current !== null && loadedSettings !== null && !settingsMatch(current, loadedSettings, ALL_RADIO_SETTING_FIELDS),
   );
 
-  /**
-   * Only the values that differ from the current settings, or all of them when those are unknown.
-   * The LNA mode never goes out from the form: it only changes from the console.
-   */
-  const changes = $derived.by((): RadioSettingChanges => {
-    const all: RadioSettingChanges = {
-      freq: frequency,
-      sf: spreadingFactor,
-      bw: bandwidth,
-      cr: codingRate,
-      preamble,
-      sync: syncWord,
-      power,
-    };
-    if (current === null) {
-      return all;
-    }
-    return {
-      ...(frequenciesMatch(frequency, current.freq) ? {} : { freq: frequency }),
-      ...(spreadingFactor === current.sf ? {} : { sf: spreadingFactor }),
-      ...(bandwidth === current.bw ? {} : { bw: bandwidth }),
-      ...(codingRate === current.cr ? {} : { cr: codingRate }),
-      ...(preamble === current.preamble ? {} : { preamble }),
-      ...(syncWord === current.sync ? {} : { sync: syncWord }),
-      ...(power === current.power ? {} : { power }),
-    };
-  });
+  const changes = $derived(radioFormChanges(values, current));
   const changeCount = $derived(Object.keys(changes).length);
-
-  const warnings = $derived.by(() => {
-    const list: string[] = [];
-    if (bandwidth !== ON_AIR_BANDWIDTH_KILOHERTZ) {
-      list.push(
-        "Con antena solo se usan canales de 500 kHz. Los de 125 y 250 kHz son para el banco, con cable coaxial y atenuadores o cargas de 50 Ω.",
-      );
-    } else if (frequency < ON_AIR_MINIMUM_CENTER_MEGAHERTZ || frequency > ON_AIR_MAXIMUM_CENTER_MEGAHERTZ) {
-      list.push("Un canal de 500 kHz va centrado entre 915,25 y 927,75 MHz para quedar dentro de la banda.");
-    }
-    list.push(...listTransmitPowerWarnings(power, model));
-    if (withLowNoiseAmplifier && lowNoiseAmplifier === "on") {
-      list.push(
-        "Con el LNA activo, una señal de más de unos −21 dBm en la antena satura el SX1262 y puede dañarlo: sobre la mesa debe quedar puenteado.",
-      );
-    }
-    return list;
-  });
+  const warnings = $derived(listRadioFormWarnings(values, model, lowNoiseAmplifier));
 
   function problemFor(field: string): string | null {
     return problems.find((problem) => problem.field === field)?.message ?? null;
@@ -151,28 +92,23 @@
       return;
     }
     problems = [];
-    await panel.sendCommand(connection.key, result.command);
+    await panel.changeRadioSettings(connection.key, result.command);
   }
 
   async function copyChannelToOtherNodes(): Promise<void> {
-    const result = buildRadioSetCommand(
-      { freq: frequency, sf: spreadingFactor, bw: bandwidth, cr: codingRate, preamble, sync: syncWord },
-      null,
-    );
+    const result = buildRadioSetCommand(radioFormChannel(values), null);
     if (!result.valid) {
       problems = result.problems;
       return;
     }
     problems = [];
-    const others = panel.connections.filter(
-      (other) => other.key !== connection.key && other.status === "open" && other.state.identifier !== null,
-    );
-    await Promise.all(others.map((other) => panel.sendCommand(other.key, result.command)));
+    const others = panel.nodes.identified.filter((other) => other.key !== connection.key);
+    await Promise.all(others.map((other) => panel.changeRadioSettings(other.key, result.command)));
   }
 
   function resetToDefaults(): void {
     if (window.confirm(`¿Restablecer los parámetros de radio por defecto en el nodo ${node.identifier}?`)) {
-      void panel.sendCommand(connection.key, RADIO_RESET_COMMAND);
+      void panel.changeRadioSettings(connection.key, RADIO_RESET_COMMAND);
     }
   }
 </script>
@@ -192,15 +128,15 @@
       <input
         class="panel-input {problemFor('freq') !== null ? 'panel-input-invalid' : ''}"
         type="number"
-        min="915"
-        max="928"
-        step="0.001"
-        bind:value={frequency}
+        min={MINIMUM_FREQUENCY_MEGAHERTZ}
+        max={MAXIMUM_FREQUENCY_MEGAHERTZ}
+        step={10 ** -FREQUENCY_DECIMALS}
+        bind:value={values.freq}
       />
     </label>
     <label class="panel-label">
       Factor de dispersión
-      <select class="panel-input" bind:value={spreadingFactor}>
+      <select class="panel-input" bind:value={values.sf}>
         {#each SPREADING_FACTORS as value (value)}
           <option {value}>SF{value}</option>
         {/each}
@@ -208,7 +144,7 @@
     </label>
     <label class="panel-label">
       Ancho de banda
-      <select class="panel-input" bind:value={bandwidth}>
+      <select class="panel-input" bind:value={values.bw}>
         {#each BANDWIDTHS_KILOHERTZ as value (value)}
           <option {value}>{value} kHz</option>
         {/each}
@@ -216,7 +152,7 @@
     </label>
     <label class="panel-label">
       Tasa de código
-      <select class="panel-input" bind:value={codingRate}>
+      <select class="panel-input" bind:value={values.cr}>
         {#each CODING_RATE_DENOMINATORS as value (value)}
           <option {value}>{formatCodingRate(value)}</option>
         {/each}
@@ -227,10 +163,10 @@
       <input
         class="panel-input {problemFor('preamble') !== null ? 'panel-input-invalid' : ''}"
         type="number"
-        min="6"
-        max="65535"
+        min={MINIMUM_PREAMBLE_LENGTH}
+        max={MAXIMUM_PREAMBLE_LENGTH}
         step="1"
-        bind:value={preamble}
+        bind:value={values.preamble}
       />
     </label>
     <label class="panel-label">
@@ -238,26 +174,28 @@
       <input
         class="panel-input {problemFor('sync') !== null ? 'panel-input-invalid' : ''}"
         type="number"
-        min="0"
-        max="255"
+        min={MINIMUM_SYNC_WORD}
+        max={MAXIMUM_SYNC_WORD}
         step="1"
-        bind:value={syncWord}
+        bind:value={values.sync}
       />
       <span class="font-normal text-faint">
-        {Number.isInteger(syncWord) && syncWord >= 0 && syncWord <= 255 ? formatSyncWord(syncWord) : "0 a 255"}
+        {Number.isInteger(values.sync) && values.sync >= MINIMUM_SYNC_WORD && values.sync <= MAXIMUM_SYNC_WORD
+          ? formatSyncWord(values.sync)
+          : `${MINIMUM_SYNC_WORD} a ${MAXIMUM_SYNC_WORD}`}
       </span>
     </label>
     <label class="panel-label">
       Potencia en la antena
-      <select class="panel-input {problemFor('power') !== null ? 'panel-input-invalid' : ''}" bind:value={power}>
+      <select class="panel-input {problemFor('power') !== null ? 'panel-input-invalid' : ''}" bind:value={values.power}>
         {#each powerValues as value (value)}
           <option {value}>{formatPower(value)}</option>
         {/each}
-        {#if !powerValues.includes(power)}
-          <option value={power}>{formatPower(power)}</option>
+        {#if !powerValues.includes(values.power)}
+          <option value={values.power}>{formatPower(values.power)}</option>
         {/if}
       </select>
-      {#if current !== null && power === current.power}
+      {#if current !== null && values.power === current.power}
         <span class="font-normal text-faint">transceptor a {formatPower(current.chip)}</span>
       {/if}
     </label>
@@ -294,12 +232,12 @@
       carga.
     </p>
   {/if}
-  {#if busy}
-    <p class="panel-hint">El nodo tiene una corrida en curso: rechaza los cambios de radio hasta que termine.</p>
+  {#if radioRefusal !== null && radioHeld}
+    <p class="panel-hint">{radioRefusal.message}</p>
   {/if}
 
   <div class="flex flex-wrap gap-2">
-    <button type="submit" class="panel-button-primary" disabled={!open || changeCount === 0}>
+    <button type="submit" class="panel-button panel-button-primary" disabled={changeCount === 0 || radioHeld}>
       {changeCount === 0 ? "Sin cambios" : `Aplicar ${changeCount === 1 ? "1 cambio" : `${changeCount} cambios`}`}
     </button>
     <button
@@ -310,19 +248,18 @@
     >
       Volver a los valores actuales
     </button>
-    <button type="button" class="panel-button" disabled={!open} onclick={() => panel.sendCommand(connection.key, RADIO_QUERY_COMMAND)}>
+    <button type="button" class="panel-button" onclick={() => panel.sendCommand(connection.key, RADIO_QUERY_COMMAND)}>
       Consultar
     </button>
     <button
       type="button"
       class="panel-button"
-      disabled={!open}
       title="Copia frecuencia, modulación, preámbulo y palabra de sincronismo; no la potencia ni el LNA"
       onclick={copyChannelToOtherNodes}
     >
       Copiar el canal a los demás nodos
     </button>
-    <button type="button" class="panel-button-danger" disabled={!open} onclick={resetToDefaults}>
+    <button type="button" class="panel-button panel-button-danger" disabled={radioHeld} onclick={resetToDefaults}>
       Restablecer valores por defecto
     </button>
   </div>

@@ -1,146 +1,26 @@
 <script lang="ts">
+  import { GRAPH_NODE_SOURCE_LABELS, hasVirtualMachineTrouble } from "$lib/node-session/connection-graph.ts";
   import {
-    hasActivationPending,
-    type ConnectionGraph,
-    type GraphNode,
-    type LinkQuality,
-  } from "$lib/nodes/connection-graph.ts";
-  import { imageReceptionFraction, type NodeState } from "$lib/nodes/node-state.ts";
-  import {
-    formatDuration,
-    formatImageVersion,
-    formatNumber,
-    formatRssi,
-    formatShortClockTime,
-    formatSnr,
-  } from "$lib/utils/format.ts";
-  import {
-    ACTIVATION_CAUSE_LABELS,
-    BURST_CAUSE_LABELS,
-    countWithNoun,
-    GRAPH_NODE_SOURCE_LABELS,
-    IMAGE_REJECTION_LABELS,
-    VM_FAULT_LABELS,
-  } from "$lib/utils/labels.ts";
+    describeHearing,
+    describeLastHeard,
+    describeVirtualMachine,
+  } from "$lib/node-session/connection-graph-descriptions.ts";
+  import { hasActivationPending } from "$lib/update/activation.ts";
+  import { buildTransferActivity, describeImageReception } from "$lib/update/transfer-activity.ts";
+  import { formatImageVersion, formatShortClockTime } from "$lib/utils/format.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
-  let { panel, graph }: { panel: ControlPanel; graph: ConnectionGraph } = $props();
+  let { panel }: { panel: ControlPanel } = $props();
+
+  const graph = $derived(panel.connectionGraph);
 
   const MAXIMUM_ACTIVITY_ROWS = 15;
 
-  interface ActivityRow {
-    readonly key: string;
-    readonly hostTime: number;
-    readonly node: string;
-    readonly kind: string;
-    readonly detail: string;
-  }
-
-  /** Console state of each connected node, by identifier. */
   const states = $derived(
-    new Map(panel.identifiedConnections.map((connection) => [connection.state.identifier ?? "", connection.state])),
+    new Map(panel.nodes.identified.map((connection) => [connection.state.identifier, connection.state])),
   );
 
-  function describeReception(state: NodeState | undefined): string {
-    if (state === undefined) {
-      return "—";
-    }
-    const reception = state.imageReception;
-    const transfer = state.transfer;
-    if (reception !== null) {
-      const percent = Math.round(100 * imageReceptionFraction(reception));
-      const missing =
-        transfer !== null && transfer.receivingVersion === reception.version && transfer.missingBytes !== null
-          ? `, faltan ${formatNumber(transfer.missingBytes)} bytes`
-          : "";
-      return `${reception.version}: ${reception.heldFragments.length} de ${countWithNoun(reception.fragmentCount, "fragmento", "fragmentos")} de ${reception.fragmentSize} bytes (${percent} %)${missing}`;
-    }
-    if (transfer !== null && transfer.receivingVersion !== null) {
-      return `${transfer.receivingVersion}: faltan ${formatNumber(transfer.missingBytes)} bytes`;
-    }
-    return "ninguna";
-  }
-
-  function describeMachine(node: GraphNode): string {
-    const fault = node.vmFault === null ? "sin fallas desde la activación" : `última falla: ${VM_FAULT_LABELS[node.vmFault]}`;
-    return node.vmFailing === true ? `${fault}; el último tick terminó en falla` : fault;
-  }
-
-  function describeHearing(quality: LinkQuality | null): string {
-    return quality === null ? "—" : `${formatRssi(quality.rssi)} · ${formatSnr(quality.snr)}`;
-  }
-
-  /** Bursts, reports, images and activations of the connected nodes, newest first. */
-  const activity = $derived.by(() => {
-    const rows: ActivityRow[] = [];
-    for (const [id, state] of states) {
-      for (const [index, burst] of state.bursts.entries()) {
-        const sent = burst.completion === null ? `${countWithNoun(burst.transmitted, "enviado", "enviados")} hasta ahora` : countWithNoun(burst.completion.sent, "enviado", "enviados");
-        rows.push({
-          key: `${id}:burst:${index}`,
-          hostTime: burst.startHostTime,
-          node: id,
-          kind: "Ráfaga",
-          detail:
-            `${burst.version}: ${countWithNoun(burst.count, "fragmento", "fragmentos")} de ${burst.fragmentSize} bytes, ${sent}; ` +
-            `${BURST_CAUSE_LABELS[burst.cause]}${burst.trigger === null ? "" : ` (${burst.trigger})`}`,
-        });
-      }
-      for (const [index, report] of state.reportsReceived.entries()) {
-        rows.push({
-          key: `${id}:report:${index}`,
-          hostTime: report.hostTime,
-          node: id,
-          kind: "Reporte recibido",
-          detail: `de ${report.peer}, versión ${report.version}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${countWithNoun(report.fragmentCount, "fragmento", "fragmentos")} (${report.missing.join(", ")})`,
-        });
-      }
-      const reception = state.imageReception;
-      if (reception?.lastReport != null) {
-        const report = reception.lastReport;
-        rows.push({
-          key: `${id}:sent:${report.hostTime}`,
-          hostTime: report.hostTime,
-          node: id,
-          kind: "Reporte enviado",
-          detail: `a ${report.peer}, versión ${report.version}, ronda ${report.round ?? "—"}: ${report.missing.length === 1 ? "falta" : "faltan"} ${report.missing.length} de ${countWithNoun(report.fragmentCount, "fragmento", "fragmentos")}`,
-        });
-      }
-      for (const [index, image] of state.images.entries()) {
-        rows.push({
-          key: `${id}:image:${index}`,
-          hostTime: image.hostTime,
-          node: id,
-          kind: "Imagen disponible",
-          detail:
-            image.via === "console"
-              ? `${image.version}, cargada por la consola (${formatNumber(image.imageSize)} bytes)`
-              : `${image.version}, completada por la radio desde ${image.source ?? "—"}: ${countWithNoun(image.fragments, "fragmento", "fragmentos")}, ${countWithNoun(image.reports, "reporte", "reportes")}, ${formatNumber(image.durationMilliseconds)} ms`,
-        });
-      }
-      for (const [index, rejection] of state.imageRejections.entries()) {
-        rows.push({
-          key: `${id}:rejection:${index}`,
-          hostTime: rejection.hostTime,
-          node: id,
-          kind: "Imagen rechazada",
-          detail: `${rejection.version} desde ${rejection.source}: ${IMAGE_REJECTION_LABELS[rejection.reason]}`,
-        });
-      }
-      for (const [index, activation] of state.activations.entries()) {
-        rows.push({
-          key: `${id}:activation:${index}`,
-          hostTime: activation.hostTime,
-          node: id,
-          kind: "Activación",
-          detail:
-            `${activation.version} (antes ${formatImageVersion(activation.previous)}): ` +
-            `${ACTIVATION_CAUSE_LABELS[activation.cause]}${activation.source === null ? "" : ` (${activation.source})`}`,
-        });
-      }
-    }
-    return rows.sort((first, second) => second.hostTime - first.hostTime).slice(0, MAXIMUM_ACTIVITY_ROWS);
-  });
+  const activity = $derived(buildTransferActivity(states, MAXIMUM_ACTIVITY_ROWS));
 </script>
 
 <div class="panel-card flex flex-col gap-3">
@@ -183,17 +63,11 @@
                 {formatImageVersion(node.availableVersion)}
                 {#if pending}<span class="panel-badge ml-1 bg-warn/10 font-sans text-warn">sin activar</span>{/if}
               </td>
-              <td class="text-xs">{node.connected ? describeReception(state) : "—"}</td>
-              <td class="text-xs {node.vmFault !== null || node.vmFailing === true ? 'text-danger' : ''}">
-                {node.source === "neighbor_list" ? "—" : describeMachine(node)}
+              <td class="text-xs">{node.connected && state !== undefined ? describeImageReception(state) : "—"}</td>
+              <td class="text-xs {hasVirtualMachineTrouble(node) ? 'text-danger' : ''}">
+                {describeVirtualMachine(node)}
               </td>
-              <td class="text-xs whitespace-nowrap text-muted">
-                {node.connected
-                  ? "consola abierta"
-                  : node.lastHeardHostTime === null
-                    ? "—"
-                    : `hace ${formatDuration(panel.now - node.lastHeardHostTime)}`}
-              </td>
+              <td class="text-xs whitespace-nowrap text-muted">{describeLastHeard(node, panel.now)}</td>
             </tr>
           {/each}
         </tbody>

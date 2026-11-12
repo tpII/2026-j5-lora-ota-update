@@ -3,10 +3,12 @@
 
 #include <stdint.h>
 
+#include "frame.h"
+
 namespace firmware {
 
 // Node identifier, epoch and sequence numbers (docs/protocol/frame.md).
-class NodeIdentity {
+class NodeIdentity : public SequenceSource {
 public:
   // Derives the identifier from the factory MAC and advances the epoch kept in NVS.
   void begin();
@@ -16,7 +18,7 @@ public:
 
   // Assigns epoch and sequence to a new frame. When the sequence wraps around, the epoch
   // advances and the sequence starts again at 0.
-  void assignSequence(uint8_t &epoch, uint16_t &sequence);
+  void assignSequence(uint8_t &epoch, uint16_t &sequence) override;
 
 private:
   void advanceEpoch();

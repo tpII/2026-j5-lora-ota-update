@@ -1,10 +1,9 @@
 <script lang="ts">
-  import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import type { MeasurementSheet } from "$lib/state/measurement-sheet.svelte.ts";
 
   /** The fields of the measurement sheet, shared by every export of the panel. */
-  let { panel }: { panel: ControlPanel } = $props();
+  let { sheet }: { sheet: MeasurementSheet } = $props();
 
-  const sheet = $derived(panel.measurementSheet);
   const titleId = $props.id();
 </script>
 

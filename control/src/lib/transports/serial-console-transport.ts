@@ -1,15 +1,11 @@
 /**
- * Console over USB serial through Web Serial: 921600 baud, 8N1, lines ended in "\n".
+ * Console over USB serial through Web Serial: CONSOLE_BAUD_RATE baud, 8N1, lines ended in "\n".
  * Several ports can be open at once, one transport each.
  */
 import { ConsoleLineSplitter } from "$lib/console/console-line-splitter.ts";
-import {
-  describeTransportError,
-  type ConsoleTransport,
-  type ConsoleTransportReceiver,
-} from "./console-transport.ts";
-
-export const CONSOLE_BAUD_RATE = 921600;
+import { CONSOLE_BAUD_RATE } from "$lib/protocol/protocol-contract.ts";
+import { describeError } from "$lib/utils/error-description.ts";
+import type { ConsoleTransport, ConsoleTransportReceiver } from "./console-transport.ts";
 
 /** Read buffer of the port; the node writes bursts of events during a run. */
 const SERIAL_BUFFER_SIZE = 64 * 1024;
@@ -136,7 +132,7 @@ export class SerialConsoleTransport implements ConsoleTransport {
         }
       } catch (error) {
         if (!isRecoverableSerialError(error)) {
-          failure = `Se perdió la conexión USB: ${describeTransportError(error)}`;
+          failure = `Se perdió la conexión USB: ${describeError(error)}`;
           break;
         }
       } finally {
@@ -173,11 +169,20 @@ export function isWebSerialAvailable(): boolean {
   return typeof navigator !== "undefined" && "serial" in navigator;
 }
 
-/** Asks the operator to choose a serial port and returns a transport for it. */
-export async function requestSerialConsoleTransport(): Promise<SerialConsoleTransport> {
+/**
+ * Asks the operator to choose a serial port and returns a transport for it, or null when the
+ * operator closed the chooser without choosing, which Web Serial reports as NotFoundError.
+ */
+export async function requestSerialConsoleTransport(): Promise<SerialConsoleTransport | null> {
   if (!isWebSerialAvailable()) {
     throw new Error("Este navegador no ofrece Web Serial.");
   }
-  const port = await navigator.serial.requestPort();
-  return new SerialConsoleTransport(port);
+  try {
+    return new SerialConsoleTransport(await navigator.serial.requestPort());
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotFoundError") {
+      return null;
+    }
+    throw error;
+  }
 }

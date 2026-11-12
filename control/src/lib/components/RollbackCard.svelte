@@ -1,30 +1,21 @@
 <script lang="ts">
-  import { PROGRAM_COMMAND } from "$lib/console/console-command.ts";
-  import { recoverProgram, type ImageVersionCheck } from "$lib/image/image-preparation.ts";
+  import ImageVersionCheckMessages from "./ImageVersionCheckMessages.svelte";
+  import { PROGRAM_COMMAND } from "$lib/commands/console-command.ts";
+  import { recoverProgram } from "$lib/image/image-preparation.ts";
   import { disassemble } from "$lib/vm/disassembler.ts";
-  import { formatProgramHex } from "$lib/vm/instruction-set.ts";
-  import { VM_FAULT_LABELS } from "$lib/utils/labels.ts";
+  import { formatHex } from "$lib/utils/hex.ts";
+  import { describeProgramFault } from "$lib/vm/fault-descriptions.ts";
   import { formatImageVersion, formatShortClockTime } from "$lib/utils/format.ts";
-  import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
-  import type { ImageSigningSession } from "$lib/state/image-signing-session.svelte.ts";
+  import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
 
   let {
     panel,
     draft,
-    session,
-    target,
-    checkVersion,
-    signAndLoad,
     openProgram,
   }: {
     panel: ControlPanel;
     draft: ProgramDraft;
-    session: ImageSigningSession;
-    /** The node chosen above, which becomes the origin of the update; null when there is none. */
-    target: ConnectionView | null;
-    checkVersion: (version: number) => ImageVersionCheck;
-    signAndLoad: (program: Uint8Array, version: number) => Promise<string | null>;
     /** Switches the panel to the Programa tab, where the draft is edited. */
     openProgram: () => void;
   } = $props();
@@ -41,9 +32,13 @@
   let notice = $state<string | null>(null);
   let loading = $state(false);
 
+  const update = $derived(panel.update);
+  const session = $derived(update.session);
+  /** The node chosen above, which becomes the origin of the update; null when there is none. */
+  const target = $derived(update.target);
   /** The next version is the one of the signing card, so both always propose the same. */
   const version = $derived(session.nextVersion);
-  const check = $derived(checkVersion(version));
+  const check = $derived(update.checkVersion(version));
   const connected = $derived(target !== null);
   const record = $derived(target?.state.program ?? null);
   const recovery = $derived(record === null ? null : recoverProgram(record.code));
@@ -82,7 +77,7 @@
     notice = null;
     const signedVersion = version;
     try {
-      problem = await signAndLoad(source.program, signedVersion);
+      problem = await update.loadImage(source.program, signedVersion);
       if (problem === null) {
         notice =
           `Se envió el programa de la versión ${source.version} como versión ${signedVersion}; ` +
@@ -96,7 +91,7 @@
   function moveToEditor(source: ProgramSource): void {
     const result = disassemble(source.program);
     if (!result.valid) {
-      problem = `El programa no se puede desensamblar: ${VM_FAULT_LABELS[result.fault]} en la dirección ${result.address}.`;
+      problem = `El programa no se puede desensamblar: ${describeProgramFault(result.fault, result.address)}.`;
       return;
     }
     if (!window.confirm("El programa reemplaza al del editor. ¿Continuar?")) {
@@ -148,12 +143,7 @@
       <span class="font-mono">{Number.isInteger(version) ? version : "—"}</span>
       <span class="text-xs text-muted">(la misma de «Firmar y cargar una imagen», donde se cambia)</span>
     </p>
-    {#if check.problem !== null}
-      <p class="panel-error-text">{check.problem}</p>
-    {/if}
-    {#each check.warnings as warning (warning)}
-      <p class="text-xs text-warn">{warning}</p>
-    {/each}
+    <ImageVersionCheckMessages {check} />
   </div>
 
   {#if sources.length === 0}
@@ -174,8 +164,8 @@
             <tr>
               <td class="font-mono">{source.version}</td>
               <td class="text-xs">{source.description}</td>
-              <td class="max-w-64 truncate font-mono text-xs" title={formatProgramHex(source.program)}>
-                {formatProgramHex(source.program)}
+              <td class="max-w-64 truncate font-mono text-xs" title={formatHex(source.program)}>
+                {formatHex(source.program)}
               </td>
               <td class="whitespace-nowrap">
                 <button

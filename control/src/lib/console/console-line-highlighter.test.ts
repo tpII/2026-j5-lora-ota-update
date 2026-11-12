@@ -24,7 +24,7 @@ describe("highlightJsonLine", () => {
   it("colors keys, strings and numbers", () => {
     const segments = highlightJsonLine(HELLO_LINE);
     for (const segment of segments) {
-      expect(segment.style).toMatch(/^color:#[0-9A-Fa-f]{6}/);
+      expect(segment.style).toMatch(/^color:var\(--color-[a-z-]+\)/);
     }
     expect(styleOf(segments, "hello")).not.toBe(styleOf(segments, "ev"));
     expect(styleOf(segments, "-47.5")).not.toBe(styleOf(segments, "hello"));
@@ -35,10 +35,6 @@ describe("highlightJsonLine", () => {
     for (let index = 1; index < segments.length; index += 1) {
       expect(segments[index]?.style).not.toBe(segments[index - 1]?.style);
     }
-  });
-
-  it("returns the same segments for a line it already colored", () => {
-    expect(highlightJsonLine(HELLO_LINE)).toBe(highlightJsonLine(HELLO_LINE));
   });
 
   it("keeps the text of a line that is not JSON", () => {

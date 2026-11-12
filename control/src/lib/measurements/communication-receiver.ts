@@ -5,34 +5,32 @@
  * the panel records each `echo_served`. Deactivating puts the radio settings and the HELLO
  * messages back as they were.
  */
-import type { CampaignNode } from "./capacity-test-campaign.ts";
-import {
-  DEFAULT_CONFIRMATION_TIMEOUT_MILLISECONDS,
-  applyModulation,
-  holdPresence,
-  restoreNode,
-  type Modulation,
-} from "./command-confirmation.ts";
-import { MAXIMUM_PRESENCE_HOLD_SECONDS } from "$lib/console/console-command.ts";
+import { CommunicationTestSession } from "./communication-test-session.ts";
 import type { ConsoleEvent, NodeIdentifier } from "$lib/console/console-event.ts";
-import type { RadioSettings } from "$lib/radio/radio-settings.ts";
+import { servedEchoOf, type ServedEcho } from "$lib/nodes/echo-records.ts";
+import type { NodePort } from "$lib/nodes/node-port.ts";
+import { MAXIMUM_PRESENCE_HOLD_SECONDS } from "$lib/protocol/protocol-contract.ts";
+import type { Modulation, RadioSettings } from "$lib/radio/radio-settings.ts";
 import { SYSTEM_TIME_SOURCE, type TimeSource } from "$lib/utils/time-source.ts";
 
-/** The longest hold the firmware accepts; the panel renews it well before it expires. */
+/** The longest hold the firmware accepts; the panel renews it halfway through. */
 export const RECEIVER_PRESENCE_HOLD_SECONDS = MAXIMUM_PRESENCE_HOLD_SECONDS;
-export const HOLD_RENEWAL_INTERVAL_MILLISECONDS = 30 * 60_000;
+export const HOLD_RENEWAL_INTERVAL_MILLISECONDS = (RECEIVER_PRESENCE_HOLD_SECONDS * 1000) / 2;
 
 export type ReceiverModeStatus = "activating" | "active" | "deactivating" | "inactive" | "failed";
 
-/** One echo the node answered while in receiver mode. */
-export interface ServedEcho {
-  readonly source: NodeIdentifier;
-  readonly number: number;
-  readonly size: number;
-  /** Quality of the request as this node received it. */
-  readonly rssi: number;
-  readonly snr: number;
-  readonly hostTime: number;
+export const RECEIVER_MODE_STATUS_LABELS: { readonly [Status in ReceiverModeStatus]: string } = {
+  activating: "Suspendiendo los HELLO y aplicando la modulación",
+  active: "Activo: responde ecos",
+  deactivating: "Restableciendo la radio y los HELLO",
+  inactive: "Desactivado",
+  failed: "No se pudo activar",
+};
+
+/** True from the activation of receiver mode until its deactivation ends. */
+export function isReceiverModeActive(snapshot: { readonly status: ReceiverModeStatus }): boolean {
+  const status = snapshot.status;
+  return status === "activating" || status === "active" || status === "deactivating";
 }
 
 export interface ReceiverModeSnapshot {
@@ -52,21 +50,20 @@ export interface ReceiverModeSnapshot {
 }
 
 export interface CommunicationReceiverOptions {
-  readonly node: CampaignNode;
+  readonly node: NodePort;
   /** Radio settings the node reported before activating. */
   readonly radio: RadioSettings;
   readonly modulation: Modulation;
   readonly timeSource?: TimeSource;
-  readonly confirmationTimeoutMilliseconds?: number;
   readonly onChange?: (snapshot: ReceiverModeSnapshot) => void;
 }
 
 export class CommunicationReceiver {
-  readonly #node: CampaignNode;
+  readonly #node: NodePort;
   readonly #radio: RadioSettings;
   readonly #modulation: Modulation;
   readonly #timeSource: TimeSource;
-  readonly #confirmationTimeout: number;
+  readonly #session: CommunicationTestSession;
   readonly #onChange: ((snapshot: ReceiverModeSnapshot) => void) | undefined;
   readonly #activationHostTime: number;
   #status: ReceiverModeStatus = "inactive";
@@ -84,8 +81,7 @@ export class CommunicationReceiver {
     this.#radio = options.radio;
     this.#modulation = options.modulation;
     this.#timeSource = options.timeSource ?? SYSTEM_TIME_SOURCE;
-    this.#confirmationTimeout =
-      options.confirmationTimeoutMilliseconds ?? DEFAULT_CONFIRMATION_TIMEOUT_MILLISECONDS;
+    this.#session = new CommunicationTestSession(options.node, options.radio, this.#timeSource);
     this.#onChange = options.onChange;
     this.#activationHostTime = this.#timeSource.now();
     this.#snapshot = this.#buildSnapshot();
@@ -102,26 +98,9 @@ export class CommunicationReceiver {
     }
     this.#status = "activating";
     this.#publish();
-    const held = await holdPresence(
-      this.#node,
-      RECEIVER_PRESENCE_HOLD_SECONDS,
-      this.#timeSource,
-      this.#confirmationTimeout,
-    );
-    const modulated =
-      held === null
-        ? await applyModulation(
-            this.#node,
-            this.#modulation,
-            this.#timeSource,
-            this.#confirmationTimeout,
-          )
-        : null;
-    if (held !== null || modulated !== null) {
-      this.#failure =
-        held !== null
-          ? `No se pudieron suspender los HELLO: ${held}`
-          : `No se pudo aplicar la modulación de la prueba: ${modulated}`;
+    const failure = await this.#session.prepare(this.#modulation, RECEIVER_PRESENCE_HOLD_SECONDS);
+    if (failure !== null) {
+      this.#failure = failure;
       await this.#restore();
       this.#status = "failed";
       this.#publish();
@@ -154,13 +133,7 @@ export class CommunicationReceiver {
   }
 
   async #restore(): Promise<void> {
-    const { sf, bw, cr } = this.#radio;
-    this.#restorationProblems = await restoreNode(
-      this.#node,
-      { sf, bw, cr },
-      this.#timeSource,
-      this.#confirmationTimeout,
-    );
+    this.#restorationProblems = await this.#session.restore();
     this.#restored = this.#restorationProblems.length === 0;
     this.#deactivationHostTime = this.#timeSource.now();
   }
@@ -168,12 +141,7 @@ export class CommunicationReceiver {
   /** Renews the hold, so that a long session does not bring the HELLO back on its own. */
   #scheduleRenewal(): void {
     this.#cancelRenewal = this.#timeSource.schedule(() => {
-      void holdPresence(
-        this.#node,
-        RECEIVER_PRESENCE_HOLD_SECONDS,
-        this.#timeSource,
-        this.#confirmationTimeout,
-      ).then((problem) => {
+      void this.#session.renewHold(RECEIVER_PRESENCE_HOLD_SECONDS).then((problem) => {
         if (this.#status !== "active") {
           return;
         }
@@ -188,14 +156,7 @@ export class CommunicationReceiver {
     if (this.#status !== "active" || event.ev !== "echo_served") {
       return;
     }
-    this.#servedEchoes.push({
-      source: event.src,
-      number: event.n,
-      size: event.size,
-      rssi: event.rssi,
-      snr: event.snr,
-      hostTime,
-    });
+    this.#servedEchoes.push(servedEchoOf(event, hostTime));
     this.#publish();
   }
 

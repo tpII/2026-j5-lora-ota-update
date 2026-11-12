@@ -1,0 +1,26 @@
+{
+  "networkKey": "bichofeo",
+  "protocolVersion": 2,
+  "frames": [
+    {
+      "name": "echo request to one node",
+      "type": "0x02",
+      "source": "0x3A7F",
+      "destination": "0x1A2B",
+      "epoch": 7,
+      "sequence": 513,
+      "body": "2a00",
+      "frame": "027f3a2b1a0701022a008795412f8b5ab200"
+    },
+    {
+      "name": "broadcast with an empty body",
+      "type": "0x01",
+      "source": "0x00F4",
+      "destination": "0xFFFF",
+      "epoch": 255,
+      "sequence": 65535,
+      "body": "",
+      "frame": "01f400ffffffffff193eb21896dd06ee"
+    }
+  ]
+}

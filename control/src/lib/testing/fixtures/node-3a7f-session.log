@@ -1,5 +1,5 @@
 ESP-ROM:esp32s3-20210327
-{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}
+{"t":812,"ev":"boot","id":"3A7F","model":"V4.3","epoch":12,"firmware":"0.2.0","protocol":2,"key":"default","operator_key":"default"}
 {"t":813,"ev":"radio","freq":915.900,"sf":7,"bw":500,"cr":5,"preamble":8,"sync":18,"power":4,"chip":-9,"lna":"bypass"}
 {"t":815,"ev":"wifi","state":"on","ssid":"J5-3A7F","channel":1,"clients":0}
 boot 3A7F V4.3 e12
@@ -30,7 +30,7 @@ id conflict
 VM: R1 - 0x00000008
 {"t":27400,"ev":"vm_fault","tick":2,"pc":6,"reason":"division_by_zero"}
 VM: division_by_zero
-{"t":28000,"ev":"error","cmd":"radio","reason":"unreachable_power","detail":"power 4..28"}
+{"t":28000,"ev":"error","cmd":"radio","reason":"unreachable_power","detail":"power 4..28 on V4.3"}
 error radio unreachable_power
 {"t":28100,"ev":"error","cmd":"frobnicate","reason":"unknown_command"}
 error frobnicate unknown_command

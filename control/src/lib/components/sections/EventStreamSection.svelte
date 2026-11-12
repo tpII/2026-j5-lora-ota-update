@@ -1,38 +1,74 @@
 <script lang="ts">
-  import { MAXIMUM_COMMAND_LENGTH, HELP_COMMAND, RESEND_COMMAND } from "$lib/console/console-command.ts";
-  import { CONSOLE_EVENT_NAMES } from "$lib/console/console-event.ts";
+  import { HELP_COMMAND, LOAD_IMAGE_COMMAND, RESEND_COMMAND } from "$lib/commands/console-command.ts";
+  import { lineCapacityOf } from "$lib/console/console-command-table.ts";
+  import { CONSOLE_LINE_CAPACITY } from "$lib/protocol/protocol-contract.ts";
+  import { TRANSPORT_LABELS } from "$lib/transports/console-transport.ts";
+  import { CONSOLE_EVENT_NAMES, type ConsoleEventName } from "$lib/console/console-event.ts";
+  import {
+    ALL_NODES_FILTER,
+    SELECTED_NODE_FILTER,
+    STREAM_CAPACITY,
+  } from "$lib/state/event-stream.svelte.ts";
   import { highlightJsonLine } from "$lib/console/console-line-highlighter.ts";
-  import type { ConsoleRecord } from "$lib/nodes/node-connection.ts";
+  import type { ConsoleRecord } from "$lib/node-session/node-connection.ts";
   import { formatClockTime, formatNumber } from "$lib/utils/format.ts";
-  import { EVENT_DESCRIPTIONS, TRANSPORT_LABELS } from "$lib/utils/labels.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
-  let { panel, active }: { panel: ControlPanel; active: boolean } = $props();
+  let { panel }: { panel: ControlPanel } = $props();
 
   /** Lines drawn at most; the stream keeps more for the filters. */
   const MAXIMUM_VISIBLE_RECORDS = 500;
 
-  /** Node filter value that follows the node chosen above, whichever it is at each moment. */
-  const SELECTED_NODE_FILTER = "selected";
+  /** What each event is, for the event filter. */
+  const EVENT_DESCRIPTIONS: { readonly [Name in ConsoleEventName]: string } = {
+    boot: "arranque",
+    radio: "parámetros de radio",
+    wifi: "punto de acceso",
+    presence: "estado de los HELLO",
+    status: "estado",
+    neighbor: "vecino",
+    tx: "transmisión",
+    hello: "HELLO recibido",
+    echo_served: "eco respondido",
+    echo: "eco recibido",
+    echo_lost: "eco perdido",
+    run_start: "comienzo de corrida",
+    run_done: "fin de corrida en el emisor",
+    test_rx: "paquete de corrida",
+    run_end: "fin de corrida en el receptor",
+    duplicate: "paquete repetido",
+    drop: "paquete descartado",
+    id_conflict: "identificador repetido",
+    vm: "estado de la VM",
+    vm_print: "salida de la VM",
+    vm_fault: "falla de la VM",
+    transfer: "estado de la transferencia",
+    image: "imagen disponible",
+    image_rejected: "imagen rechazada",
+    fragment_rx: "fragmento recibido",
+    burst_start: "comienzo de ráfaga",
+    burst_done: "fin de ráfaga",
+    report_sent: "reporte enviado",
+    report_received: "reporte recibido",
+    activation: "activación",
+    program: "programa activo",
+    error: "error",
+  };
 
-  type KindFilter = "all" | "no-debug" | "events" | "debug" | "command" | "notice" | "unrecognized" | (typeof CONSOLE_EVENT_NAMES)[number];
-
-  let nodeFilter = $state("all");
-  let kindFilter = $state<KindFilter>("all");
   let autoscrollPaused = $state(false);
   /** Console the operator chose by hand in «Enviar a»; null while the field follows the chosen node. */
   let manualCommandTarget = $state<string | null>(null);
   let commandText = $state("");
   let listElement = $state<HTMLElement | null>(null);
 
-  const openConnections = $derived(panel.connections.filter((connection) => connection.status === "open"));
+  const openConnections = $derived(panel.nodes.open);
 
   /**
    * The console «Enviar a» follows: the chosen node while its console is open, identified or not (a
    * node not yet identified still answers commands), else the first open console.
    */
   const followedCommandTarget = $derived.by(() => {
-    const selected = panel.selectedConnection;
+    const selected = panel.nodes.selected;
     return selected !== null && selected.status === "open" ? selected.key : (openConnections[0]?.key ?? "");
   });
   const commandTarget = $derived(
@@ -56,55 +92,29 @@
 
   $effect(() => {
     // Choosing another node above makes «Enviar a» follow it again.
-    const selectedKey = panel.selectedConnection?.key ?? null;
+    const selectedKey = panel.nodes.selected?.key ?? null;
     if (manualCommandTarget !== null && selectedKey !== selectedKeyAtChoice) {
       manualCommandTarget = null;
     }
   });
 
   function chooseCommandTarget(key: string): void {
-    selectedKeyAtChoice = panel.selectedConnection?.key ?? null;
+    selectedKeyAtChoice = panel.nodes.selected?.key ?? null;
     // Choosing the followed console again goes back to following the chosen node.
     manualCommandTarget = key === followedCommandTarget ? null : key;
   }
 
-  function matchesFilters(record: ConsoleRecord): boolean {
-    if (nodeFilter === SELECTED_NODE_FILTER) {
-      if (record.connectionKey !== panel.selectedConnection?.key) {
-        return false;
-      }
-    } else if (nodeFilter !== "all" && record.connectionKey !== nodeFilter) {
-      return false;
-    }
-    switch (kindFilter) {
-      case "all":
-        return true;
-      case "no-debug":
-        return record.kind !== "debug";
-      case "events":
-        return record.kind === "event";
-      case "debug":
-      case "command":
-      case "notice":
-      case "unrecognized":
-        return record.kind === kindFilter;
-      default:
-        return record.kind === "event" && record.event.ev === kindFilter;
-    }
-  }
-
-  const matchingRecords = $derived(active ? panel.streamRecords.filter(matchesFilters) : []);
+  const matchingRecords = $derived(panel.stream.matching);
   const visibleRecords = $derived(matchingRecords.slice(-MAXIMUM_VISIBLE_RECORDS));
 
   $effect(() => {
-    // Follow the newest line unless the operator paused the scrolling.
     if (visibleRecords.length > 0 && !autoscrollPaused && listElement !== null) {
       listElement.scrollTop = listElement.scrollHeight;
     }
   });
 
   function nodeLabel(connectionKey: string): string {
-    const connection = panel.connection(connectionKey);
+    const connection = panel.nodes.byKey(connectionKey);
     return connection?.state.identifier ?? connectionKey;
   }
 
@@ -138,18 +148,25 @@
     }
   }
 
-  const commandProblem = $derived(
-    commandText.length > MAXIMUM_COMMAND_LENGTH
-      ? `El nodo admite hasta ${MAXIMUM_COMMAND_LENGTH} caracteres por línea.`
-      : null,
-  );
+  /** Why the node would refuse the typed line for its length, as the firmware checks it. */
+  function lengthProblemOf(text: string): string | null {
+    const capacity = lineCapacityOf(text);
+    if (text.trim().length <= capacity) {
+      return null;
+    }
+    return capacity === CONSOLE_LINE_CAPACITY
+      ? `El nodo admite hasta ${CONSOLE_LINE_CAPACITY} caracteres por línea.`
+      : `El nodo admite hasta ${capacity} caracteres en una línea de ${LOAD_IMAGE_COMMAND}.`;
+  }
+
+  const commandProblem = $derived(lengthProblemOf(commandText));
 
   async function sendCommand(command: string): Promise<void> {
     const text = command.trim();
-    if (commandTarget === "" || text === "" || text.length > MAXIMUM_COMMAND_LENGTH) {
+    if (commandTarget === "" || text === "" || lengthProblemOf(text) !== null) {
       return;
     }
-    if (await panel.sendCommand(commandTarget, text)) {
+    if (await panel.sendTypedCommand(commandTarget, text)) {
       if (command === commandText) {
         commandText = "";
       }
@@ -161,14 +178,14 @@
   <div class="panel-card flex flex-wrap items-end gap-3">
     <label class="panel-label">
       Nodo
-      <select class="panel-input" bind:value={nodeFilter}>
-        <option value="all">Todos</option>
+      <select class="panel-input" bind:value={panel.stream.nodeFilter}>
+        <option value={ALL_NODES_FILTER}>Todos</option>
         <option value={SELECTED_NODE_FILTER}>
-          El nodo elegido{panel.selectedConnection === null
+          El nodo elegido{panel.nodes.selected === null
             ? ""
-            : ` (${panel.selectedConnection.state.identifier ?? panel.selectedConnection.key})`}
+            : ` (${panel.nodes.selected.state.identifier ?? panel.nodes.selected.key})`}
         </option>
-        {#each panel.connections as connection (connection.key)}
+        {#each panel.nodes.connections as connection (connection.key)}
           <option value={connection.key}>
             {connection.state.identifier ?? connection.key} ({TRANSPORT_LABELS[connection.transportKind]})
           </option>
@@ -177,7 +194,7 @@
     </label>
     <label class="panel-label max-w-full">
       Tipo
-      <select class="panel-input max-w-full" bind:value={kindFilter}>
+      <select class="panel-input max-w-full" bind:value={panel.stream.kindFilter}>
         <option value="all">Todas las líneas</option>
         <option value="no-debug">Todo salvo depuración</option>
         <option value="events">Todos los eventos</option>
@@ -205,7 +222,7 @@
   >
     {#if visibleRecords.length === 0}
       <p class="p-4 text-sm text-faint">
-        {panel.streamRecords.length === 0
+        {panel.stream.records.length === 0
           ? "Todavía no llegó ninguna línea. Las líneas de todos los nodos conectados aparecen en esta lista."
           : "Ninguna línea cumple los filtros elegidos."}
       </p>
@@ -235,7 +252,7 @@
   </div>
   <p class="panel-hint">
     {visibleRecords.length === 1 ? "Se muestra" : "Se muestran"} {formatNumber(visibleRecords.length)} de {formatNumber(matchingRecords.length)} {matchingRecords.length === 1 ? "línea que cumple" : "líneas que cumplen"}
-    los filtros; el panel guarda las últimas {formatNumber(3000)} líneas de todos los nodos.
+    los filtros; el panel guarda las últimas {formatNumber(STREAM_CAPACITY)} líneas de todos los nodos.
   </p>
 
   <form
@@ -255,7 +272,7 @@
       >
         {#each openConnections as connection (connection.key)}
           <option value={connection.key}>
-            {connection.state.identifier ?? connection.key}{connection.key === panel.selectedConnection?.key
+            {connection.state.identifier ?? connection.key}{connection.key === panel.nodes.selected?.key
               ? " (el nodo elegido)"
               : ""}
           </option>
@@ -273,7 +290,7 @@
         bind:value={commandText}
       />
     </label>
-    <button type="submit" class="panel-button-primary" disabled={commandTarget === "" || commandText.trim() === "" || commandProblem !== null}>
+    <button type="submit" class="panel-button panel-button-primary" disabled={commandTarget === "" || commandText.trim() === "" || commandProblem !== null}>
       Enviar
     </button>
     <div class="flex flex-wrap gap-2">

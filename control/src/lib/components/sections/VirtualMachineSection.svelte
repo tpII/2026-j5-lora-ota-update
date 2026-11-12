@@ -1,12 +1,12 @@
 <script lang="ts">
   import PrintOutputTable from "../PrintOutputTable.svelte";
+  import { countWithNoun } from "$lib/utils/format.ts";
   import RegisterInputs from "../RegisterInputs.svelte";
   import RegisterTable from "../RegisterTable.svelte";
   import TargetNodeLine from "../TargetNodeLine.svelte";
-  import { buildLoadRegistersCommand, type CommandProblem } from "$lib/console/console-command.ts";
-  import { countWithNoun } from "$lib/utils/labels.ts";
+  import { buildLoadRegistersCommand, type CommandProblem } from "$lib/commands/console-command.ts";
   import { parseInteger } from "$lib/vm/assembler.ts";
-  import { TICK_PERIOD_SECONDS } from "$lib/vm/instruction-set.ts";
+  import { REGISTER_COUNT, VM_TICK_PERIOD_MILLISECONDS } from "$lib/protocol/protocol-contract.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   /**
@@ -15,10 +15,10 @@
    */
   let { panel }: { panel: ControlPanel } = $props();
 
-  let registerTexts = $state(["0", "0", "0", "0"]);
+  let registerTexts = $state(Array.from({ length: REGISTER_COUNT }, () => "0"));
   let registerProblems = $state<readonly CommandProblem[]>([]);
 
-  const node = $derived(panel.selectedIdentifiedConnection);
+  const node = $derived(panel.nodes.selectedIdentified);
   const machine = $derived(node?.state.virtualMachine ?? null);
   const lastFault = $derived(node?.state.lastVirtualMachineFault ?? null);
   const prints = $derived(node?.state.virtualMachinePrints ?? []);
@@ -43,9 +43,9 @@
 <div class="flex flex-col gap-3">
   <div class="panel-card flex flex-col gap-3">
     <h3 class="panel-section-title">En el nodo{node === null ? "" : ` ${node.state.identifier}`}</h3>
-    {#if node === null}<TargetNodeLine {panel} />{/if}
+    {#if node === null}<TargetNodeLine target={panel.testTarget()} />{/if}
     <p class="panel-hint">
-      Un tick cada {TICK_PERIOD_SECONDS} s, el primero al activar el programa. Al reiniciarse, el nodo vuelve
+      Un tick cada {VM_TICK_PERIOD_MILLISECONDS / 1000} s, el primero al activar el programa. Al reiniciarse, el nodo vuelve
       al programa de fábrica (versión 0).
     </p>
     <form
@@ -58,7 +58,7 @@
       <p class="panel-hint">El programa los usa desde el próximo tick.</p>
       <RegisterInputs bind:values={registerTexts} />
       <div>
-        <button type="submit" class="panel-button-primary" disabled={node === null}>Cargar registros</button>
+        <button type="submit" class="panel-button panel-button-primary" disabled={node === null}>Cargar registros</button>
       </div>
       {#if registerProblems.length > 0}
         <ul class="flex flex-col gap-1">
@@ -89,7 +89,7 @@
     {#if node === null}
       <p class="text-sm text-muted">Sin nodo elegido.</p>
     {:else}
-      <PrintOutputTable {prints} fault={lastFault} showHostTime />
+      <PrintOutputTable {prints} fault={lastFault} />
     {/if}
   </div>
 </div>

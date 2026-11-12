@@ -2,7 +2,6 @@
 export class BoundedLog<Entry> {
   readonly #capacity: number;
   #entries: Entry[] = [];
-  #discardedCount = 0;
 
   constructor(capacity: number) {
     if (!Number.isInteger(capacity) || capacity < 1) {
@@ -11,26 +10,11 @@ export class BoundedLog<Entry> {
     this.#capacity = capacity;
   }
 
-  get capacity(): number {
-    return this.#capacity;
-  }
-
-  get size(): number {
-    return Math.min(this.#entries.length, this.#capacity);
-  }
-
-  /** Entries discarded since the log was created or cleared. */
-  get discardedCount(): number {
-    return this.#discardedCount + Math.max(0, this.#entries.length - this.#capacity);
-  }
-
   append(entry: Entry): void {
     this.#entries.push(entry);
     // Trim in batches, so that appending stays cheap.
     if (this.#entries.length >= this.#capacity * 2) {
-      const excess = this.#entries.length - this.#capacity;
-      this.#entries = this.#entries.slice(excess);
-      this.#discardedCount += excess;
+      this.#entries = this.#entries.slice(this.#entries.length - this.#capacity);
     }
   }
 
@@ -42,6 +26,11 @@ export class BoundedLog<Entry> {
 
   clear(): void {
     this.#entries = [];
-    this.#discardedCount = 0;
   }
+}
+
+/** A copy of `items` with `item` appended, without the oldest items beyond `capacity`. */
+export function appendBounded<Item>(items: readonly Item[], item: Item, capacity: number): Item[] {
+  const result = [...items, item];
+  return result.length > capacity ? result.slice(result.length - capacity) : result;
 }

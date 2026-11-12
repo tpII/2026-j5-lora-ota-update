@@ -47,16 +47,13 @@
   --color-sunken: #020405;
   --color-screen: #010304;
 
-  /* Lines: the neon at low opacity. */
-  --color-line: rgb(92 225 240 / 0.14);
-  --color-line-strong: rgb(92 225 240 / 0.3);
+  --color-line: color-mix(in srgb, var(--color-neon) 14%, transparent);
+  --color-line-strong: color-mix(in srgb, var(--color-neon) 30%, transparent);
 
-  /* Text. */
   --color-ink: #e2f5f8;
   --color-muted: #98b0b8;
   --color-faint: #6f868e;
 
-  /* Accent and states. */
   --color-neon: #5ce1f0;
   --color-neon-bright: #a8f4fc;
   /* Opaque fills with the neon mixed in, for shapes drawn over lines. */
@@ -66,8 +63,16 @@
   --color-warn: #ffb547;
   --color-danger: #ff4d6d;
 
-  --shadow-neon: 0 0 18px -2px rgb(92 225 240 / 0.45);
-  --text-shadow-neon: 0 0 6px rgb(92 225 240 / 0.75);
+  /* Syntax colors of the event stream (console/console-line-highlighter.ts). */
+  --color-syntax-string: #9ef0b8;
+  --color-syntax-number: #ffc86b;
+  --color-syntax-literal: #ff7ac0;
+
+  --shadow-neon: 0 0 18px -2px color-mix(in srgb, var(--color-neon) 45%, transparent);
+  --text-shadow-neon: 0 0 6px color-mix(in srgb, var(--color-neon) 75%, transparent);
+
+  /* The small mono text of captions, table headers and badges. */
+  --text-caption: 0.6875rem;
 }
 
 @layer base {
@@ -79,9 +84,17 @@
     @apply bg-canvas font-sans text-ink antialiased;
     /* A faint grid, brighter near the top, like a screen behind glass. */
     background-image:
-      radial-gradient(ellipse 80% 50% at 50% -10%, rgb(92 225 240 / 0.1), transparent 70%),
-      linear-gradient(rgb(92 225 240 / 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(92 225 240 / 0.035) 1px, transparent 1px);
+      radial-gradient(
+        ellipse 80% 50% at 50% -10%,
+        color-mix(in srgb, var(--color-neon) 10%, transparent),
+        transparent 70%
+      ),
+      linear-gradient(color-mix(in srgb, var(--color-neon) 3.5%, transparent) 1px, transparent 1px),
+      linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--color-neon) 3.5%, transparent) 1px,
+        transparent 1px
+      );
     background-size:
       100% 100%,
       32px 32px,
@@ -95,7 +108,7 @@
   }
 
   ::selection {
-    background-color: rgb(92 225 240 / 0.3);
+    background-color: var(--color-line-strong);
   }
 
   :focus-visible {
@@ -115,38 +128,41 @@
     @apply relative rounded-lg border border-line bg-surface p-4;
   }
 
-  /* Neon edge for the chosen node. */
+  /* Modifier of .panel-card: the neon edge of the chosen node. */
   .panel-card-neon {
-    @apply relative rounded-lg border border-neon/40 bg-surface p-4;
+    @apply border-neon/40;
   }
 
   .panel-section-title {
     @apply text-lg font-semibold text-ink;
   }
 
+  /* A disabled button keeps its colors under the pointer. */
   .panel-button {
     @apply inline-flex items-center justify-center gap-1 rounded-md border border-line-strong bg-raised px-3 py-1.5 text-sm font-medium text-ink hover:border-neon/70 hover:text-neon-bright disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-ink;
   }
 
+  /* Color modifiers of .panel-button: the main action of a form and a destructive one. */
   .panel-button-primary {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-neon bg-neon px-3 py-1.5 text-sm font-semibold text-canvas hover:border-neon-bright hover:bg-neon-bright disabled:cursor-not-allowed disabled:opacity-40;
+    @apply border-neon bg-neon font-semibold text-canvas hover:border-neon-bright hover:bg-neon-bright hover:text-canvas disabled:hover:border-neon disabled:hover:bg-neon disabled:hover:text-canvas;
   }
 
   .panel-button-danger {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-danger/50 bg-raised px-3 py-1.5 text-sm font-medium text-danger hover:border-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-raised;
+    @apply border-danger/50 text-danger hover:border-danger hover:bg-danger/10 hover:text-danger disabled:hover:border-danger/50 disabled:hover:bg-raised disabled:hover:text-danger;
   }
 
   /*
    * Field labels keep their case: they hold units (MHz, ms, m) and hexadecimal values that an
    * uppercase transform would change.
    */
+  .panel-caption,
   .panel-label {
-    @apply flex flex-col gap-1 font-mono text-[0.6875rem] font-medium tracking-wide text-muted;
+    @apply font-mono text-caption font-medium tracking-wide text-muted;
   }
 
-  /* The text of a label that names a group of controls, without the column layout of a label. */
-  .panel-caption {
-    @apply font-mono text-[0.6875rem] font-medium tracking-wide text-muted;
+  /* A field label: the caption above its control. .panel-caption alone names a group of controls. */
+  .panel-label {
+    @apply flex flex-col gap-1;
   }
 
   .panel-input {
@@ -161,16 +177,41 @@
     @apply w-full border-collapse text-left text-sm tabular-nums;
   }
 
+  /* The name of a value: the header of a table column and the term of a description list. */
+  .panel-term,
   .panel-table th {
-    @apply border-b border-line-strong px-2 py-1.5 font-mono text-[0.6875rem] font-medium tracking-wider whitespace-nowrap text-faint uppercase;
+    @apply font-mono text-caption tracking-wider text-faint uppercase;
+  }
+
+  .panel-table th {
+    @apply border-b border-line-strong px-2 py-1.5 font-medium whitespace-nowrap;
   }
 
   .panel-table td {
     @apply border-b border-line px-2 py-1.5 align-top;
   }
 
+  /* A boxed message: a warning, or with a tone modifier an error or a plain notice. */
   .panel-note {
-    @apply rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn;
+    @apply rounded-md border px-3 py-2 text-sm;
+  }
+
+  /* A warning across the whole width of the page, under the header. */
+  .panel-banner {
+    @apply border-t text-sm;
+  }
+
+  .panel-note,
+  .panel-banner {
+    @apply border-warn/40 bg-warn/10 text-warn;
+  }
+
+  .panel-note-danger {
+    @apply border-danger/40 bg-danger/10 text-danger;
+  }
+
+  .panel-note-plain {
+    @apply border-line-strong bg-surface text-ink;
   }
 
   .panel-hint {
@@ -182,7 +223,7 @@
   }
 
   .panel-badge {
-    @apply inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-[0.6875rem] font-medium tracking-wider whitespace-nowrap uppercase ring-1 ring-current/30 ring-inset;
+    @apply inline-flex items-center rounded-sm px-1.5 py-0.5 font-mono text-caption font-medium tracking-wider whitespace-nowrap uppercase ring-1 ring-current/30 ring-inset;
   }
 
   /* An OLED screen: black glass, a hairline bezel and pixel type that glows. */
@@ -193,5 +234,20 @@
   /* Dotted rule between the rows of a specification list. */
   .panel-rule {
     @apply border-t border-dotted border-line-strong;
+  }
+
+  /* One option of a choice inside a section: an outlined tab or a radio button. */
+  .panel-choice {
+    @apply flex items-center gap-2 rounded-md border border-line-strong px-3 py-1.5 text-sm text-muted hover:border-neon/70 hover:text-ink;
+  }
+
+  /* Modifier of .panel-choice: the option chosen. */
+  .panel-choice-current {
+    @apply border-neon bg-neon/5 text-neon hover:border-neon hover:text-neon;
+  }
+
+  /* One half of the dashed box that connects a node, by USB or by WiFi. */
+  .panel-connect-button {
+    @apply relative flex flex-1 items-center justify-center gap-2 text-sm font-medium hover:bg-neon/10 hover:text-neon disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted;
   }
 }

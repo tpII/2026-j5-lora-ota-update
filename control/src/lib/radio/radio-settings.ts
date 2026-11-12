@@ -1,36 +1,59 @@
+/**
+ * Radio settings of a node (docs/protocol/radio.md): their type, the transmit power each board
+ * model reaches and the rule that decides when two sets of settings match. The ranges and the
+ * defaults are in the protocol contract.
+ */
 import type * as z from "zod/mini";
 import {
   radioSettingsSchema,
   type BoardModel,
-  type LnaMode,
   type RadioEvent,
 } from "$lib/console/console-event.ts";
-import { computeTimeOnAirMicroseconds, type TimeOnAirParameters } from "./time-on-air.ts";
+import {
+  ANY_MODEL_TRANSMIT_POWER_RANGE,
+  BANDWIDTHS_KILOHERTZ,
+  CODING_RATE_DENOMINATORS,
+  FREQUENCY_DECIMALS,
+  LOW_NOISE_AMPLIFIER_BOARD_MODELS,
+  ON_AIR_BANDWIDTH_KILOHERTZ,
+  RADIO_SETTING_KEYS,
+  SPREADING_FACTORS,
+  TRANSMIT_POWER_RANGES,
+} from "$lib/protocol/protocol-contract.ts";
 
 /** Radio settings of a node, with the field names of the `radio` event (docs/protocol/radio.md). */
 export type RadioSettings = z.infer<typeof radioSettingsSchema>;
 
-export const MINIMUM_FREQUENCY_MEGAHERTZ = 915.0;
-export const MAXIMUM_FREQUENCY_MEGAHERTZ = 928.0;
-export const SPREADING_FACTORS = [7, 8, 9, 10, 11, 12] as const;
-export const BANDWIDTHS_KILOHERTZ = [125, 250, 500] as const;
-export const CODING_RATE_DENOMINATORS = [5, 6, 7, 8] as const;
-export const MINIMUM_PREAMBLE_LENGTH = 6;
-export const MAXIMUM_PREAMBLE_LENGTH = 65535;
-export const MINIMUM_SYNC_WORD = 0;
-export const MAXIMUM_SYNC_WORD = 255;
+/** A key of the `radio` command, which is also a field of the `radio` event. */
+export type RadioSettingKey = (typeof RADIO_SETTING_KEYS)[number];
+
+/** Values to change with one `radio` command; absent keys keep their current value. */
+export type RadioSettingChanges = {
+  readonly [Key in RadioSettingKey]?: NonNullable<RadioSettings[Key]>;
+};
+
+/**
+ * Spreading factor, bandwidth and coding rate: the part of the radio settings that two nodes must
+ * share, together with the frequency, to hear each other.
+ */
+export type Modulation = Pick<RadioSettings, "sf" | "bw" | "cr">;
+
+export type SpreadingFactor = (typeof SPREADING_FACTORS)[number];
 
 export type BandwidthKilohertz = (typeof BANDWIDTHS_KILOHERTZ)[number];
 
-/** Bandwidth allowed on the air with an antenna (ADR 0004); the others need attenuators or loads. */
-export const ON_AIR_BANDWIDTH_KILOHERTZ: BandwidthKilohertz = 500;
+export type CodingRateDenominator = (typeof CODING_RATE_DENOMINATORS)[number];
 
-/** Approximate highest power at the antenna connector allowed on 500 kHz channels (ADR 0004). */
-export const ON_AIR_MAXIMUM_POWER_DBM = 26;
+/** A modulation made only of values the radio accepts, as the select menus of a form offer them. */
+export interface SupportedModulation extends Modulation {
+  readonly sf: SpreadingFactor;
+  readonly bw: BandwidthKilohertz;
+  readonly cr: CodingRateDenominator;
+}
 
-/** Centers of the 500 kHz channels that fit in the band (ADR 0004). */
-export const ON_AIR_MINIMUM_CENTER_MEGAHERTZ = 915.25;
-export const ON_AIR_MAXIMUM_CENTER_MEGAHERTZ = 927.75;
+/** The bandwidths that need a cable and attenuators instead of an antenna (ADR 0004). */
+export const BENCH_BANDWIDTHS_KILOHERTZ: readonly BandwidthKilohertz[] =
+  BANDWIDTHS_KILOHERTZ.filter((bandwidth) => bandwidth !== ON_AIR_BANDWIDTH_KILOHERTZ);
 
 export interface TransmitPowerRange {
   readonly minimum: number;
@@ -40,40 +63,20 @@ export interface TransmitPowerRange {
 }
 
 /** Transmit power at the antenna connector, in dBm, that each board model can deliver. */
-export const TRANSMIT_POWER_RANGES: { readonly [Model in BoardModel]: TransmitPowerRange } = {
-  V2: { minimum: 2, maximum: 17, additionalValues: [20] },
-  "V4.3": { minimum: 4, maximum: 28, additionalValues: [] },
-};
+const TRANSMIT_POWER_RANGE_BY_MODEL: { readonly [Model in BoardModel]: TransmitPowerRange } =
+  TRANSMIT_POWER_RANGES;
 
-/** Power range used while the board model of a node is not yet known. */
-export const ANY_MODEL_TRANSMIT_POWER_RANGE: TransmitPowerRange = {
-  minimum: 2,
-  maximum: 28,
-  additionalValues: [],
-};
-
-/** Settings every node starts with (docs/protocol/radio.md). */
-export const DEFAULT_RADIO_SETTINGS = {
-  freq: 915.9,
-  sf: 7,
-  bw: 500,
-  cr: 5,
-  preamble: 8,
-  sync: 0x12,
-  power: 4,
-  lna: "bypass",
-} as const satisfies Omit<RadioSettings, "chip" | "lna"> & { lna: LnaMode };
-
-/** The firmware reports the frequency with three decimals. */
-export const FREQUENCY_TOLERANCE_MEGAHERTZ = 0.0005;
+/** The firmware reports the frequency rounded to FREQUENCY_DECIMALS decimals. */
+const FREQUENCY_TOLERANCE_MEGAHERTZ = 0.5 * 10 ** -FREQUENCY_DECIMALS;
 
 /** Settings carried by a `radio` event, without the header and any field the contract lacks. */
 export function radioSettingsOf(event: RadioEvent): RadioSettings {
   return radioSettingsSchema.parse(event);
 }
 
+/** Power range of a board model; the hull of every model while the model is not known yet. */
 export function transmitPowerRangeOf(model: BoardModel | null): TransmitPowerRange {
-  return model === null ? ANY_MODEL_TRANSMIT_POWER_RANGE : TRANSMIT_POWER_RANGES[model];
+  return model === null ? ANY_MODEL_TRANSMIT_POWER_RANGE : TRANSMIT_POWER_RANGE_BY_MODEL[model];
 }
 
 export function isTransmitPowerReachable(model: BoardModel | null, power: number): boolean {
@@ -94,74 +97,73 @@ export function listTransmitPowerValues(model: BoardModel | null): number[] {
   return [...values, ...range.additionalValues];
 }
 
-/** Warnings, in Spanish, about transmitting with a power on the 500 kHz channels. */
-export function listTransmitPowerWarnings(power: number, model: BoardModel | null): string[] {
-  const warnings: string[] = [];
-  if (power > ON_AIR_MAXIMUM_POWER_DBM) {
-    warnings.push(
-      "Por encima de unos 26 dBm se supera el límite de densidad espectral de los canales de 500 kHz.",
-    );
-  }
-  if (model === "V2" && power === 20) {
-    warnings.push("A 20 dBm la hoja de datos del SX1276 limita el ciclo de trabajo al 1 %.");
-  }
-  return warnings;
+export function hasLowNoiseAmplifier(model: BoardModel | null): boolean {
+  return model !== null && (LOW_NOISE_AMPLIFIER_BOARD_MODELS as readonly string[]).includes(model);
 }
 
-export function hasLowNoiseAmplifier(model: BoardModel | null): boolean {
-  return model === "V4.3";
+export function isSpreadingFactor(value: number): value is SpreadingFactor {
+  return (SPREADING_FACTORS as readonly number[]).includes(value);
 }
 
 export function isBandwidth(value: number): value is BandwidthKilohertz {
   return (BANDWIDTHS_KILOHERTZ as readonly number[]).includes(value);
 }
 
+export function isCodingRateDenominator(value: number): value is CodingRateDenominator {
+  return (CODING_RATE_DENOMINATORS as readonly number[]).includes(value);
+}
+
+/** The modulation of `settings` when the radio accepts every value of it, or null. */
+export function supportedModulationOf(settings: Modulation): SupportedModulation | null {
+  const { sf, bw, cr } = settings;
+  return isSpreadingFactor(sf) && isBandwidth(bw) && isCodingRateDenominator(cr)
+    ? { sf, bw, cr }
+    : null;
+}
+
 export function frequenciesMatch(first: number, second: number): boolean {
   return Math.abs(first - second) <= FREQUENCY_TOLERANCE_MEGAHERTZ;
 }
 
-/** Fields two nodes must share to hear each other: frequency, modulation, preamble and sync word. */
-export type ChannelSettings = Pick<
-  RadioSettings,
-  "freq" | "sf" | "bw" | "cr" | "preamble" | "sync"
->;
+export const MODULATION_FIELDS = ["sf", "bw", "cr"] as const satisfies readonly RadioSettingKey[];
 
-export function channelsMatch(first: ChannelSettings, second: ChannelSettings): boolean {
-  return (
-    frequenciesMatch(first.freq, second.freq) &&
-    first.sf === second.sf &&
-    first.bw === second.bw &&
-    first.cr === second.cr &&
-    first.preamble === second.preamble &&
-    first.sync === second.sync
-  );
+/** Frequency and modulation: what a receiver needs to hear a transmitter (CONTEXT.md). */
+export const FREQUENCY_AND_MODULATION_FIELDS = [
+  "freq",
+  ...MODULATION_FIELDS,
+] as const satisfies readonly RadioSettingKey[];
+
+/** Frequency, modulation, preamble and sync word: everything but the power and the LNA mode. */
+export const CHANNEL_FIELDS = [
+  ...FREQUENCY_AND_MODULATION_FIELDS,
+  "preamble",
+  "sync",
+] as const satisfies readonly RadioSettingKey[];
+
+export const ALL_RADIO_SETTING_FIELDS: readonly RadioSettingKey[] = RADIO_SETTING_KEYS;
+
+/**
+ * The ones of `fields` on which two sets of settings disagree, in the order of `fields`. The
+ * frequency is compared with the precision the firmware reports it with; the other fields exactly.
+ */
+export function differingSettings<const Field extends RadioSettingKey>(
+  first: Pick<RadioSettings, Field>,
+  second: Pick<RadioSettings, Field>,
+  fields: readonly Field[],
+): Field[] {
+  return fields.filter((field) => {
+    const left: unknown = first[field];
+    const right: unknown = second[field];
+    return field === "freq" && typeof left === "number" && typeof right === "number"
+      ? !frequenciesMatch(left, right)
+      : left !== right;
+  });
 }
 
-/** Same channel, transmit power and LNA mode. */
-export function radioSettingsMatch(first: RadioSettings, second: RadioSettings): boolean {
-  return channelsMatch(first, second) && first.power === second.power && first.lna === second.lna;
-}
-
-export function toTimeOnAirParameters(
-  settings: Pick<RadioSettings, "sf" | "bw" | "cr" | "preamble">,
-): TimeOnAirParameters {
-  return {
-    spreadingFactor: settings.sf,
-    bandwidthKilohertz: settings.bw,
-    codingRateDenominator: settings.cr,
-    preambleLength: settings.preamble,
-  };
-}
-
-/** Time on air of a frame of `frameLength` bytes with the given settings, in microseconds. */
-export function timeOnAirFor(
-  frameLength: number,
-  settings: Pick<RadioSettings, "sf" | "bw" | "cr" | "preamble">,
-): number {
-  return computeTimeOnAirMicroseconds(frameLength, toTimeOnAirParameters(settings));
-}
-
-/** Coding rate as written in the documentation, for example "4/5". */
-export function formatCodingRate(denominator: number): string {
-  return `4/${denominator}`;
+export function settingsMatch<const Field extends RadioSettingKey>(
+  first: Pick<RadioSettings, Field>,
+  second: Pick<RadioSettings, Field>,
+  fields: readonly Field[],
+): boolean {
+  return differingSettings(first, second, fields).length === 0;
 }

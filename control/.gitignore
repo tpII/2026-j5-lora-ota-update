@@ -6,11 +6,12 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-# Recorded console sessions used by the tests are sources, not logs
+# Console sessions used by the tests are sources, not logs
 !src/lib/testing/fixtures/*.log
 
 node_modules
 dist
+dist-simulation
 dist-ssr
 *.local
 

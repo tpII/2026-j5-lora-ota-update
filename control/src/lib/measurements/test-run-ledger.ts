@@ -2,7 +2,7 @@
  * Bookkeeping of test runs across nodes. The sender reports `run_start`, a `tx` of type "test" per
  * packet and `run_done`; each receiver reports `test_rx` per packet and `run_end`. The ledger
  * matches them by sender identifier and run number and produces one summary row per run and
- * receiver, with the columns of measurements/README.md.
+ * receiver, with the columns of docs/measurement-exports.md.
  *
  * A receiver that hears no packet of a run never opens it, so it never emits `run_end`. For a
  * receiver that was listening on the channel of the sender, the ledger closes that reception with
@@ -16,22 +16,21 @@ import type {
   RunEndEvent,
   RunEndReason,
 } from "$lib/console/console-event.ts";
+import { runReceptionDeadlineMilliseconds } from "$lib/protocol/protocol-contract.ts";
 import {
-  channelsMatch,
+  CHANNEL_FIELDS,
   radioSettingsOf,
-  timeOnAirFor,
+  settingsMatch,
   type RadioSettings,
 } from "$lib/radio/radio-settings.ts";
-import { computeFrameLength } from "$lib/radio/time-on-air.ts";
+import { timeOnAirOfPayload } from "$lib/radio/time-on-air.ts";
+import { roundToDecimals } from "$lib/utils/format.ts";
 
 /** Margin added to the receiver deadline before closing a reception without packets. */
 export const RECEPTION_CLOSURE_MARGIN_MILLISECONDS = 3000;
 
-/** Fixed part of the receiver deadline in the firmware (RESPONSE_MARGIN_MS). */
-const RECEIVER_DEADLINE_MARGIN_MILLISECONDS = 1000;
-
-/** One row of summary.csv, with the column names of measurements/README.md. */
-export interface TestRunSummaryRow {
+/** One row of summary.csv, with the column names of docs/measurement-exports.md. */
+export type TestRunSummaryRow = {
   readonly run: number;
   readonly sender: NodeIdentifier;
   readonly receiver: NodeIdentifier;
@@ -58,7 +57,7 @@ export interface TestRunSummaryRow {
   readonly duration: number | null;
   readonly goodput: number | null;
   readonly reason: RunEndReason;
-}
+};
 
 /** Columns of summary.csv, in order. */
 export const SUMMARY_COLUMNS = [
@@ -91,6 +90,13 @@ export const SUMMARY_COLUMNS = [
 ] as const satisfies readonly (keyof TestRunSummaryRow)[];
 
 export type ReceptionOutcome = "receiving" | "complete" | "timeout" | "no_reception";
+
+export const RECEPTION_OUTCOME_LABELS: { readonly [Outcome in ReceptionOutcome]: string } = {
+  receiving: "Recibiendo",
+  complete: "Completa",
+  timeout: "Terminada por plazo",
+  no_reception: "Sin paquetes",
+};
 
 export interface ReceptionView {
   readonly receiver: NodeIdentifier;
@@ -155,11 +161,6 @@ interface RunRecord {
   calculatedTimeOnAir: number | null;
   completion: SenderCompletion | null;
   readonly receptions: Map<NodeIdentifier, ReceptionRecord>;
-}
-
-function roundTo(value: number, decimals: number): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
 }
 
 function runKey(sender: NodeIdentifier, run: number): string {
@@ -330,14 +331,11 @@ export class TestRunLedger {
   }
 
   findRun(sender: NodeIdentifier, run: number): TestRunView | null {
-    return this.runs.findLast((view) => view.sender === sender && view.run === run) ?? null;
+    return findRunView(this.runs, sender, run);
   }
 
   findRow(sender: NodeIdentifier, run: number, receiver: NodeIdentifier): TestRunSummaryRow | null {
-    return (
-      this.findRun(sender, run)?.receptions.find((reception) => reception.receiver === receiver)
-        ?.row ?? null
-    );
+    return findSummaryRow(this.runs, sender, run, receiver);
   }
 
   /** Forgets every run; the node profiles stay. */
@@ -388,7 +386,7 @@ export class TestRunLedger {
         node !== sender &&
         candidate.present &&
         candidate.radio !== null &&
-        channelsMatch(candidate.radio, senderRadio) &&
+        settingsMatch(candidate.radio, senderRadio, CHANNEL_FIELDS) &&
         !this.#activeRunsBySender.has(node);
       if (listening) {
         const reception = this.#receptionOf(record, node);
@@ -468,20 +466,41 @@ function estimateTimeOnAir(size: number | null, settings: RadioSettings | null):
   if (size === null || settings === null) {
     return null;
   }
-  return timeOnAirFor(computeFrameLength(size), settings);
+  return timeOnAirOfPayload(size, settings);
+}
+
+/** The last run numbered `run` of `sender` in `runs`, as the ledger lists them. */
+export function findRunView(
+  runs: readonly TestRunView[],
+  sender: NodeIdentifier,
+  run: number,
+): TestRunView | null {
+  return runs.findLast((view) => view.sender === sender && view.run === run) ?? null;
+}
+
+/** The summary row of `receiver` for that run, or null while it has none. */
+export function findSummaryRow(
+  runs: readonly TestRunView[],
+  sender: NodeIdentifier,
+  run: number,
+  receiver: NodeIdentifier,
+): TestRunSummaryRow | null {
+  return (
+    findRunView(runs, sender, run)?.receptions.find((reception) => reception.receiver === receiver)
+      ?.row ?? null
+  );
 }
 
 /**
- * Time to wait after `run_done` before closing a silent reception: the deadline of the receiver
- * (twice the interval plus the time on air, plus one second) and a margin for the consoles.
+ * Time to wait after `run_done` before closing a silent reception: the run_end deadline of the
+ * receiver and a margin for the consoles.
  */
 export function receptionGraceMilliseconds(
   interval: number,
   timeOnAirMicroseconds: number,
 ): number {
   return (
-    2 * (interval + Math.ceil(timeOnAirMicroseconds / 1000)) +
-    RECEIVER_DEADLINE_MARGIN_MILLISECONDS +
+    runReceptionDeadlineMilliseconds(interval, timeOnAirMicroseconds) +
     RECEPTION_CLOSURE_MARGIN_MILLISECONDS
   );
 }
@@ -557,12 +576,13 @@ function summaryRowOf(record: RunRecord, reception: ReceptionRecord): TestRunSum
     rssi_min: end?.rssi_min ?? null,
     rssi_max: end?.rssi_max ?? null,
     snr_avg: end?.snr_avg ?? null,
-    toa_avg: record.transmitted > 0 ? roundTo(record.timeOnAirSum / record.transmitted, 1) : null,
-    toa_calc: calculatedTimeOnAir === null ? null : Math.round(calculatedTimeOnAir),
+    toa_avg:
+      record.transmitted > 0 ? roundToDecimals(record.timeOnAirSum / record.transmitted, 1) : null,
+    toa_calc: calculatedTimeOnAir === null ? null : roundToDecimals(calculatedTimeOnAir, 0),
     duration,
     goodput:
       duration !== null && duration > 0 && size !== null
-        ? roundTo((received * size * 8 * 1_000_000) / duration, 1)
+        ? roundToDecimals((received * size * 8 * 1_000_000) / duration, 1)
         : null,
     reason: end?.reason ?? "timeout",
   };

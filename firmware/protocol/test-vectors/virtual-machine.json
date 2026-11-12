@@ -1,0 +1,112 @@
+{
+  "runs": [
+    {
+      "name": "example program",
+      "program": "020105000000020203000000110102010112010a000000150102010100",
+      "registers": [0, 0, 0, 0],
+      "ticks": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [{ "register": 1, "value": 8 }, { "register": 1, "value": -6 }],
+        "registers": [-6, 3, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "tickNumber": 1
+      }
+    },
+    {
+      "name": "registers persist between ticks",
+      "program": "10010100000000",
+      "registers": [0, 0, 0, 0],
+      "ticks": 2,
+      "expected": {
+        "step": "halted",
+        "prints": [],
+        "registers": [2, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "tickNumber": 2
+      }
+    },
+    {
+      "name": "wrapping arithmetic, logic and shifts",
+      "program": "1001010000001702031903032004ffffffff2a0428040100000026032100000000",
+      "registers": [2147483647, -7, 2, 0],
+      "ticks": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [],
+        "registers": [-2147483648, -3, 0, -1],
+        "fault": null,
+        "faultAddress": null,
+        "tickNumber": 1
+      }
+    },
+    {
+      "name": "INT32_MIN divided by and modulo -1",
+      "program": "1601ffffffff01011801ffffffff00",
+      "registers": [-2147483648, 0, 0, 0],
+      "ticks": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [{ "register": 1, "value": -2147483648 }],
+        "registers": [0, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "tickNumber": 1
+      }
+    },
+    {
+      "name": "division by zero",
+      "program": "010116010000000000",
+      "registers": [0, 0, 0, 0],
+      "ticks": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [{ "register": 1, "value": 0 }],
+        "registers": [0, 0, 0, 0],
+        "fault": "division_by_zero",
+        "faultAddress": 2,
+        "tickNumber": 1
+      }
+    },
+    {
+      "name": "end of program without HALT",
+      "program": "0101",
+      "registers": [0, 0, 0, 0],
+      "ticks": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [{ "register": 1, "value": 0 }],
+        "registers": [0, 0, 0, 0],
+        "fault": "end_of_program",
+        "faultAddress": 2,
+        "tickNumber": 1
+      }
+    },
+    {
+      "name": "instruction limit",
+      "program": "010101010101010100",
+      "registers": [0, 0, 0, 0],
+      "instructionLimit": 3,
+      "ticks": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [
+          { "register": 1, "value": 0 },
+          { "register": 1, "value": 0 },
+          { "register": 1, "value": 0 }
+        ],
+        "registers": [0, 0, 0, 0],
+        "fault": "instruction_limit",
+        "faultAddress": 6,
+        "tickNumber": 1
+      }
+    }
+  ],
+  "checks": [
+    { "name": "unknown opcode", "program": "01013f", "valid": false, "address": 2, "fault": "invalid_opcode" },
+    { "name": "register out of range", "program": "110105", "valid": false, "address": 0, "fault": "invalid_register" },
+    { "name": "instruction cut by the end", "program": "020100", "valid": false, "address": 0, "fault": "truncated_instruction" }
+  ]
+}

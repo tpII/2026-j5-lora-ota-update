@@ -1,31 +1,26 @@
 /**
- * Image format of docs/protocol/image.md (ADR 0012): a 9-byte header with the magic number "J5",
- * the flags, the version and the program length, then the program and the Ed25519 signature of
- * the operator. Multi-byte fields are little-endian.
+ * Image format of docs/protocol/image.md (ADR 0012): a header with the magic number, the flags, the
+ * version and the program length, then the program and the Ed25519 signature of the operator.
+ * Multi-byte fields are little-endian.
  */
-import { VM_FAULT_LABELS } from "$lib/utils/labels.ts";
-import { PROGRAM_CAPACITY } from "$lib/vm/instruction-set.ts";
+import type { ImageRejectionReason } from "$lib/console/console-event.ts";
+import {
+  IMAGE_FLAGS,
+  IMAGE_FLAGS_OFFSET,
+  IMAGE_FORMAT_DEFECTS,
+  IMAGE_HEADER_SIZE,
+  IMAGE_MAGIC,
+  IMAGE_MAGIC_OFFSET,
+  IMAGE_PROGRAM_LENGTH_OFFSET,
+  IMAGE_SIGNATURE_SIZE,
+  IMAGE_VERSION_OFFSET,
+  MAXIMUM_IMAGE_VERSION,
+  MAXIMUM_PROGRAM_SIZE,
+  MINIMUM_IMAGE_VERSION,
+  MINIMUM_PROGRAM_SIZE,
+} from "$lib/protocol/protocol-contract.ts";
+import { pad } from "$lib/utils/format.ts";
 import { checkProgram, type VmFault } from "$lib/vm/virtual-machine.ts";
-
-export const IMAGE_MAGIC: readonly number[] = [0x4a, 0x35];
-export const IMAGE_FLAGS = 0;
-export const IMAGE_HEADER_SIZE = 9;
-export const IMAGE_SIGNATURE_SIZE = 64;
-export const SHA256_DIGEST_SIZE = 32;
-/** Header followed by the SHA-256 of the program: what the operator signs. */
-export const SIGNED_MESSAGE_SIZE = IMAGE_HEADER_SIZE + SHA256_DIGEST_SIZE;
-
-export const MINIMUM_PROGRAM_SIZE = 1;
-export const MAXIMUM_PROGRAM_SIZE = PROGRAM_CAPACITY;
-export const MINIMUM_IMAGE_SIZE = IMAGE_HEADER_SIZE + MINIMUM_PROGRAM_SIZE + IMAGE_SIGNATURE_SIZE;
-export const MAXIMUM_IMAGE_SIZE = IMAGE_HEADER_SIZE + MAXIMUM_PROGRAM_SIZE + IMAGE_SIGNATURE_SIZE;
-
-/** Version 0 is the factory program, which has no image. */
-export const MINIMUM_IMAGE_VERSION = 1;
-export const MAXIMUM_IMAGE_VERSION = 2 ** 32 - 1;
-
-const VERSION_OFFSET = 3;
-const LENGTH_OFFSET = 7;
 
 export interface ImageHeader {
   readonly flags: number;
@@ -36,28 +31,30 @@ export interface ImageHeader {
 
 /** An image whose structure is valid; the signature is not checked here. */
 export interface DecodedImage extends ImageHeader {
-  /** The 9 bytes of the header, as they are signed. */
+  /** The header bytes, as they are signed. */
   readonly header: Uint8Array<ArrayBuffer>;
   readonly program: Uint8Array<ArrayBuffer>;
   readonly signature: Uint8Array<ArrayBuffer>;
 }
 
 /**
- * Why a node rejects an image, with the names of the `image_rejected` event and of the `detail` of
- * `invalid_image`.
+ * What decodeImage() finds. A program the VM rejects comes with the first fault and its address,
+ * for the caller to describe; a format problem, with the check that failed and its description
+ * for the operator, in Spanish.
  */
-export type ImageRejection = "format" | "signature" | "program";
-
 export type ImageDecoding =
   | { readonly valid: true; readonly image: DecodedImage }
   | {
       readonly valid: false;
-      readonly reason: "format" | "program";
-      /** Description for the operator, in Spanish. */
+      readonly reason: Extract<ImageRejectionReason, "format">;
+      readonly defect: ImageFormatDefect;
       readonly message: string;
-      /** With "program": the first fault the VM finds and its address. */
-      readonly fault?: VmFault;
-      readonly address?: number;
+    }
+  | {
+      readonly valid: false;
+      readonly reason: Extract<ImageRejectionReason, "program">;
+      readonly fault: VmFault;
+      readonly address: number;
     };
 
 export function isImageVersion(version: number): boolean {
@@ -68,7 +65,24 @@ export function isImageVersion(version: number): boolean {
   );
 }
 
-/** The 9-byte header of an image with `version` and a program of `programLength` bytes. */
+/** Bytes of the image of a program of `programLength` bytes: header, program and signature. */
+export function imageSizeFor(programLength: number): number {
+  return IMAGE_HEADER_SIZE + programLength + IMAGE_SIGNATURE_SIZE;
+}
+
+/**
+ * Fragments an image of `imageSize` bytes travels in with fragments of `fragmentSize` bytes: every
+ * fragment is full but the last (docs/protocol/frame.md, `fragmentCountFor` in
+ * firmware/src/messages/fragment_message.h).
+ */
+export function fragmentCountFor(imageSize: number, fragmentSize: number): number {
+  return Math.ceil(imageSize / fragmentSize);
+}
+
+/**
+ * The header of an image with `version` and a program of `programLength` bytes. Throws a
+ * RangeError when either is out of range.
+ */
 export function encodeImageHeader(version: number, programLength: number): Uint8Array<ArrayBuffer> {
   if (!isImageVersion(version)) {
     throw new RangeError(`image version out of range: ${version}`);
@@ -82,14 +96,14 @@ export function encodeImageHeader(version: number, programLength: number): Uint8
   }
   const header = new Uint8Array(IMAGE_HEADER_SIZE);
   const view = new DataView(header.buffer);
-  header.set(IMAGE_MAGIC, 0);
-  header[2] = IMAGE_FLAGS;
-  view.setUint32(VERSION_OFFSET, version, true);
-  view.setUint16(LENGTH_OFFSET, programLength, true);
+  header.set(IMAGE_MAGIC, IMAGE_MAGIC_OFFSET);
+  header[IMAGE_FLAGS_OFFSET] = IMAGE_FLAGS;
+  view.setUint32(IMAGE_VERSION_OFFSET, version, true);
+  view.setUint16(IMAGE_PROGRAM_LENGTH_OFFSET, programLength, true);
   return header;
 }
 
-/** Header, program and signature, in that order. */
+/** Throws a RangeError when the header or the signature has the wrong length. */
 export function assembleImage(
   header: Uint8Array,
   program: Uint8Array,
@@ -105,54 +119,74 @@ export function assembleImage(
   return image;
 }
 
-function rejectFormat(message: string): ImageDecoding {
-  return { valid: false, reason: "format", message };
+/** The version in the header of an image of at least IMAGE_HEADER_SIZE bytes. */
+export function readImageVersion(bytes: Uint8Array): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(
+    IMAGE_VERSION_OFFSET,
+    true,
+  );
+}
+
+/** A check of the image format, with the name of IMAGE_FORMAT_DEFECTS. */
+export type ImageFormatDefect = keyof typeof IMAGE_FORMAT_DEFECTS;
+
+function rejectFormat(defect: ImageFormatDefect, message: string): ImageDecoding {
+  return { valid: false, reason: "format", defect, message };
 }
 
 /**
  * Checks conditions 1, 2, 3 and 5 of docs/protocol/image.md, in that order, and splits the image.
- * Condition 4, the signature, needs the public key: see verifyImage() in image-signing.ts.
+ * Condition 4, the signature, needs the public key: the nodes check it, and the simulated node of
+ * the tests with verifyImage() in testing/image-verification.ts.
  */
 export function decodeImage(bytes: Uint8Array): ImageDecoding {
   if (bytes.length < IMAGE_HEADER_SIZE) {
     return rejectFormat(
-      `La imagen ocupa ${bytes.length} ${bytes.length === 1 ? "byte" : "bytes"} y la cabecera sola ocupa 9.`,
+      "shorterThanHeader",
+      `La imagen ocupa ${bytes.length} ${bytes.length === 1 ? "byte" : "bytes"} y la cabecera sola ocupa ${IMAGE_HEADER_SIZE}.`,
     );
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const flags = bytes[2] ?? 0;
-  const version = view.getUint32(VERSION_OFFSET, true);
-  const programLength = view.getUint16(LENGTH_OFFSET, true);
-  const expectedLength = IMAGE_HEADER_SIZE + programLength + IMAGE_SIGNATURE_SIZE;
+  const flags = bytes[IMAGE_FLAGS_OFFSET] ?? 0;
+  const version = view.getUint32(IMAGE_VERSION_OFFSET, true);
+  const programLength = view.getUint16(IMAGE_PROGRAM_LENGTH_OFFSET, true);
+  const expectedLength = imageSizeFor(programLength);
   if (bytes.length !== expectedLength) {
     return rejectFormat(
+      "lengthMismatch",
       `La imagen ocupa ${bytes.length} bytes y, con un programa de ${programLength} ${programLength === 1 ? "byte" : "bytes"}, debería ocupar ${expectedLength}.`,
     );
   }
-  if (bytes[0] !== IMAGE_MAGIC[0] || bytes[1] !== IMAGE_MAGIC[1]) {
-    return rejectFormat("La imagen no empieza con el número mágico 4A 35 («J5»).");
+  if (IMAGE_MAGIC.some((byte, index) => bytes[IMAGE_MAGIC_OFFSET + index] !== byte)) {
+    const magic = IMAGE_MAGIC.map((byte) => byte.toString(16).toUpperCase().padStart(2, "0"));
+    const text = String.fromCharCode(...IMAGE_MAGIC);
+    return rejectFormat(
+      "badMagic",
+      `La imagen no empieza con el número mágico ${magic.join(" ")} («${text}»).`,
+    );
   }
   if (flags !== IMAGE_FLAGS) {
-    return rejectFormat(`El byte de banderas vale ${flags} y tiene que valer 0.`);
+    return rejectFormat(
+      "badFlags",
+      `El byte de banderas vale ${flags} y tiene que valer ${IMAGE_FLAGS}.`,
+    );
   }
   if (version < MINIMUM_IMAGE_VERSION) {
-    return rejectFormat("La versión 0 es el programa de fábrica y no tiene imagen.");
+    return rejectFormat(
+      "factoryVersion",
+      "La versión 0 es el programa de fábrica y no tiene imagen.",
+    );
   }
   if (programLength < MINIMUM_PROGRAM_SIZE || programLength > MAXIMUM_PROGRAM_SIZE) {
     return rejectFormat(
+      "programLengthOutOfRange",
       `El programa ocupa ${programLength} bytes; tiene que ocupar de ${MINIMUM_PROGRAM_SIZE} a ${MAXIMUM_PROGRAM_SIZE}.`,
     );
   }
   const program = bytes.slice(IMAGE_HEADER_SIZE, IMAGE_HEADER_SIZE + programLength);
   const check = checkProgram(program);
   if (!check.valid) {
-    return {
-      valid: false,
-      reason: "program",
-      message: `El programa no pasa la validación de la VM: ${VM_FAULT_LABELS[check.fault]} en la dirección ${check.address}.`,
-      fault: check.fault,
-      address: check.address,
-    };
+    return { valid: false, reason: "program", fault: check.fault, address: check.address };
   }
   return {
     valid: true,
@@ -167,27 +201,25 @@ export function decodeImage(bytes: Uint8Array): ImageDecoding {
   };
 }
 
-/** Two lowercase hexadecimal digits per byte, as `load_image` takes the image. */
-export function formatHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-/** The bytes of a text with two hexadecimal digits per byte, or null if it is not one. */
-export function parseHex(text: string): Uint8Array<ArrayBuffer> | null {
-  if (text.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(text)) {
-    return null;
-  }
-  const bytes = new Uint8Array(text.length / 2);
-  for (let index = 0; index < bytes.length; ++index) {
-    bytes[index] = Number.parseInt(text.slice(2 * index, 2 * index + 2), 16);
-  }
-  return bytes;
-}
-
 /**
  * The version the panel proposes when it signs an image: the Unix UTC time in seconds
  * (ADR 0011). `nowMilliseconds` is milliseconds since 1970, as Date.now() gives it.
  */
 export function proposeImageVersion(nowMilliseconds: number): number {
   return Math.floor(nowMilliseconds / 1000);
+}
+
+/**
+ * Date and time on the computer that a version proposed by proposeImageVersion() stands for, in
+ * the form 05/11/2025 00:00:00; null for version 0.
+ */
+export function formatVersionDate(version: number): string | null {
+  if (version <= 0) {
+    return null;
+  }
+  const date = new Date(version * 1000);
+  return (
+    `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
 }

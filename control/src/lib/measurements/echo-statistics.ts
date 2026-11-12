@@ -1,6 +1,24 @@
 /** Round-trip latency per destination (metric M4): every `echo_lost` counts as a loss. */
 import type { NodeIdentifier } from "$lib/console/console-event.ts";
-import type { EchoResult } from "$lib/nodes/node-state.ts";
+import type { EchoResult } from "$lib/nodes/echo-records.ts";
+
+/** Average, minimum and maximum of a quantity; null without samples. */
+export interface SampleSummary {
+  readonly average: number | null;
+  readonly minimum: number | null;
+  readonly maximum: number | null;
+}
+
+export function summarizeSamples(values: readonly number[]): SampleSummary {
+  if (values.length === 0) {
+    return { average: null, minimum: null, maximum: null };
+  }
+  return {
+    average: values.reduce((sum, value) => sum + value, 0) / values.length,
+    minimum: Math.min(...values),
+    maximum: Math.max(...values),
+  };
+}
 
 export interface EchoStatistics {
   readonly destination: NodeIdentifier;
@@ -26,17 +44,15 @@ export function summarizeEchoResults(results: readonly EchoResult[]): EchoStatis
       const roundTrips = list.flatMap((result) =>
         result.outcome === "answered" ? [result.roundTripMicroseconds] : [],
       );
+      const roundTrip = summarizeSamples(roundTrips);
       return {
         destination,
         requested: list.length,
         answered: roundTrips.length,
         lost: list.length - roundTrips.length,
-        meanRoundTrip:
-          roundTrips.length === 0
-            ? null
-            : roundTrips.reduce((sum, value) => sum + value, 0) / roundTrips.length,
-        minimumRoundTrip: roundTrips.length === 0 ? null : Math.min(...roundTrips),
-        maximumRoundTrip: roundTrips.length === 0 ? null : Math.max(...roundTrips),
+        meanRoundTrip: roundTrip.average,
+        minimumRoundTrip: roundTrip.minimum,
+        maximumRoundTrip: roundTrip.maximum,
       };
     });
 }

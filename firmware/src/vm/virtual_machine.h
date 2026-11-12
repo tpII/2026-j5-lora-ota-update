@@ -4,89 +4,70 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../protocol/protocol_contract.h"
+
 namespace firmware {
 
-// Program memory of the virtual machine, in bytes. Raise it to 2048 if the firmware has room for
-// it; the image, the console line that carries one and the program event grow with it.
-constexpr size_t PROGRAM_CAPACITY = 1024;
-
-constexpr uint8_t REGISTER_COUNT = 4;
-
-// Opcodes (docs/protocol/virtual-machine.md). Group 0x0n holds the configuration instructions,
-// 0x1n the arithmetic ones and 0x2n the logic ones; 0x3n is reserved for control. In groups 0x1n
-// and 0x2n an even opcode takes a 32-bit immediate and the next odd one a source register.
-enum class Opcode : uint8_t {
-  Halt = 0x00,
-  Print = 0x01,
-  Load = 0x02,
-  AddImmediate = 0x10,
-  AddRegister = 0x11,
-  SubtractImmediate = 0x12,
-  SubtractRegister = 0x13,
-  MultiplyImmediate = 0x14,
-  MultiplyRegister = 0x15,
-  DivideImmediate = 0x16,
-  DivideRegister = 0x17,
-  ModuloImmediate = 0x18,
-  ModuloRegister = 0x19,
-  AndImmediate = 0x20,
-  AndRegister = 0x21,
-  OrImmediate = 0x22,
-  OrRegister = 0x23,
-  ExclusiveOrImmediate = 0x24,
-  ExclusiveOrRegister = 0x25,
-  ShiftLeftImmediate = 0x26,
-  ShiftLeftRegister = 0x27,
-  ShiftRightImmediate = 0x28,
-  ShiftRightRegister = 0x29,
-  Not = 0x2A,
-};
-
-enum class ProgramLoad : uint8_t { Accepted, VersionNotNewer, InvalidLength, Malformed };
-
-enum class VmFault : uint8_t {
-  None,
-  DivisionByZero,
-  InstructionLimit,
-  EndOfProgram,
-  InvalidOpcode,
-  InvalidRegister,
-  TruncatedInstruction,
-};
+// PROGRAM_CAPACITY, REGISTER_COUNT, the opcodes and the faults are in the protocol contract
+// (docs/protocol/virtual-machine.md).
 
 enum class VmStep : uint8_t { Idle, Running, Printed, Halted, Faulted };
 
-// Length in bytes of the instruction that starts with the opcode, or 0 for an unknown opcode.
-size_t instructionLength(uint8_t opcode);
+// Where validateProgram() found a program wrong: the address of the first bad instruction and the
+// fault that running it would raise, or address 0 and VmFault::None for a length out of range.
+struct ProgramDefect {
+  size_t address;
+  VmFault fault;
+};
 
-// Name of a fault as the console writes it, for example "division_by_zero".
-const char *vmFaultName(VmFault fault);
+// A program that validateProgram() accepted: from MINIMUM_PROGRAM_SIZE to MAXIMUM_PROGRAM_SIZE
+// bytes, known opcodes, registers 1 to REGISTER_COUNT and no instruction cut by the end. Only
+// validateProgram() and copyTo() make one, so the VM loads and runs it without checking it again.
+// It refers to the bytes it was made from, which must stay unchanged while it is in use. A default
+// one is empty and refers to nothing.
+class ValidProgram {
+public:
+  ValidProgram() = default;
 
-// Checks a whole program without running it: known opcodes, registers 1 to 4 and no instruction cut
-// by the end. On failure, errorOffset is the address of the bad instruction.
-bool validateProgram(const uint8_t *code, size_t length, size_t &errorOffset);
+  const uint8_t *code() const { return code_; }
+  size_t length() const { return length_; }
 
-// Decodes an even number of hexadecimal digits. Returns false on any other character, an odd
-// count or more bytes than the capacity.
-bool decodeHexBytes(const char *text, uint8_t *output, size_t capacity, size_t &length);
+  // Copies the program to destination, which has room for length() bytes, and returns the copy.
+  ValidProgram copyTo(uint8_t *destination) const;
 
-// The register machine that runs the active program: four 32-bit signed registers, a program
-// counter and the program memory. A tick runs the program from address 0 to HALT or to a fault;
-// execute() runs it in slices so that the main loop keeps serving the radio. The registers keep
-// their values from one tick to the next. Version 0 is the factory program, which is empty.
+private:
+  friend bool validateProgram(const uint8_t *code, size_t length, ValidProgram &program,
+                              ProgramDefect &defect);
+
+  ValidProgram(const uint8_t *code, size_t length) : code_(code), length_(length) {}
+
+  const uint8_t *code_ = nullptr;
+  size_t length_ = 0;
+};
+
+// Checks a whole program without running it. On success, program refers to code; on failure, the
+// defect tells where and why.
+bool validateProgram(const uint8_t *code, size_t length, ValidProgram &program,
+                     ProgramDefect &defect);
+
+// The register machine that runs the active program: REGISTER_COUNT 32-bit signed registers, a
+// program counter and the program memory. A tick runs the program from address 0 to HALT or to a
+// fault; execute() runs it in slices so that the main loop keeps serving the radio. The registers
+// keep their values from one tick to the next. Version 0 is the factory program, which is empty.
 class VirtualMachine {
 public:
   void begin(uint32_t instructionLimit);
 
-  // Checks the whole program with validateProgram() before replacing the active one. On Malformed,
-  // errorOffset is the address of the bad instruction. A load stops the tick in progress, restarts
-  // the tick count and clears the faults since the last load; the registers keep their values.
-  ProgramLoad loadProgram(uint32_t version, const uint8_t *code, size_t length,
-                          size_t &errorOffset);
+  // Replaces the active program with a copy of the program, as the version. A load stops the tick
+  // in progress, restarts the tick count and clears the faults since the last load; the registers
+  // keep their values. Which version may replace which is the activation rule, not the VM's.
+  void loadProgram(uint32_t version, const ValidProgram &program);
   void setRegisters(const int32_t values[REGISTER_COUNT]);
 
   void startTick();
-  // Runs at most budget instructions and stops early after a PRINT, at HALT or on a fault.
+  // Runs at most budget instructions and stops early after a PRINT, at HALT or on a fault. A valid
+  // program can only fault with division_by_zero, instruction_limit or end_of_program; the other
+  // faults of the contract are those that validateProgram() rejects.
   VmStep execute(uint32_t budget);
 
   bool hasProgram() const { return programLength_ > 0; }
@@ -95,9 +76,9 @@ public:
   size_t programLength() const { return programLength_; }
   const uint8_t *program() const { return program_; }
   uint32_t tickNumber() const { return tickNumber_; }
-  // index goes from 0 (R1) to 3 (R4).
+  // index goes from 0, for R1, to REGISTER_COUNT - 1.
   int32_t registerValue(uint8_t index) const { return registers_[index]; }
-  // Register written by the last PRINT, from 1 to 4.
+  // Register that the last PRINT names, from 1 to REGISTER_COUNT.
   uint8_t printedRegister() const { return printedRegister_; }
   VmFault fault() const { return fault_; }
   uint16_t faultAddress() const { return faultAddress_; }

@@ -32,6 +32,8 @@ La frecuencia por defecto corresponde a un canal de 500 kHz del plan AU915 que q
 | `power` | V2: 2 a 17 o 20 dBm. V4.3: 4 a 28 dBm |
 | `lna` | `on` o `bypass`, solo en la V4.3 |
 
+Los valores enteros se escriben como todo número de la consola, en decimal o en hexadecimal con `0x` ([consola](console.md)): `sync 18` y `sync 0x12` son la misma palabra de sincronismo. La frecuencia es una fracción decimal, como `915.9`.
+
 SF5 y SF6 no son compatibles entre el SX1276 y el SX1262. Por debajo de 125 kHz, la diferencia de frecuencia entre el cristal de la V2 y el TCXO de la V4.3 puede superar la tolerancia del receptor.
 
 ## Potencia de transmisión

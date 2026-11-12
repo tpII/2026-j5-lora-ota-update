@@ -1,14 +1,10 @@
 /**
  * Writes the files of a measurement export. With the File System Access API the operator picks the
  * measurements/ folder and the panel creates the next free subfolder in it; without the API the
- * browser downloads the three files.
+ * browser downloads the files.
  */
-import {
-  formatFolderName,
-  selectNextFolderName,
-  type MeasurementFile,
-  type ExportedTest,
-} from "./measurement-export.ts";
+import { downloadTextFile } from "$lib/utils/file-download.ts";
+import { formatFolderName, selectNextFolderName, type ExportFolder } from "./measurement-export.ts";
 
 export type ExportMethod = "directory" | "download";
 
@@ -19,6 +15,11 @@ export interface ExportOutcome {
   /** Name of the folder the operator picked, when the method is "directory". */
   readonly parentName: string | null;
 }
+
+/** How an export went: the files were written, or the reason they were not, in Spanish. */
+export type ExportResult =
+  | { readonly kind: "written"; readonly outcome: ExportOutcome }
+  | { readonly kind: "failed"; readonly message: string };
 
 /** Remembers the folder picked last time across sessions. */
 const DIRECTORY_PICKER_IDENTIFIER = "j5-measurements";
@@ -33,9 +34,8 @@ export function isPickerCancellation(error: unknown): boolean {
 }
 
 export async function writeMeasurementToDirectory(
-  files: readonly MeasurementFile[],
+  { test, files }: ExportFolder,
   localDate: string,
-  test: ExportedTest,
 ): Promise<ExportOutcome> {
   if (!isDirectoryPickerAvailable()) {
     throw new Error("Este navegador no permite elegir carpetas.");
@@ -63,21 +63,11 @@ export async function writeMeasurementToDirectory(
 }
 
 export function downloadMeasurementFiles(
-  files: readonly MeasurementFile[],
+  { test, files }: ExportFolder,
   localDate: string,
-  test: ExportedTest,
 ): ExportOutcome {
   for (const file of files) {
-    const url = URL.createObjectURL(new Blob([file.content], { type: file.mediaType }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = file.name;
-    anchor.rel = "noopener";
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    // Revoke later: the download starts asynchronously.
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    downloadTextFile(file.name, file.content);
   }
   return { method: "download", folderName: formatFolderName(localDate, test, 1), parentName: null };
 }

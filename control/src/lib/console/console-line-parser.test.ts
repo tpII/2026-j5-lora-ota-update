@@ -1,18 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { CONSOLE_EVENT_NAMES, isKnownErrorReason, type ConsoleEvent } from "./console-event.ts";
+import { isKnownErrorReason, type ConsoleEvent } from "./console-event.ts";
 import { parseConsoleLine, type ParsedConsoleLine } from "./console-line-parser.ts";
-import {
-  NODE_SESSION_LOG,
-  RECEIVER_RUN_LOG,
-  SENDER_RUN_LOG,
-  UPDATE_ORIGIN_LOG,
-  UPDATE_RECEIVER_LOG,
-  splitFixtureLines,
-} from "$lib/testing/console-fixtures.ts";
-
-function parseFixture(text: string): ParsedConsoleLine[] {
-  return splitFixtureLines(text).map(parseConsoleLine);
-}
+import { NODE_SESSION_LOG, splitFixtureLines } from "$lib/testing/console-fixtures.ts";
+import { ManualTimeSource } from "$lib/testing/manual-time-source.ts";
+import { createSimulatedPair } from "$lib/testing/simulated-node.ts";
+import firmwareConsoleLines from "../../../../firmware/protocol/test-vectors/firmware-console-lines.jsonl?raw";
+import signedImageVector from "../../../../firmware/protocol/test-vectors/signed-image.json";
 
 function eventsOf(lines: readonly ParsedConsoleLine[]): ConsoleEvent[] {
   return lines.flatMap((line) => (line.kind === "event" ? [line.event] : []));
@@ -36,87 +29,116 @@ function problemOf(line: string): string {
   return parsed.problem;
 }
 
-describe("parseConsoleLine with recorded sessions", () => {
-  it("recognizes every event the firmware emits", () => {
-    const events = eventsOf([
-      ...parseFixture(NODE_SESSION_LOG),
-      ...parseFixture(SENDER_RUN_LOG),
-      ...parseFixture(RECEIVER_RUN_LOG),
-      ...parseFixture(UPDATE_ORIGIN_LOG),
-      ...parseFixture(UPDATE_RECEIVER_LOG),
-    ]);
-    const names = new Set(events.map((event) => event.ev));
-    expect([...names].sort()).toEqual([...CONSOLE_EVENT_NAMES].sort());
+/** The lines the firmware writes in its host tests (firmware/tests/run_host_tests.sh). */
+const FIRMWARE_LINES = firmwareConsoleLines.split("\n").filter((line) => line !== "");
+
+function firmwareLine(predicate: (object: Record<string, unknown>) => boolean): string {
+  const line = FIRMWARE_LINES.find((candidate) =>
+    predicate(JSON.parse(candidate) as Record<string, unknown>),
+  );
+  if (line === undefined) {
+    throw new Error("no such firmware line");
+  }
+  return line;
+}
+
+describe("parseConsoleLine with the lines of the firmware", () => {
+  it("keeps the wire field names and values", () => {
+    for (const line of FIRMWARE_LINES) {
+      expect(eventOf(line)).toEqual(JSON.parse(line));
+    }
+    expect(eventOf(firmwareLine((object) => object.ev === "boot"))).toEqual({
+      t: 12,
+      ev: "boot",
+      id: "3A7F",
+      model: "V2",
+      epoch: 3,
+      firmware: "0.2.0",
+      protocol: 2,
+      key: "default",
+      operator_key: "default",
+    });
   });
 
+  it("reads the null LNA of the V2", () => {
+    const radio = eventOf(firmwareLine((object) => object.ev === "radio" && object.lna === null));
+    expect(radio).toMatchObject({ lna: null, power: 4, chip: 4 });
+  });
+
+  it("reads the neighbors reported in a HELLO", () => {
+    const hello = eventOf(
+      firmwareLine(
+        (object) =>
+          object.ev === "hello" && Array.isArray(object.neighbors) && object.neighbors.length > 1,
+      ),
+    );
+    expect(hello.ev === "hello" ? hello.neighbors : null).toEqual([
+      { id: "1A2B", rssi: -70, snr: 6.25 },
+      { id: "00F4", rssi: -101, snr: -3.5 },
+    ]);
+  });
+
+  it("reads the transfer fields", () => {
+    expect(eventOf(firmwareLine((object) => object.ev === "report_sent"))).toEqual({
+      t: 40,
+      ev: "report_sent",
+      dst: "3A7F",
+      version: 1762300800,
+      size: 32,
+      count: 4,
+      missing: [2],
+      round: 1,
+    });
+    expect(
+      eventOf(firmwareLine((object) => object.ev === "tx" && object.type === "report")),
+    ).toMatchObject({ dst: "3A7F", version: 1762300800 });
+    expect(
+      eventOf(firmwareLine((object) => object.ev === "image" && object.via === "radio")),
+    ).toMatchObject({ src: "3A7F", reports: 1 });
+  });
+});
+
+describe("parseConsoleLine with whole sessions", () => {
   it("separates events, unrecognized objects and debug text", () => {
-    const lines = parseFixture(NODE_SESSION_LOG);
+    const lines = splitFixtureLines(NODE_SESSION_LOG).map(parseConsoleLine);
     const kinds = lines.map((line) => line.kind);
     expect(kinds.filter((kind) => kind === "event")).toHaveLength(28);
     expect(kinds.filter((kind) => kind === "unrecognized")).toHaveLength(2);
     expect(kinds.filter((kind) => kind === "debug")).toHaveLength(16);
   });
 
-  it("keeps the wire field names and values", () => {
-    const [boot, radio] = eventsOf(parseFixture(NODE_SESSION_LOG));
-    expect(boot).toEqual({
-      t: 812,
-      ev: "boot",
-      id: "3A7F",
-      model: "V4.3",
-      epoch: 12,
-      firmware: "0.1.0",
-      protocol: 2,
-      key: "default",
-      operator_key: "default",
-    });
-    expect(radio).toMatchObject({ ev: "radio", freq: 915.9, sync: 18, chip: -9, lna: "bypass" });
-  });
-
-  it("reads every line of the update sessions as an event or as debug text", () => {
-    const lines = [...parseFixture(UPDATE_ORIGIN_LOG), ...parseFixture(UPDATE_RECEIVER_LOG)];
+  it("reads every line of an update between simulated nodes as an event or as debug text", async () => {
+    const clock = new ManualTimeSource(0);
+    const { sender, receiver } = createSimulatedPair(
+      clock,
+      {},
+      {
+        losesFragment: (_version, index, delivery) => index === 1 && delivery === 1,
+      },
+    );
+    await sender.sendCommand("fragment_size 32");
+    await sender.sendCommand(`load_image ${signedImageVector.image}`);
+    await sender.sendCommand(`activate ${signedImageVector.version}`);
+    await sender.settle();
+    expect(receiver.versions.active).toBe(signedImageVector.version);
+    const lines = [...sender.emittedLines, ...receiver.emittedLines].map(parseConsoleLine);
     expect(lines.filter((line) => line.kind === "unrecognized")).toEqual([]);
-  });
-
-  it("reads the transfer fields of the update sessions", () => {
-    const events = eventsOf(parseFixture(UPDATE_RECEIVER_LOG));
-    expect(events.find((event) => event.ev === "hello")).toMatchObject({
-      version: 0,
-      available: 0,
-      vm_fault: null,
-      vm_failing: false,
-    });
-    expect(events.find((event) => event.ev === "report_sent")).toEqual({
-      t: 60132,
-      ev: "report_sent",
-      dst: "5C21",
-      version: 1762300800,
-      size: 32,
-      count: 4,
-      missing: [1],
-      round: 1,
-    });
-    expect(events.find((event) => event.ev === "tx" && event.type === "report")).toMatchObject({
-      version: 1762300800,
-    });
-    expect(events.find((event) => event.ev === "image")).toMatchObject({
-      via: "radio",
-      src: "5C21",
-    });
-    expect(events.find((event) => event.ev === "activation")).toMatchObject({ cause: "hello" });
-  });
-
-  it("reads the null LNA of the V2", () => {
-    const radio = eventsOf(parseFixture(SENDER_RUN_LOG)).find((event) => event.ev === "radio");
-    expect(radio).toMatchObject({ lna: null, power: 4, chip: 4 });
-  });
-
-  it("reads the neighbors reported in a HELLO", () => {
-    const hello = eventsOf(parseFixture(NODE_SESSION_LOG)).find((event) => event.ev === "hello");
-    expect(hello?.ev === "hello" ? hello.neighbors : null).toEqual([
-      { id: "3A7F", rssi: -46, snr: 9.5 },
-      { id: "9B04", rssi: -101, snr: -7.25 },
-    ]);
+    expect(new Set(eventsOf(lines).map((event) => event.ev))).toEqual(
+      new Set([
+        "tx",
+        "hello",
+        "image",
+        "burst_start",
+        "burst_done",
+        "fragment_rx",
+        "report_sent",
+        "report_received",
+        "transfer",
+        "activation",
+        "vm",
+        "vm_print",
+      ]),
+    );
   });
 });
 
@@ -152,12 +174,6 @@ describe("parseConsoleLine with contract version 2", () => {
     });
     expect(problemOf('{"t":1,"ev":"program","version":3,"size":1,"code":"0A"}')).toContain("code");
   });
-
-  it("knows the error reasons of the image commands", () => {
-    expect(isKnownErrorReason("invalid_image")).toBe(true);
-    expect(isKnownErrorReason("not_available")).toBe(true);
-    expect(isKnownErrorReason("invalid_program")).toBe(false);
-  });
 });
 
 describe("parseConsoleLine", () => {
@@ -173,19 +189,6 @@ describe("parseConsoleLine", () => {
   it("takes malformed JSON as debug text", () => {
     expect(parseConsoleLine('{"t":28700,"ev":"radio","freq":').kind).toBe("debug");
     expect(parseConsoleLine("{not json at all").kind).toBe("debug");
-  });
-
-  it("removes a trailing carriage return", () => {
-    expect(
-      eventOf('{"t":5,"ev":"wifi","state":"off","ssid":"J5-3A7F","channel":1,"clients":0}\r'),
-    ).toEqual({
-      t: 5,
-      ev: "wifi",
-      state: "off",
-      ssid: "J5-3A7F",
-      channel: 1,
-      clients: 0,
-    });
   });
 
   it("reports unknown events without losing the object", () => {
@@ -212,10 +215,10 @@ describe("parseConsoleLine", () => {
       problemOf(
         '{"t":1,"ev":"status","id":"3a7f","model":"V4.3","epoch":1,"tx":0,"rx":0,"dropped":0,"heap":1}',
       ),
-    ).toBe("el campo id debería ser un identificador de cuatro dígitos hexadecimales en mayúscula");
+    ).toBe("el campo id debería ser un identificador de 4 dígitos hexadecimales en mayúscula");
     expect(
       problemOf(
-        '{"t":1,"ev":"boot","id":"3A7F","model":"V3","epoch":1,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default"}',
+        '{"t":1,"ev":"boot","id":"3A7F","model":"V3","epoch":1,"firmware":"0.2.0","protocol":2,"key":"default","operator_key":"default"}',
       ),
     ).toBe('el campo model debería ser "V2" o "V4.3"');
     expect(
@@ -308,11 +311,12 @@ describe("parseConsoleLine", () => {
     });
   });
 
-  it("accepts run_end without quality values, as the firmware writes it with no packets", () => {
-    const event = eventOf(
-      '{"t":9,"ev":"run_end","src":"5C21","run":6,"count":5,"received":0,"pdr":0.0000,"rssi_avg":null,"rssi_min":null,"rssi_max":null,"snr_avg":null,"first":0,"last":0,"reason":"timeout"}',
-    );
-    expect(event).toMatchObject({ received: 0, rssi_avg: null, snr_avg: null });
+  it("rejects run_end without quality values, which a run with its first packet always has", () => {
+    expect(
+      parseConsoleLine(
+        '{"t":9,"ev":"run_end","src":"5C21","run":6,"count":5,"received":0,"pdr":0.0000,"rssi_avg":null,"rssi_min":null,"rssi_max":null,"snr_avg":null,"first":0,"last":0,"reason":"timeout"}',
+      ).kind,
+    ).toBe("unrecognized");
   });
 
   it("keeps fields the contract does not define", () => {

@@ -1,21 +1,15 @@
 <script lang="ts">
-  import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import type { TestTarget } from "$lib/state/radio-test-activity.ts";
 
   /**
-   * The node that the actions of a section go to: the one chosen in the node strip or the graph.
-   * `role` names it as the section sees it: "Nodo", "Nodo origen", "Emisor". A section with a test
-   * in progress passes the node of the test as `connection`, which the chosen node no longer moves.
+   * The node that the actions of a section go to: the one chosen in the node strip or the graph,
+   * or, while a test of the section runs, the node of the test, which choosing another node does
+   * not move. `role` names it as the section sees it: "Nodo", "Nodo origen", "Emisor".
    */
-  let {
-    panel,
-    role = "Nodo",
-    connection: pinnedConnection,
-  }: { panel: ControlPanel; role?: string; connection?: ConnectionView | null } = $props();
+  let { target, role = "Nodo" }: { target: TestTarget; role?: string } = $props();
 
-  const connection = $derived(
-    pinnedConnection === undefined ? panel.selectedIdentifiedConnection : pinnedConnection,
-  );
-  const pinned = $derived(pinnedConnection !== undefined);
+  const connection = $derived(target.connection);
+  const pinned = $derived(target.pinned);
 </script>
 
 {#if connection === null}

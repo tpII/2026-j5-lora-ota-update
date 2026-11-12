@@ -1,9 +1,10 @@
 #ifndef J5_DUPLICATE_FILTER_H
 #define J5_DUPLICATE_FILTER_H
 
+#include <stddef.h>
 #include <stdint.h>
 
-#include "../configuration.h"
+#include "../protocol/protocol_contract.h"
 
 namespace firmware {
 
@@ -25,7 +26,6 @@ private:
   };
 
   Entry *findEntry(uint16_t source);
-  // Returns a free entry or, when the table is full, the one heard least recently.
   Entry *allocateEntry();
 
   Entry entries_[MAXIMUM_TRACKED_SOURCES] = {};

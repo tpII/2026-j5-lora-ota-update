@@ -1,13 +1,14 @@
 <script lang="ts">
-  import {
-    MAXIMUM_IMAGE_VERSION,
-    MINIMUM_IMAGE_VERSION,
-    proposeImageVersion,
-  } from "$lib/image/image-format.ts";
+  import { formatVersionDate } from "$lib/image/image-format.ts";
+  import { MAXIMUM_IMAGE_VERSION, MINIMUM_IMAGE_VERSION } from "$lib/protocol/protocol-contract.ts";
   import type { ImageVersionCheck } from "$lib/image/image-preparation.ts";
-  import { formatVersionDate } from "$lib/utils/format.ts";
+  import ImageVersionCheckMessages from "./ImageVersionCheckMessages.svelte";
 
-  let { version = $bindable(), check }: { version: number; check: ImageVersionCheck } = $props();
+  let {
+    version = $bindable(),
+    check,
+    proposeVersion,
+  }: { version: number; check: ImageVersionCheck; proposeVersion: () => number } = $props();
 
   const date = $derived(Number.isInteger(version) ? formatVersionDate(version) : null);
 </script>
@@ -25,17 +26,12 @@
         bind:value={version}
       />
     </label>
-    <button type="button" class="panel-button" onclick={() => (version = proposeImageVersion(Date.now()))}>
+    <button type="button" class="panel-button" onclick={() => (version = proposeVersion())}>
       Proponer la hora actual
     </button>
   </div>
   {#if date !== null}
     <p class="panel-hint">Como hora Unix, la versión corresponde al {date} de esta computadora.</p>
   {/if}
-  {#if check.problem !== null}
-    <p class="panel-error-text">{check.problem}</p>
-  {/if}
-  {#each check.warnings as warning (warning)}
-    <p class="text-xs text-warn">{warning}</p>
-  {/each}
+  <ImageVersionCheckMessages {check} />
 </div>

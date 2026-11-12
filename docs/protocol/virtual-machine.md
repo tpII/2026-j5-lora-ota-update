@@ -8,7 +8,7 @@ Contrato de la micro VM que ejecuta cada nodo ([ADR 0008](../adrs/0008-register-
 |---|---|
 | R1 a R4 | Registros de 32 bits con signo; se conservan entre ticks y solo cambian con el programa o con `load_registers` |
 | PC | Dirección de la próxima instrucción, desde 0 |
-| Memoria de programa | 1024 bytes (`PROGRAM_CAPACITY` en `firmware/src/vm/virtual_machine.h`) |
+| Memoria de programa | 1024 bytes (`programCapacity` en `firmware/protocol/contract.json`, que el generador escribe como `PROGRAM_CAPACITY`) |
 | Versión | Entero de 32 bits sin signo; 0 es el programa de fábrica, que está vacío |
 
 ## Ticks
@@ -52,6 +52,8 @@ En los grupos `0x1n` y `0x2n`, un opcode par toma un inmediato y el impar que le
 | `3n` | — | Reservado para las instrucciones de control |
 
 Las sumas, las restas y los productos dan la vuelta en complemento a dos. −2147483648 / −1 da −2147483648 y −2147483648 % −1 da 0.
+
+En `firmware/protocol/contract.json`, cada instrucción lleva su forma y su efecto (`instructionEffects`): `halt` termina el tick, `print` muestra un registro, `write` escribe el primer registro y `divide` lo escribe después de una división, que falla con un divisor 0. Cada efecto admite solo las formas que le dan los registros que lee, y el generador rechaza una instrucción con una forma que su efecto no admite. Una instrucción de control necesitará un efecto nuevo.
 
 ## Fallas
 

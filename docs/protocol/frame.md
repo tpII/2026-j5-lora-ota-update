@@ -26,7 +26,7 @@ La época es un contador de 8 bits que el nodo guarda en NVS. Aumenta en cada ar
 
 ## Etiqueta de autenticación
 
-`tag` contiene los primeros 8 bytes de HMAC-SHA256(clave de red, versión ‖ cabecera ‖ cuerpo). La versión es un byte con la versión del protocolo (hoy `0x02`) que entra en el cálculo pero no viaja en la trama ([ADR 0005](../adrs/0005-frame-without-hop-count.md)). Un paquete armado con otra versión del protocolo o con otra clave falla la verificación.
+`tag` contiene los primeros 8 bytes de HMAC-SHA256(clave de red, versión ‖ cabecera ‖ cuerpo). La versión es un byte con la versión del protocolo (hoy `0x02`) que entra en el cálculo pero no viaja en la trama ([ADR 0005](../adrs/0005-frame-without-hop-count.md)). Un paquete armado con otra versión del protocolo o con otra clave falla la verificación. `firmware/protocol/test-vectors/frame.json` tiene tramas de referencia con la clave por defecto, cuya etiqueta el generador del contrato calcula con el HMAC-SHA256 de Node y el firmware reproduce en sus pruebas.
 
 ## Claves
 
@@ -36,7 +36,7 @@ La clave de red y la contraseña del punto de acceso se compilan en el firmware:
 |---|---|---|
 | `J5_NETWORK_KEY` | Clave del HMAC | `"bichofeo"` |
 | `J5_ACCESS_POINT_PASSWORD` | Contraseña WPA2 del punto de acceso | `"bichofeo"` |
-| `J5_OPERATOR_PUBLIC_KEY` | Clave pública Ed25519 del operador, en hexadecimal ([imagen](image.md)) | La del par de `keys/default_operator_key.pem` |
+| `J5_OPERATOR_PUBLIC_KEY` | Clave pública Ed25519 del operador, en hexadecimal ([imagen](image.md)) | La del par de `firmware/protocol/default_operator_key.pem` |
 
 Para compilar con otros valores, se crea `firmware/build_opt.h` (ignorado por git) con una opción por línea, por ejemplo `-DJ5_NETWORK_KEY="\"otra clave\""`. El core de ESP32 pasa ese archivo a cada compilación, también desde el IDE de Arduino. El evento `boot` indica con `key` si el nodo usa la clave de red por defecto y con `operator_key`, si usa la clave del operador por defecto.
 
@@ -53,7 +53,9 @@ Un nodo revisa cada paquete en este orden. Ante la primera condición que no se 
 7. Paquete nuevo; si no, `duplicate`.
 8. Destino propio o `FFFF`; si no, se ignora sin emitir nada.
 
-Para decidir si un paquete es nuevo, cada nodo guarda por origen la época y la secuencia del último paquete aceptado. Un paquete es nuevo si su origen no figura, si su época es distinta de la guardada o si, con la misma época, su secuencia es posterior en aritmética módulo 2¹⁶. La tabla admite 16 orígenes; cuando se llena, se reemplaza el que hace más tiempo que no se escucha.
+Un paquete que pasa los controles 1 a 7 cuenta en el campo `rx` de `status` y deja a su origen como vecino, aunque el control 8 lo ignore.
+
+Para decidir si un paquete es nuevo, cada nodo guarda por origen la época y la secuencia del último paquete aceptado. Un paquete es nuevo si su origen no figura, si su época es distinta de la guardada o si, con la misma época, su secuencia es posterior en aritmética módulo 2¹⁶. La tabla admite 16 orígenes (`trackedSources` en `firmware/protocol/contract.json`, que el generador escribe como `MAXIMUM_TRACKED_SOURCES`); cuando se llena, se reemplaza el que hace más tiempo que no se escucha.
 
 Ningún nodo retransmite paquetes ajenos. La retransmisión llega con la malla (ver [trabajo futuro](../future-work.md)).
 

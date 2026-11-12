@@ -1,19 +1,29 @@
 <script lang="ts">
   import TargetNodeLine from "$lib/components/TargetNodeLine.svelte";
   import {
-    MAXIMUM_PAYLOAD_SIZE,
     MAXIMUM_RUN_COUNT,
-    MAXIMUM_RUN_INTERVAL,
+    MAXIMUM_RUN_INTERVAL_MILLISECONDS,
+    MAXIMUM_TEST_SIZE,
+    MINIMUM_RUN_COUNT,
+    MINIMUM_RUN_INTERVAL_MILLISECONDS,
     MINIMUM_TEST_SIZE,
+  } from "$lib/protocol/protocol-contract.ts";
+  import { listTransmitPowerWarnings } from "$lib/radio/transmit-power-warnings.ts";
+  import {
     RUN_STOP_COMMAND,
     buildRadioSetCommand,
     buildRunCommand,
     type CommandProblem,
-  } from "$lib/console/console-command.ts";
-  import { isRunActive } from "$lib/nodes/node-state.ts";
-  import { listTransmitPowerValues, listTransmitPowerWarnings, timeOnAirFor } from "$lib/radio/radio-settings.ts";
-  import { computeFrameLength } from "$lib/radio/time-on-air.ts";
-  import { formatDuration, formatMicrosecondsAsMilliseconds, formatPower } from "$lib/utils/format.ts";
+  } from "$lib/commands/console-command.ts";
+  import { estimateRunMilliseconds } from "$lib/measurements/run-timing.ts";
+  import { listTransmitPowerValues } from "$lib/radio/radio-settings.ts";
+  import { choosePower, pendingPowerOf, type PowerChoice } from "$lib/radio/power-choice.ts";
+  import { timeOnAirOfPayload } from "$lib/radio/time-on-air.ts";
+  import {
+    formatDuration,
+    formatMicrosecondsAsMilliseconds,
+    formatPower,
+  } from "$lib/utils/format.ts";
   import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
   /**
@@ -23,28 +33,19 @@
   let { panel }: { panel: ControlPanel } = $props();
 
   let count = $state<number>(100);
-  let size = $state<number>(MAXIMUM_PAYLOAD_SIZE);
-  let interval = $state<number>(0);
+  let size = $state<number>(MAXIMUM_TEST_SIZE);
+  let interval = $state<number>(MINIMUM_RUN_INTERVAL_MILLISECONDS);
   let problems = $state<readonly CommandProblem[]>([]);
-  /**
-   * Power the operator picked and has not applied yet, for the node it was picked for, with the power
-   * the node had then: once the node reports another power, the choice no longer applies.
-   */
-  let powerChoice = $state<{ readonly key: string; readonly power: number; readonly base: number | null } | null>(
-    null,
-  );
+  let powerChoice = $state.raw<PowerChoice | null>(null);
   let powerProblems = $state<readonly CommandProblem[]>([]);
 
-  const sender = $derived(panel.selectedIdentifiedConnection);
-  const senderBusy = $derived(sender !== null && isRunActive(sender.state));
+  const sender = $derived(panel.nodes.selectedIdentified);
+  const runRefusal = $derived(sender === null ? null : panel.refusal("manual-run", sender.key));
+  const radioRefusal = $derived(sender === null ? null : panel.refusal("radio-settings", sender.key));
   const model = $derived(sender?.state.model ?? null);
   const currentPower = $derived(sender?.state.radio?.power ?? null);
   const powerValues = $derived(listTransmitPowerValues(model));
-  const pendingPower = $derived(
-    sender !== null && powerChoice !== null && powerChoice.key === sender.key && powerChoice.base === currentPower && powerChoice.power !== currentPower
-      ? powerChoice.power
-      : null,
-  );
+  const pendingPower = $derived(pendingPowerOf(powerChoice, sender?.key ?? null, currentPower));
   const shownPower = $derived(pendingPower ?? currentPower);
   const powerWarnings = $derived(shownPower === null ? [] : listTransmitPowerWarnings(shownPower, model));
 
@@ -53,9 +54,13 @@
    * transmits one, otherwise any other node that does, since the operator may have chosen another node
    * after starting the run. The runs of a capacity test are left to its own «Detener».
    */
-  const transmittingConnection = $derived.by(() => {
-    const transmitting = panel.manualRunConnections;
-    return transmitting.find((connection) => connection.key === sender?.key) ?? transmitting[0] ?? null;
+  const transmitting = $derived.by(() => {
+    const run = panel.activities.find((activity) => activity.kind === "manual-run");
+    if (run === undefined) {
+      return null;
+    }
+    const index = Math.max(0, run.keys.findIndex((key) => key === sender?.key));
+    return { key: run.keys[index] ?? "", node: run.nodes[index] ?? "" };
   });
 
   const estimate = $derived.by(() => {
@@ -64,8 +69,10 @@
     if (radio === null || !valid) {
       return null;
     }
-    const timeOnAir = timeOnAirFor(computeFrameLength(size), radio);
-    return { timeOnAir, durationMilliseconds: count * (timeOnAir / 1000) + (count - 1) * interval };
+    return {
+      timeOnAir: timeOnAirOfPayload(size, radio),
+      durationMilliseconds: estimateRunMilliseconds({ count, size, interval }, radio),
+    };
   });
 
   function startRun(): void {
@@ -78,12 +85,12 @@
       return;
     }
     problems = [];
-    void panel.sendCommand(sender.key, result.command);
+    void panel.startManualRun(sender.key, result.command);
   }
 
-  function choosePower(text: string): void {
+  function pickPower(text: string): void {
     if (sender !== null && text !== "") {
-      powerChoice = { key: sender.key, power: Number(text), base: currentPower };
+      powerChoice = choosePower(sender.key, Number(text), currentPower);
       powerProblems = [];
     }
   }
@@ -98,7 +105,7 @@
       return;
     }
     powerProblems = [];
-    void panel.sendCommand(sender.key, result.command);
+    void panel.changeRadioSettings(sender.key, result.command);
   }
 
   function problemFor(field: string): boolean {
@@ -108,6 +115,7 @@
 
 <form
   class="panel-card flex flex-col gap-3"
+  data-testid="run-form"
   onsubmit={(event) => {
     event.preventDefault();
     startRun();
@@ -120,7 +128,7 @@
     es una corrida: se fija la potencia del emisor, se transmite la corrida y se repite con la potencia
     siguiente.
   </p>
-  <TargetNodeLine {panel} role="Emisor" />
+  <TargetNodeLine target={panel.testTarget()} role="Emisor" />
 
   <div class="flex flex-wrap items-end gap-3">
     <label class="panel-label">
@@ -128,7 +136,7 @@
       <select
         class="panel-input {powerProblems.length > 0 ? 'panel-input-invalid' : ''}"
         disabled={sender === null}
-        onchange={(event) => choosePower(event.currentTarget.value)}
+        onchange={(event) => pickPower(event.currentTarget.value)}
       >
         {#if shownPower === null}
           <option value="" selected>—</option>
@@ -144,7 +152,7 @@
     <button
       type="button"
       class="panel-button"
-      disabled={sender === null || pendingPower === null || senderBusy || panel.isCampaignActive}
+      disabled={sender === null || pendingPower === null || radioRefusal !== null}
       onclick={applyPower}
     >
       Aplicar la potencia
@@ -170,8 +178,8 @@
       {/each}
     </ul>
   {/if}
-  {#if senderBusy}
-    <p class="panel-hint">El nodo tiene una corrida en curso: rechaza los cambios de radio hasta que termine.</p>
+  {#if radioRefusal !== null && radioRefusal.cause !== "unready"}
+    <p class="panel-hint">{radioRefusal.message}</p>
   {/if}
 
   <div class="flex flex-wrap items-end gap-3">
@@ -180,9 +188,10 @@
       <input
         class="panel-input w-32 {problemFor('count') ? 'panel-input-invalid' : ''}"
         type="number"
-        min="1"
+        min={MINIMUM_RUN_COUNT}
         max={MAXIMUM_RUN_COUNT}
         step="1"
+        data-testid="run-count"
         bind:value={count}
       />
     </label>
@@ -192,7 +201,7 @@
         class="panel-input w-32 {problemFor('size') ? 'panel-input-invalid' : ''}"
         type="number"
         min={MINIMUM_TEST_SIZE}
-        max={MAXIMUM_PAYLOAD_SIZE}
+        max={MAXIMUM_TEST_SIZE}
         step="1"
         bind:value={size}
       />
@@ -202,28 +211,28 @@
       <input
         class="panel-input w-32 {problemFor('interval') ? 'panel-input-invalid' : ''}"
         type="number"
-        min="0"
-        max={MAXIMUM_RUN_INTERVAL}
+        min={MINIMUM_RUN_INTERVAL_MILLISECONDS}
+        max={MAXIMUM_RUN_INTERVAL_MILLISECONDS}
         step="1"
         bind:value={interval}
       />
     </label>
     <button
       type="submit"
-      class="panel-button-primary"
-      disabled={sender === null || senderBusy || panel.isCampaignActive}
+      class="panel-button panel-button-primary"
+      disabled={sender === null || runRefusal !== null}
     >
       Iniciar la corrida
     </button>
     <button
       type="button"
-      class="panel-button-danger"
-      disabled={transmittingConnection === null}
-      onclick={() => transmittingConnection !== null && panel.sendCommand(transmittingConnection.key, RUN_STOP_COMMAND)}
+      class="panel-button panel-button-danger"
+      disabled={transmitting === null}
+      onclick={() => transmitting !== null && panel.sendCommand(transmitting.key, RUN_STOP_COMMAND)}
     >
-      {transmittingConnection === null || transmittingConnection.key === sender?.key
+      {transmitting === null || transmitting.key === sender?.key
         ? "Detener la corrida"
-        : `Detener la corrida de ${transmittingConnection.state.identifier}`}
+        : `Detener la corrida de ${transmitting.node}`}
     </button>
   </div>
   {#if problems.length > 0}
@@ -239,7 +248,7 @@
       Duración estimada de la corrida: {formatDuration(estimate.durationMilliseconds)}.
     </p>
   {/if}
-  {#if panel.isCampaignActive}
-    <p class="panel-hint">Hay una prueba de capacidad en curso: las corridas manuales esperan a que termine.</p>
+  {#if runRefusal !== null && runRefusal.cause === "activity" && transmitting?.key !== sender?.key}
+    <p class="panel-hint">{runRefusal.message}</p>
   {/if}
 </form>

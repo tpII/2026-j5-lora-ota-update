@@ -19,7 +19,6 @@ export type ParsedConsoleLine =
     }
   | { readonly kind: "debug"; readonly text: string };
 
-/** Describes the first deviation from the contract, in Spanish, for the operator. */
 function describeProblem(
   issue: z.core.$ZodIssue,
   object: Readonly<Record<string, unknown>>,
@@ -40,9 +39,8 @@ function describeProblem(
     : `el campo ${field} debería ser ${issue.message}`;
 }
 
-/** Classifies one console line (without its line end). */
-export function parseConsoleLine(line: string): ParsedConsoleLine {
-  const text = line.endsWith("\r") ? line.slice(0, -1) : line;
+/** Classifies one console line, without its line end (ConsoleLineSplitter removes it). */
+export function parseConsoleLine(text: string): ParsedConsoleLine {
   if (!text.startsWith("{")) {
     return { kind: "debug", text };
   }

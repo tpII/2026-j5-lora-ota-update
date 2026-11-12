@@ -1,13 +1,17 @@
 /**
  * Console over WiFi: a WebSocket to the access point of the node (ADR 0002 and ADR 0003). Each
- * text message carries one console line, without its line end, in both directions.
+ * text message carries one console line, without its line end, in both directions; the lines that
+ * arrive go through the same ConsoleLineSplitter as those of the serial console.
  */
+import {
+  ACCESS_POINT_NAME_PREFIX,
+  CONSOLE_WEBSOCKET_URL,
+} from "$lib/protocol/protocol-contract.ts";
+import { ConsoleLineSplitter } from "$lib/console/console-line-splitter.ts";
 import { SYSTEM_TIME_SOURCE, type TimeSource } from "$lib/utils/time-source.ts";
 import type { ConsoleTransport, ConsoleTransportReceiver } from "./console-transport.ts";
 
-export const DEFAULT_CONSOLE_ADDRESS = "ws://192.168.4.1/console";
-
-const DEFAULT_OPEN_TIMEOUT_MILLISECONDS = 8000;
+const OPEN_TIMEOUT_MILLISECONDS = 8000;
 const CLOSE_TIMEOUT_MILLISECONDS = 2000;
 const NORMAL_CLOSURE_CODE = 1000;
 
@@ -52,7 +56,6 @@ const OPEN = 1;
 export interface WebSocketConsoleTransportOptions {
   readonly createSocket?: WebSocketFactory;
   readonly timeSource?: TimeSource;
-  readonly openTimeoutMilliseconds?: number;
 }
 
 export class WebSocketConsoleTransport implements ConsoleTransport {
@@ -61,19 +64,18 @@ export class WebSocketConsoleTransport implements ConsoleTransport {
   readonly #address: string;
   readonly #createSocket: WebSocketFactory;
   readonly #timeSource: TimeSource;
-  readonly #openTimeout: number;
+  readonly #splitter = new ConsoleLineSplitter();
   #socket: WebSocketAccess | null = null;
   #receiver: ConsoleTransportReceiver | null = null;
   #closeRequested = false;
   #closed = false;
   #closedSignal: (() => void) | null = null;
 
-  constructor(address = DEFAULT_CONSOLE_ADDRESS, options: WebSocketConsoleTransportOptions = {}) {
+  constructor(address = CONSOLE_WEBSOCKET_URL, options: WebSocketConsoleTransportOptions = {}) {
     this.#address = address;
     this.description = address;
     this.#createSocket = options.createSocket ?? createLocalNetworkWebSocket;
     this.#timeSource = options.timeSource ?? SYSTEM_TIME_SOURCE;
-    this.#openTimeout = options.openTimeoutMilliseconds ?? DEFAULT_OPEN_TIMEOUT_MILLISECONDS;
   }
 
   open(receiver: ConsoleTransportReceiver): Promise<void> {
@@ -88,7 +90,7 @@ export class WebSocketConsoleTransport implements ConsoleTransport {
           socket.close();
           reject(new Error(this.#unreachableMessage()));
         }
-      }, this.#openTimeout);
+      }, OPEN_TIMEOUT_MILLISECONDS);
 
       socket.addEventListener("open", () => {
         opened = true;
@@ -145,12 +147,8 @@ export class WebSocketConsoleTransport implements ConsoleTransport {
     if (typeof data !== "string") {
       return;
     }
-    // The contract sends one line per message; split anyway in case a message carries several.
-    for (const line of data.split("\n")) {
-      const trimmed = line.endsWith("\r") ? line.slice(0, -1) : line;
-      if (trimmed.length > 0) {
-        this.#receiver?.acceptLine(trimmed);
-      }
+    for (const line of this.#splitter.acceptMessage(data)) {
+      this.#receiver?.acceptLine(line);
     }
   }
 
@@ -169,8 +167,9 @@ export class WebSocketConsoleTransport implements ConsoleTransport {
 
   #unreachableMessage(): string {
     return (
-      `No se pudo abrir ${this.#address}. La computadora debe estar asociada a la red J5-<id> del ` +
-      "nodo y el navegador debe tener el permiso de acceso a la red local."
+      `No se pudo abrir ${this.#address}. La computadora debe estar asociada a la red ` +
+      `${ACCESS_POINT_NAME_PREFIX}<id> del nodo y el navegador debe tener el permiso de acceso a ` +
+      "la red local."
     );
   }
 }

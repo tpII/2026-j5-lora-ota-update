@@ -4,8 +4,6 @@
 #include <U8g2lib.h>
 #include <stdio.h>
 
-#include "../configuration.h"
-
 namespace firmware {
 
 static constexpr uint8_t STATUS_ROW_TOP = 0;
@@ -38,10 +36,8 @@ void DebugDisplay::appendLine(const char *text) {
   dirty_ = true;
 }
 
-void DebugDisplay::setSuspended(bool suspended) { suspended_ = suspended; }
-
 void DebugDisplay::poll(uint32_t nowMillis) {
-  if (!dirty_ || suspended_ || nowMillis - lastRedrawMillis_ < DISPLAY_REFRESH_INTERVAL_MS) {
+  if (!dirty_ || nowMillis - lastRedrawMillis_ < DISPLAY_REFRESH_INTERVAL_MS) {
     return;
   }
   lastRedrawMillis_ = nowMillis;

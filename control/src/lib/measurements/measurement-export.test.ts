@@ -10,16 +10,19 @@ import {
 } from "$lib/testing/console-fixtures.ts";
 import { parseConsoleLine } from "$lib/console/console-line-parser.ts";
 import {
+  buildCsv,
   buildEventLine,
-  buildMeasurementFiles,
+  buildExportFolder,
   buildMetadata,
-  buildSummaryCsv,
+  folderNamePattern,
   formatLocalDate,
   formatLocalTimestamp,
   selectNextFolderName,
   type MeasurementDescription,
 } from "./measurement-export.ts";
-import { TestRunLedger } from "./test-run-ledger.ts";
+import { RUN_SUMMARY_TABLE, buildRunExport } from "./run-export.ts";
+import { TestRunLedger, type TestRunSummaryRow } from "./test-run-ledger.ts";
+import { readmeNamesUnder } from "$lib/testing/measurement-readme.ts";
 
 /** Buenos Aires: UTC-3. */
 const ARGENTINA_OFFSET = -180;
@@ -27,7 +30,6 @@ const ARGENTINA_OFFSET = -180;
 const EXPORT_DATE = new Date("2026-10-07T17:03:05Z");
 
 const DESCRIPTION: MeasurementDescription = {
-  test: "capacity-test",
   place: " Laboratorio, 1.er piso ",
   distanceMeters: 2.5,
   antennas: "Dipolos de 3 dBi",
@@ -69,17 +71,33 @@ describe("dates and folder names", () => {
     expect(selectNextFolderName(["2026-10-07-power-sweep-99"], "2026-10-07", "power-sweep")).toBe(
       "2026-10-07-power-sweep-100",
     );
+    expect(folderNamePattern("update")).toBe("<AAAA-MM-DD>-update-<NN>");
   });
 });
 
 describe("metadata.json", () => {
-  it("has exactly the fields of measurements/README.md", () => {
+  it("has exactly the fields of docs/measurement-exports.md, in its order", () => {
     const metadata = buildMetadata(
-      DESCRIPTION,
-      [
-        { id: "5C21", model: "V2" },
-        { id: "3A7F", model: "V4.3" },
-      ],
+      buildRunExport("capacity-test", DESCRIPTION, [], [], []),
+      EXPORT_DATE,
+      "0.1.0",
+      ARGENTINA_OFFSET,
+    );
+    expect(Object.keys(metadata)).toEqual(readmeNamesUnder("### `metadata.json`"));
+  });
+
+  it("writes the sheet, the date of the computer and the nodes sorted", () => {
+    const metadata = buildMetadata(
+      buildRunExport(
+        "capacity-test",
+        DESCRIPTION,
+        [
+          { id: "5C21", model: "V2" },
+          { id: "3A7F", model: "V4.3" },
+        ],
+        [],
+        [],
+      ),
       EXPORT_DATE,
       "0.1.0",
       ARGENTINA_OFFSET,
@@ -153,7 +171,7 @@ describe("events.jsonl", () => {
     const lines = [...journal.events(new Set(["5C21"]))].map(buildEventLine);
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe(
-      `{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.1.0","protocol":2,"key":"default","operator_key":"default","node":"5C21","host_time":${SENDER_BOOT_HOST_TIME + 640}}`,
+      `{"t":640,"ev":"boot","id":"5C21","model":"V2","epoch":7,"firmware":"0.2.0","protocol":2,"key":"default","operator_key":"default","node":"5C21","host_time":${SENDER_BOOT_HOST_TIME + 640}}`,
     );
     // Without a choice, events of connections with no known node go out with node null.
     expect([...journal.events()].at(-1)).toMatchObject({ node: null, hostTime: 7 });
@@ -192,8 +210,16 @@ describe("summary.csv", () => {
     return ledger;
   }
 
-  it("has the header and the columns of measurements/README.md", () => {
-    expect(buildSummaryCsv(fixtureLedger().rows)).toBe(
+  function summaryCsv(rows: readonly TestRunSummaryRow[]): string {
+    return buildCsv(RUN_SUMMARY_TABLE.columns, rows);
+  }
+
+  it("has the columns of docs/measurement-exports.md, in its order", () => {
+    expect(RUN_SUMMARY_TABLE.columns).toEqual(readmeNamesUnder("### `summary.csv`"));
+  });
+
+  it("writes one row per run and receiver of the ledger", () => {
+    expect(summaryCsv(fixtureLedger().rows)).toBe(
       [
         "run,sender,receiver,sender_model,receiver_model,freq,sf,bw,cr,preamble,power,receiver_lna,size,count,sent,received,pdr,rssi_avg,rssi_min,rssi_max,snr_avg,toa_avg,toa_calc,duration,goodput,reason",
         "3,5C21,3A7F,V2,V4.3,915.9,7,500,5,8,2,bypass,239,10,10,9,0.9,-38.6,-39.5,-38,10.03,99959.5,99904,1018012,16903.5,complete",
@@ -204,27 +230,41 @@ describe("summary.csv", () => {
     );
   });
 
+  it("quotes text with commas, quotes or line ends and leaves non-finite numbers empty", () => {
+    expect(
+      buildCsv(
+        ["text", "number"],
+        [
+          { text: 'dipolo, "3 dBi"', number: Number.NaN },
+          { text: "dos\nlíneas", number: -0.5 },
+        ],
+      ),
+    ).toBe('text,number\n"dipolo, ""3 dBi""",\n"dos\nlíneas",-0.5\n');
+  });
+
   it("leaves empty the values it does not know, such as the LNA of a V2", () => {
     const [row] = fixtureLedger().rows;
-    const csv = buildSummaryCsv([
-      { ...row!, receiver_lna: null, receiver_model: "V2", sent: null },
-    ]);
+    const csv = summaryCsv([{ ...row!, receiver_lna: null, receiver_model: "V2", sent: null }]);
     expect(csv.split("\n")[1]).toBe(
       "3,5C21,3A7F,V2,V2,915.9,7,500,5,8,2,,239,10,,9,0.9,-38.6,-39.5,-38,10.03,99959.5,99904,1018012,16903.5,complete",
     );
   });
 });
 
-describe("buildMeasurementFiles", () => {
-  it("produces the three files of an export", () => {
-    const metadata = buildMetadata(DESCRIPTION, [], EXPORT_DATE, "0.1.0", ARGENTINA_OFFSET);
-    const files = buildMeasurementFiles(metadata, [], []);
-    expect(files.map((file) => [file.name, file.mediaType])).toEqual([
-      ["metadata.json", "application/json"],
-      ["events.jsonl", "application/x-ndjson"],
-      ["summary.csv", "text/csv"],
+describe("buildExportFolder", () => {
+  it("produces the three files of a run export, in the folder of its test", () => {
+    const measurement = buildRunExport("power-sweep", DESCRIPTION, [], [], []);
+    const { test, files } = buildExportFolder(measurement, EXPORT_DATE, "0.1.0", ARGENTINA_OFFSET);
+    expect(test).toBe("power-sweep");
+    expect(files.map((file) => file.name)).toEqual([
+      "metadata.json",
+      "events.jsonl",
+      "summary.csv",
     ]);
-    expect(JSON.parse(files[0]!.content)).toEqual(metadata);
+    expect(JSON.parse(files[0]!.content)).toEqual(
+      buildMetadata(measurement, EXPORT_DATE, "0.1.0", ARGENTINA_OFFSET),
+    );
     expect(files[1]!.content).toBe("");
+    expect(files[2]!.content).toBe(`${RUN_SUMMARY_TABLE.columns.join(",")}\n`);
   });
 });

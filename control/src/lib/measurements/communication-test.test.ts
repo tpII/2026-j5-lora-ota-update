@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { DEFAULT_RADIO_SETTINGS } from "$lib/protocol/protocol-contract.ts";
 import {
   CommunicationTest,
   presenceHoldSecondsFor,
@@ -7,43 +8,21 @@ import {
   type CommunicationTestSnapshot,
 } from "./communication-test.ts";
 import { CommunicationReceiver } from "./communication-receiver.ts";
-import {
-  buildEchoesCsv,
-  computeCommunicationTestMetrics,
-  nominalBitRateOf,
-} from "./communication-test-metrics.ts";
-import { DEFAULT_RADIO_SETTINGS, type RadioSettings } from "$lib/radio/radio-settings.ts";
+import { computeCommunicationTestMetrics, nominalBitRateOf } from "./communication-test-metrics.ts";
+import type { EchoResult } from "$lib/nodes/echo-records.ts";
+import type { NodePort } from "$lib/nodes/node-port.ts";
+import { type RadioSettings } from "$lib/radio/radio-settings.ts";
 import {
   createSimulatedPair,
   type SimulatedNode,
   type SimulatedNodeBehavior,
 } from "$lib/testing/simulated-node.ts";
-import { ManualTimeSource } from "$lib/utils/time-source.ts";
+import { ManualTimeSource, flushAsyncWork } from "$lib/testing/manual-time-source.ts";
 
 const START_TIME = 1_759_850_000_000;
 
 const DEFAULT_RADIO: RadioSettings = { ...DEFAULT_RADIO_SETTINGS, chip: 4, lna: null };
 const TEST_MODULATION = { sf: 9, bw: 500, cr: 6 } as const;
-
-/** Lets every pending promise continuation run. */
-function flushAsyncWork(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** Waits for `promise`, moving the manual clock forward whenever it waits for a timer. */
-async function settle<Value>(promise: Promise<Value>, clock: ManualTimeSource): Promise<Value> {
-  let settled = false;
-  const result = promise.finally(() => {
-    settled = true;
-  });
-  for (let step = 0; step < 10_000 && !settled; step += 1) {
-    await flushAsyncWork();
-    if (!settled) {
-      clock.advanceBy(100);
-    }
-  }
-  return result;
-}
 
 interface Scenario {
   readonly clock: ManualTimeSource;
@@ -84,9 +63,9 @@ async function runWithReceiver(scenario: Scenario) {
     modulation: TEST_MODULATION,
     timeSource: clock,
   });
-  await settle(receiver.activate(), clock);
-  const snapshot = await settle(test.run(), clock);
-  const receiverSnapshot = await settle(receiver.deactivate(), clock);
+  await clock.advanceUntilSettled(receiver.activate());
+  const snapshot = await clock.advanceUntilSettled(test.run());
+  const receiverSnapshot = await clock.advanceUntilSettled(receiver.deactivate());
   return { snapshot, receiverSnapshot };
 }
 
@@ -147,12 +126,42 @@ describe("CommunicationTest", () => {
 
   it("loses every echo when the neighbor is not in receiver mode, and still restores", async () => {
     const { clock, sender, test } = createScenario({ count: 3 });
-    const snapshot = await settle(test.run(), clock);
+    const snapshot = await clock.advanceUntilSettled(test.run());
 
     expect(snapshot.status).toBe("finished");
     expect(computeCommunicationTestMetrics(snapshot).deliveryRatio).toBe(0);
     expect(snapshot.restored).toBe(true);
     expect(sender.modulation).toEqual({ sf: 7, bw: 500, cr: 5 });
+  });
+
+  it("counts in its progress the echoes that got no result in time", async () => {
+    const clock = new ManualTimeSource(START_TIME);
+    const { sender } = createSimulatedPair(clock);
+    // The console of the sender loses every echo_lost, so no echo gets a result.
+    const port: NodePort = {
+      identifier: sender.identifier,
+      sendCommand: (command) => sender.sendCommand(command),
+      subscribe: (listener) =>
+        sender.subscribe((event, hostTime) => {
+          if (event.ev !== "echo_lost") {
+            listener(event, hostTime);
+          }
+        }),
+    };
+    const progress: number[] = [];
+    const test = new CommunicationTest({
+      node: port,
+      radio: DEFAULT_RADIO,
+      destination: "3A7F",
+      configuration: { ...TEST_MODULATION, count: 2 },
+      timeSource: clock,
+      onChange: (snapshot) => progress.push(snapshot.progress),
+    });
+    const snapshot = await clock.advanceUntilSettled(test.run());
+
+    expect(snapshot.exchanges).toEqual([]);
+    expect(snapshot.progress).toBe(1);
+    expect(progress).toContain(0.5);
   });
 
   it("stops after the echo in course and still restores the node", async () => {
@@ -169,9 +178,23 @@ describe("CommunicationTest", () => {
     expect(scenario.sender.modulation).toEqual({ sf: 7, bw: 500, cr: 5 });
   });
 
+  it("stops during the wait that follows the modulation, before any echo", async () => {
+    const { clock, sender, test } = createScenario({});
+    const finished = test.run();
+    await flushAsyncWork();
+    expect(sender.commands).toContain("radio sf 9 bw 500 cr 6");
+    test.stop();
+    const snapshot = await clock.advanceUntilSettled(finished);
+
+    expect(snapshot.status).toBe("stopped");
+    expect(snapshot.failure).toBeNull();
+    expect(sender.commands.some((command) => command.startsWith("echo"))).toBe(false);
+    expect(snapshot.restored).toBe(true);
+  });
+
   it("fails without echoes when the node refuses to hold its HELLO", async () => {
     const { clock, sender, test } = createScenario({}, { presenceRefusal: "unknown_command" });
-    const snapshot = await settle(test.run(), clock);
+    const snapshot = await clock.advanceUntilSettled(test.run());
 
     expect(snapshot.status).toBe("failed");
     expect(snapshot.failure).toContain("unknown_command");
@@ -199,6 +222,37 @@ describe("validateCommunicationTestConfiguration", () => {
   });
 });
 
+type AnsweredEcho = Extract<EchoResult, { outcome: "answered" }>;
+type LostEcho = Extract<EchoResult, { outcome: "lost" }>;
+
+function answered(fields: Partial<AnsweredEcho>): AnsweredEcho {
+  return {
+    outcome: "answered",
+    hostTime: 0,
+    destination: "3A7F",
+    number: 1,
+    size: 4,
+    roundTripMicroseconds: 8000,
+    rssi: -42,
+    snr: 8,
+    remoteRssi: -40,
+    remoteSnr: 9,
+    ...fields,
+  };
+}
+
+function lost(fields: Partial<LostEcho>): LostEcho {
+  return {
+    outcome: "lost",
+    hostTime: 0,
+    destination: "3A7F",
+    number: 1,
+    size: 4,
+    timeoutMilliseconds: 1020,
+    ...fields,
+  };
+}
+
 describe("communication test metrics", () => {
   it("computes the nominal bit rate of a modulation", () => {
     expect(nominalBitRateOf({ sf: 7, bw: 500, cr: 5 })).toBe(21875);
@@ -209,44 +263,13 @@ describe("communication test metrics", () => {
     const metrics = computeCommunicationTestMetrics({
       settings: { freq: 915.9, preamble: 8, sync: 18, sf: 7, bw: 500, cr: 5, size: 4, count: 2 },
       exchanges: [
-        {
-          outcome: "answered",
-          number: 1,
-          hostTime: 0,
-          roundTripMicroseconds: 8000,
-          forwardRssi: -40,
-          forwardSnr: 9,
-          reverseRssi: -42,
-          reverseSnr: 8,
-        },
-        { outcome: "lost", number: 2, hostTime: 1 },
+        answered({ number: 1, hostTime: 0, roundTripMicroseconds: 8000, rssi: -42, snr: 8 }),
+        lost({ number: 2, hostTime: 1 }),
       ],
     });
     // 64 useful bits in 8 ms.
     expect(metrics.usefulBits).toBe(64);
     expect(metrics.usefulBitRate).toBe(8000);
     expect(metrics.roundTrip.average).toBe(8000);
-  });
-
-  it("writes one row per echo, with empty quality for the lost ones", () => {
-    expect(
-      buildEchoesCsv([
-        {
-          outcome: "answered",
-          number: 1,
-          hostTime: 10,
-          roundTripMicroseconds: 8000,
-          forwardRssi: -40,
-          forwardSnr: 9.25,
-          reverseRssi: -42.5,
-          reverseSnr: 8,
-        },
-        { outcome: "lost", number: 2, hostTime: 20 },
-      ]),
-    ).toBe(
-      "n,host_time,outcome,rtt,forward_rssi,forward_snr,reverse_rssi,reverse_snr\n" +
-        "1,10,answered,8000,-40,9.25,-42.5,8\n" +
-        "2,20,lost,,,,,\n",
-    );
   });
 });

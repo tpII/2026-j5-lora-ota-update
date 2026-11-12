@@ -1,44 +1,13 @@
 #include "radio_link.h"
 
-#include <RadioLib.h>
-#include <SPI.h>
 #include <esp_timer.h>
+
+#include "../board/board_radio.h"
 
 namespace firmware {
 
 // RadioLib leaves the over-current protection at 60 mA, which clips the higher power levels.
 static constexpr uint8_t TRANSCEIVER_CURRENT_LIMIT_MA = 140;
-
-// RadioLib defaults to 2 MHz. Both transceivers accept 8 MHz (SX1276 up to 10 MHz, SX1262 up to
-// 16 MHz), which shortens the gap between frames sent back to back.
-static const SPISettings TRANSCEIVER_SPI_SETTINGS(8000000, MSBFIRST, SPI_MODE0);
-
-#if J5_BOARD_HELTEC_V2
-static Module radioModule(SS, DIO0, RST_LoRa, DIO1, SPI, TRANSCEIVER_SPI_SETTINGS);
-static SX1276 transceiver(&radioModule);
-#else
-static constexpr float TCXO_VOLTAGE = 1.8f;
-// The core names the SX1262 DIO1 line of the V4 "DIO0".
-static Module radioModule(SS, DIO0, RST_LoRa, BUSY_LoRa, SPI, TRANSCEIVER_SPI_SETTINGS);
-static SX1262 transceiver(&radioModule);
-
-// CTX of the KCT8103L follows the radio mode; CPS is driven by DIO2 (high only while
-// transmitting). With CTX low in reception the LNA is in the path; with CTX high it is bypassed.
-static const uint32_t frontEndPins[Module::RFSWITCH_MAX_PINS] = {
-    FRONT_END_TRANSMIT_PIN, RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC};
-static const Module::RfSwitchMode_t lowNoiseAmplifierTable[] = {
-    {Module::MODE_IDLE, {LOW}},
-    {Module::MODE_RX, {LOW}},
-    {Module::MODE_TX, {HIGH}},
-    END_OF_MODE_TABLE,
-};
-static const Module::RfSwitchMode_t bypassTable[] = {
-    {Module::MODE_IDLE, {HIGH}},
-    {Module::MODE_RX, {HIGH}},
-    {Module::MODE_TX, {HIGH}},
-    END_OF_MODE_TABLE,
-};
-#endif
 
 static portMUX_TYPE interruptLock = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool interruptPending = false;
@@ -76,152 +45,156 @@ static void discardInterrupt() {
   portEXIT_CRITICAL(&interruptLock);
 }
 
-static void configureLowNoiseAmplifier(bool enabled) {
-#if J5_BOARD_HELTEC_V4_3
-  transceiver.setRfSwitchTable(frontEndPins, enabled ? lowNoiseAmplifierTable : bypassTable);
-#else
-  (void)enabled;
-#endif
+static RadioStatus statusOf(int16_t code) { return RadioStatus{code == RADIOLIB_ERR_NONE, code}; }
+
+static int8_t transceiverPowerOf(const BoardSupport &board, const RadioSettings &settings) {
+  return static_cast<int8_t>(transceiverPowerFor(board.model(), settings.transmitPowerDbm));
 }
 
-static int16_t configureTransceiver(const RadioSettings &settings, int8_t transceiverPower) {
+// Sets the transceiver parameter by parameter and stops at the first one it refuses. applied and
+// appliedPower follow every parameter that it took, so they always describe the transceiver.
+static int16_t configureTransceiver(const RadioSettings &settings, int8_t transceiverPower,
+                                    RadioSettings &applied, int8_t &appliedPower) {
+  BoardTransceiver &transceiver = boardTransceiver();
   transceiver.standby();
   int16_t state = transceiver.setFrequency(settings.frequencyMhz);
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setBandwidth(settings.bandwidthKhz);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setSpreadingFactor(settings.spreadingFactor);
+  applied.frequencyMhz = settings.frequencyMhz;
+  state = transceiver.setBandwidth(settings.bandwidthKhz);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setCodingRate(settings.codingRateDenominator);
+  applied.bandwidthKhz = settings.bandwidthKhz;
+  state = transceiver.setSpreadingFactor(settings.spreadingFactor);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setPreambleLength(settings.preambleLength);
+  applied.spreadingFactor = settings.spreadingFactor;
+  state = transceiver.setCodingRate(settings.codingRateDenominator);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setSyncWord(settings.syncWord);
+  applied.codingRateDenominator = settings.codingRateDenominator;
+  state = transceiver.setPreambleLength(settings.preambleLength);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setOutputPower(transceiverPower);
+  applied.preambleLength = settings.preambleLength;
+  state = transceiver.setSyncWord(settings.syncWord);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setCurrentLimit(TRANSCEIVER_CURRENT_LIMIT_MA);
+  applied.syncWord = settings.syncWord;
+  state = transceiver.setOutputPower(transceiverPower);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  if (state == RADIOLIB_ERR_NONE) {
-    configureLowNoiseAmplifier(settings.lowNoiseAmplifierEnabled);
+  applied.transmitPowerDbm = settings.transmitPowerDbm;
+  appliedPower = transceiverPower;
+  state = transceiver.setCurrentLimit(TRANSCEIVER_CURRENT_LIMIT_MA);
+  if (state != RADIOLIB_ERR_NONE) {
+    return state;
   }
-  return state;
+  configureBoardLowNoiseAmplifier(settings.lowNoiseAmplifierEnabled);
+  applied.lowNoiseAmplifierEnabled = settings.lowNoiseAmplifierEnabled;
+  return RADIOLIB_ERR_NONE;
 }
 
-static float correctRssi(float rssi, float snr) {
-#if J5_BOARD_HELTEC_V2
-  // RadioLib reports -157 + PacketRssi on the HF port. For a positive SNR the SX1276 datasheet
-  // (5.5.5) scales PacketRssi by 16/15; for a negative SNR RadioLib already adds the SNR.
-  if (snr >= 0.0f) {
-    const float packetRssi = rssi + 157.0f;
-    return -157.0f + packetRssi * 16.0f / 15.0f;
-  }
-  return rssi;
-#else
-  (void)snr;
-  return rssi;
-#endif
-}
-
-int16_t RadioLink::begin(const BoardSupport &board, const RadioSettings &settings) {
+RadioStatus RadioLink::begin(const BoardSupport &board, const RadioSettings &settings) {
   board_ = &board;
-  SPI.begin(SCK, MISO, MOSI, SS);
-  const int8_t power = board.transceiverPowerFor(settings.transmitPowerDbm);
+  const int8_t power = transceiverPowerOf(board, settings);
   // Report the requested settings even if the transceiver fails to start.
   settings_ = settings;
   transceiverPower_ = power;
 
-#if J5_BOARD_HELTEC_V2
-  int16_t state = transceiver.begin(settings.frequencyMhz, settings.bandwidthKhz,
-                                    settings.spreadingFactor, settings.codingRateDenominator,
-                                    settings.syncWord, power, settings.preambleLength, 0);
-  if (state != RADIOLIB_ERR_NONE) {
-    return state;
-  }
-  state = transceiver.setCRC(true);
-#else
-  configureLowNoiseAmplifier(settings.lowNoiseAmplifierEnabled);
-  int16_t state =
-      transceiver.begin(settings.frequencyMhz, settings.bandwidthKhz, settings.spreadingFactor,
-                        settings.codingRateDenominator, settings.syncWord, power,
-                        settings.preambleLength, TCXO_VOLTAGE, false);
-  if (state != RADIOLIB_ERR_NONE) {
-    return state;
-  }
-  state = transceiver.setDio2AsRfSwitch(true);
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setRxBoostedGainMode(true);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    state = transceiver.setCRC(2);
-  }
-  if (state == RADIOLIB_ERR_NONE) {
-    // Keep the TCXO running in standby and after each transmission or reception. With the default
-    // RC standby, every switch from transmission to reception waits about 5 ms for the TCXO,
-    // longer than the 3.1 ms preamble at SF7 and 500 kHz: a node that sent an echo request was not
-    // yet listening when the reply started.
-    state = transceiver.setStandbyXOSC(true);
-  }
-#endif
+  BoardTransceiver &transceiver = boardTransceiver();
+  int16_t state = beginBoardTransceiver(settings, power);
   if (state == RADIOLIB_ERR_NONE) {
     state = transceiver.setCurrentLimit(TRANSCEIVER_CURRENT_LIMIT_MA);
   }
   if (state != RADIOLIB_ERR_NONE) {
-    return state;
+    return statusOf(state);
   }
 
   transceiver.setPacketReceivedAction(handleRadioInterrupt);
-  return transceiver.startReceive();
+  return statusOf(transceiver.startReceive());
 }
 
-int16_t RadioLink::applySettings(const RadioSettings &settings) {
-  const int8_t power = board_->transceiverPowerFor(settings.transmitPowerDbm);
-  int16_t state = configureTransceiver(settings, power);
-  if (state != RADIOLIB_ERR_NONE) {
-    // Best effort to leave the radio as it was before the failed change.
-    configureTransceiver(settings_, transceiverPower_);
-    transceiver.startReceive();
-    return state;
+bool RadioLink::requestSettings(const RadioSettings &settings, SettingsResult &result) {
+  if (transmitting_) {
+    deferredSettings_ = settings;
+    hasDeferredSettings_ = true;
+    return false;
   }
-  settings_ = settings;
-  transceiverPower_ = power;
-  return transceiver.startReceive();
+  result = applySettings(settings);
+  return true;
 }
 
-int16_t RadioLink::startTransmit(const uint8_t *data, size_t length) {
+bool RadioLink::applyDeferredSettings(SettingsResult &result) {
+  if (transmitting_ || !hasDeferredSettings_) {
+    return false;
+  }
+  hasDeferredSettings_ = false;
+  result = applySettings(deferredSettings_);
+  return true;
+}
+
+SettingsResult RadioLink::applySettings(const RadioSettings &settings) {
+  BoardTransceiver &transceiver = boardTransceiver();
+  const RadioSettings previous = settings_;
+  const int16_t applyCode = configureTransceiver(settings, transceiverPowerOf(*board_, settings),
+                                                 settings_, transceiverPower_);
+  if (applyCode != RADIOLIB_ERR_NONE) {
+    int16_t restoreCode = configureTransceiver(previous, transceiverPowerOf(*board_, previous),
+                                               settings_, transceiverPower_);
+    const int16_t receiveCode = transceiver.startReceive();
+    if (restoreCode == RADIOLIB_ERR_NONE) {
+      restoreCode = receiveCode;
+    }
+    return SettingsResult{statusOf(applyCode), statusOf(restoreCode)};
+  }
+  return SettingsResult{statusOf(transceiver.startReceive()), statusOf(RADIOLIB_ERR_NONE)};
+}
+
+TransmitResult RadioLink::startTransmit(const uint8_t *data, size_t length) {
   if (isInterruptPending()) {
-    return RADIO_LINK_RECEPTION_PENDING;
+    return TransmitResult{TransmitStatus::ReceptionPending, RADIOLIB_ERR_NONE, 0,
+                          statusOf(RADIOLIB_ERR_NONE)};
   }
-  int16_t state = transceiver.startTransmit(data, length);
+  BoardTransceiver &transceiver = boardTransceiver();
+  const int16_t state = transceiver.startTransmit(data, length);
   if (state != RADIOLIB_ERR_NONE) {
-    transceiver.startReceive();
-    return state;
+    return TransmitResult{TransmitStatus::Failed, state, 0, statusOf(transceiver.startReceive())};
   }
-  transmitStartMicros_ = esp_timer_get_time();
+  const int64_t startMicros = esp_timer_get_time();
   // A reception that completed while the frame was being loaded is lost: the radio is already
   // transmitting, so its interrupt must not be taken for the end of this transmission.
   discardInterrupt();
   transmitting_ = true;
-  return RADIOLIB_ERR_NONE;
+  return TransmitResult{TransmitStatus::Started, RADIOLIB_ERR_NONE, startMicros,
+                        statusOf(RADIOLIB_ERR_NONE)};
 }
 
-RadioEvent RadioLink::poll(ReceivedFrame &frame) {
+RadioEvent RadioLink::poll(ReceivedFrame &frame, TransmitEnd &transmitEnd) {
   int64_t micros = 0;
   if (!takeInterrupt(micros)) {
     return RadioEvent::None;
   }
 
+  BoardTransceiver &transceiver = boardTransceiver();
+
   if (transmitting_) {
     transmitting_ = false;
-    measuredTimeOnAirMicros_ = static_cast<uint32_t>(micros - transmitStartMicros_);
-    transceiver.finishTransmit();
-    transceiver.startReceive();
+    transmitEnd.micros = micros;
+    // The first failure of the two, as for the restore of a change of settings.
+    int16_t state = transceiver.finishTransmit();
+    const int16_t receiveState = transceiver.startReceive();
+    if (state == RADIOLIB_ERR_NONE) {
+      state = receiveState;
+    }
+    transmitEnd.reception = statusOf(state);
     return RadioEvent::TransmitDone;
   }
 
@@ -233,7 +206,7 @@ RadioEvent RadioLink::poll(ReceivedFrame &frame) {
   const float snr = transceiver.getSNR();
   frame.length = length;
   frame.snr = snr;
-  frame.rssi = correctRssi(transceiver.getRSSI(), snr);
+  frame.rssi = correctBoardRssi(transceiver.getRSSI(), snr);
   frame.frequencyError = transceiver.getFrequencyError();
   frame.integrityVerified = state == RADIOLIB_ERR_NONE;
   frame.receivedAtMicros = micros;

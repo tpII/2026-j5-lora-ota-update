@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { ManualTimeSource } from "$lib/utils/time-source.ts";
+import { CONSOLE_WEBSOCKET_URL } from "$lib/protocol/protocol-contract.ts";
+import { ManualTimeSource } from "$lib/testing/manual-time-source.ts";
 import type { TransportClosure } from "./console-transport.ts";
 import {
-  DEFAULT_CONSOLE_ADDRESS,
   WebSocketConsoleTransport,
   createLocalNetworkWebSocket,
   type WebSocketAccess,
@@ -45,7 +45,7 @@ function createTransport() {
   const clock = new ManualTimeSource(0);
   const socket = new FakeSocket();
   const addresses: string[] = [];
-  const transport = new WebSocketConsoleTransport(DEFAULT_CONSOLE_ADDRESS, {
+  const transport = new WebSocketConsoleTransport(CONSOLE_WEBSOCKET_URL, {
     timeSource: clock,
     createSocket: (address) => {
       addresses.push(address);
@@ -132,6 +132,21 @@ describe("WebSocketConsoleTransport", () => {
     await transport.close();
     expect(socket.closeCode).toBe(1000);
     expect(closures).toEqual([{ requested: true, message: null }]);
+    await transport.close();
+    expect(closures).toHaveLength(1);
+  });
+
+  it("reports the closure once when the node does not answer the closing handshake", async () => {
+    const { clock, socket, transport, receiver, closures } = createTransport();
+    const opening = transport.open(receiver);
+    socket.accept();
+    await opening;
+    socket.close = () => {};
+    const closing = transport.close();
+    clock.advanceBy(2000);
+    await closing;
+    socket.drop(1000);
+    expect(closures).toEqual([{ requested: true, message: null }]);
   });
 });
 
@@ -146,8 +161,8 @@ describe("createLocalNetworkWebSocket", () => {
         }
       },
     );
-    createLocalNetworkWebSocket(DEFAULT_CONSOLE_ADDRESS);
-    expect(calls).toEqual([[DEFAULT_CONSOLE_ADDRESS, { targetAddressSpace: "local" }]]);
+    createLocalNetworkWebSocket(CONSOLE_WEBSOCKET_URL);
+    expect(calls).toEqual([[CONSOLE_WEBSOCKET_URL, { targetAddressSpace: "local" }]]);
   });
 
   it("opens without options in a browser that takes the object for a subprotocol", () => {
@@ -163,10 +178,10 @@ describe("createLocalNetworkWebSocket", () => {
         }
       },
     );
-    createLocalNetworkWebSocket(DEFAULT_CONSOLE_ADDRESS);
+    createLocalNetworkWebSocket(CONSOLE_WEBSOCKET_URL);
     expect(calls).toEqual([
-      [DEFAULT_CONSOLE_ADDRESS, { targetAddressSpace: "local" }],
-      [DEFAULT_CONSOLE_ADDRESS],
+      [CONSOLE_WEBSOCKET_URL, { targetAddressSpace: "local" }],
+      [CONSOLE_WEBSOCKET_URL],
     ]);
   });
 });

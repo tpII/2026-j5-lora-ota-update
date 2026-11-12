@@ -31,7 +31,7 @@ export class MeasurementSheet {
   );
 
   /** The sheet as the exports take it. */
-  description(): Omit<MeasurementDescription, "test"> {
+  description(): MeasurementDescription {
     return {
       place: this.place.trim(),
       distanceMeters:

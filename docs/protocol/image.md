@@ -45,7 +45,7 @@ El nodo compila la clave pública del operador; la privada queda en la computado
 -DJ5_OPERATOR_PUBLIC_KEY="\"<64 dígitos hexadecimales>\""
 ```
 
-Para desarrollo, el repositorio incluye un par por defecto. La clave privada está en `keys/default_operator_key.pem` y la pública vale `9b82c16539e90d39d9f1a1f786f30c123d8292453b88bdd271c412230940b573`. Cualquiera que tenga el repositorio puede firmar con ese par, así que solo sirve para el banco. El evento `boot` indica con `operator_key` si el nodo usa la clave por defecto.
+Para desarrollo, el repositorio incluye un par por defecto. La clave privada está en `firmware/protocol/default_operator_key.pem` y la pública vale `9b82c16539e90d39d9f1a1f786f30c123d8292453b88bdd271c412230940b573`. Cualquiera que tenga el repositorio puede firmar con ese par, así que solo sirve para el banco. El evento `boot` indica con `operator_key` si el nodo usa la clave por defecto.
 
 Un par nuevo se genera con OpenSSL o desde el panel:
 

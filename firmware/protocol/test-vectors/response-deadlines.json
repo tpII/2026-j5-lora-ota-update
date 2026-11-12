@@ -1,0 +1,12 @@
+{
+  "echoLossDeadlineMilliseconds": [
+    { "requestTimeOnAirMicroseconds": 17984, "expectedMilliseconds": 1036 },
+    { "requestTimeOnAirMicroseconds": 18000, "expectedMilliseconds": 1036 },
+    { "requestTimeOnAirMicroseconds": 18001, "expectedMilliseconds": 1038 }
+  ],
+  "runReceptionDeadlineMilliseconds": [
+    { "intervalMilliseconds": 0, "packetTimeOnAirMicroseconds": 99904, "expectedMilliseconds": 1200 },
+    { "intervalMilliseconds": 100, "packetTimeOnAirMicroseconds": 1500, "expectedMilliseconds": 1204 },
+    { "intervalMilliseconds": 65535, "packetTimeOnAirMicroseconds": 9019392, "expectedMilliseconds": 150110 }
+  ]
+}

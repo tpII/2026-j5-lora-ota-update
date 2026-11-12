@@ -1,14 +1,12 @@
 #include "frame.h"
 
-#include <mbedtls/md.h>
+#include <sodium.h>
 #include <string.h>
 
 #include "../configuration.h"
-#include "byte_order.h"
+#include "../encoding/byte_order.h"
 
 namespace firmware {
-
-static constexpr size_t SHA256_DIGEST_SIZE = 32;
 
 // HMAC-SHA256 over the protocol version followed by header and payload. The version byte does
 // not travel in the frame, so a frame built for another protocol version fails verification
@@ -16,63 +14,29 @@ static constexpr size_t SHA256_DIGEST_SIZE = 32;
 static void computeTag(const uint8_t *data, size_t length, uint8_t *tag) {
   static const uint8_t version = PROTOCOL_VERSION;
   static const char *key = J5_NETWORK_KEY;
-  uint8_t digest[SHA256_DIGEST_SIZE];
+  uint8_t digest[crypto_auth_hmacsha256_BYTES];
 
-  mbedtls_md_context_t context;
-  mbedtls_md_init(&context);
-  mbedtls_md_setup(&context, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-  mbedtls_md_hmac_starts(&context, reinterpret_cast<const unsigned char *>(key), strlen(key));
-  mbedtls_md_hmac_update(&context, &version, 1);
-  mbedtls_md_hmac_update(&context, data, length);
-  mbedtls_md_hmac_finish(&context, digest);
-  mbedtls_md_free(&context);
+  crypto_auth_hmacsha256_state state;
+  crypto_auth_hmacsha256_init(&state, reinterpret_cast<const unsigned char *>(key), strlen(key));
+  crypto_auth_hmacsha256_update(&state, &version, 1);
+  crypto_auth_hmacsha256_update(&state, data, length);
+  crypto_auth_hmacsha256_final(&state, digest);
 
   memcpy(tag, digest, FRAME_TAG_SIZE);
 }
 
 static void writeHeader(const FrameHeader &header, uint8_t *output) {
-  output[0] = header.type;
-  writeUint16(output + 1, header.source);
-  writeUint16(output + 3, header.destination);
-  output[5] = header.epoch;
-  writeUint16(output + 6, header.sequence);
-}
-
-bool isKnownMessageType(uint8_t type) {
-  switch (static_cast<MessageType>(type)) {
-  case MessageType::Hello:
-  case MessageType::EchoRequest:
-  case MessageType::EchoReply:
-  case MessageType::Test:
-  case MessageType::Fragment:
-  case MessageType::Report:
-    return true;
-  }
-  return false;
-}
-
-const char *messageTypeName(uint8_t type) {
-  switch (static_cast<MessageType>(type)) {
-  case MessageType::Hello:
-    return "hello";
-  case MessageType::EchoRequest:
-    return "echo_request";
-  case MessageType::EchoReply:
-    return "echo_reply";
-  case MessageType::Test:
-    return "test";
-  case MessageType::Fragment:
-    return "fragment";
-  case MessageType::Report:
-    return "report";
-  }
-  return "unknown";
+  output[FRAME_TYPE_OFFSET] = header.type;
+  writeUint16(output + FRAME_SOURCE_OFFSET, header.source);
+  writeUint16(output + FRAME_DESTINATION_OFFSET, header.destination);
+  output[FRAME_EPOCH_OFFSET] = header.epoch;
+  writeUint16(output + FRAME_SEQUENCE_OFFSET, header.sequence);
 }
 
 size_t encodeFrame(const FrameHeader &header, const uint8_t *payload, size_t payloadLength,
                    uint8_t *output) {
   if (payloadLength > MAXIMUM_PAYLOAD_SIZE) {
-    payloadLength = MAXIMUM_PAYLOAD_SIZE;
+    return 0;
   }
   writeHeader(header, output);
   if (payloadLength > 0) {
@@ -83,16 +47,12 @@ size_t encodeFrame(const FrameHeader &header, const uint8_t *payload, size_t pay
   return authenticatedLength + FRAME_TAG_SIZE;
 }
 
-bool readFrameHeader(const uint8_t *data, size_t length, FrameHeader &header) {
-  if (length < FRAME_HEADER_SIZE) {
-    return false;
-  }
-  header.type = data[0];
-  header.source = readUint16(data + 1);
-  header.destination = readUint16(data + 3);
-  header.epoch = data[5];
-  header.sequence = readUint16(data + 6);
-  return true;
+static void readHeader(const uint8_t *data, FrameHeader &header) {
+  header.type = data[FRAME_TYPE_OFFSET];
+  header.source = readUint16(data + FRAME_SOURCE_OFFSET);
+  header.destination = readUint16(data + FRAME_DESTINATION_OFFSET);
+  header.epoch = data[FRAME_EPOCH_OFFSET];
+  header.sequence = readUint16(data + FRAME_SEQUENCE_OFFSET);
 }
 
 FrameCheck decodeFrame(const uint8_t *data, size_t length, FrameHeader &header,
@@ -113,7 +73,7 @@ FrameCheck decodeFrame(const uint8_t *data, size_t length, FrameHeader &header,
     return FrameCheck::InvalidTag;
   }
 
-  readFrameHeader(data, length, header);
+  readHeader(data, header);
   payload = data + FRAME_HEADER_SIZE;
   payloadLength = authenticatedLength - FRAME_HEADER_SIZE;
   return FrameCheck::Valid;

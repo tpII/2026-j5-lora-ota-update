@@ -39,7 +39,7 @@ Al arrancar, después de detectar la placa y configurar la radio. Lo siguen un `
 | `id` | Identificador del nodo |
 | `model` | `"V2"` o `"V4.3"` |
 | `epoch` | Época actual |
-| `firmware` | Versión del firmware, por ejemplo `"0.1.0"` |
+| `firmware` | Versión del firmware, por ejemplo `"0.2.0"` |
 | `protocol` | Versión del protocolo de la trama, hoy `2` |
 | `key` | `"default"` si usa la clave de red por defecto; `"custom"` si no |
 | `operator_key` | `"default"` si usa la clave pública del operador por defecto ([imagen](image.md)); `"custom"` si no |
@@ -59,6 +59,10 @@ Después del arranque, ante cada cambio de parámetros y con el comando `radio`.
 | `power` | Potencia de transmisión en el conector de antena, en dBm |
 | `chip` | Ajuste del transceptor que produce esa potencia, en dBm |
 | `lna` | `"on"` o `"bypass"` en la V4.3; `null` en la V2 |
+
+Si la radio rechaza un cambio de parámetros, el nodo responde `error` con `detail` `"apply"` y vuelve a los parámetros anteriores. Si tampoco puede volver, responde otro `error` con `detail` `"restore"`. En los dos casos, el evento `radio` que sigue informa los parámetros que la radio tomó, uno por uno.
+
+Si la radio rechaza una transmisión, el nodo emite `error` con `detail` `"transmit"`. Después de cada transmisión, y después de una que la radio rechazó, el transceptor vuelve a la recepción; si no puede, el nodo emite `error` con `cmd` `"radio"`, motivo `radio_failure`, `detail` `"receive"` y el `code` de RadioLib: el nodo puede no escuchar ninguna trama hasta que otra transmisión o un cambio de parámetros vuelva a ponerlo en recepción.
 
 ### `wifi`
 
@@ -101,7 +105,7 @@ Uno por cada vecino, después de `status`.
 | Campo | Descripción |
 |---|---|
 | `id` | Identificador del vecino |
-| `model` | Modelo de placa del vecino |
+| `model` | Modelo de placa del vecino, o `null` si el nodo todavía no recibió un HELLO suyo (lo escuchó solo por otras tramas) o si el vecino anunció un código de modelo fuera del contrato |
 | `version` | Versión activa del vecino |
 | `available` | Versión disponible del vecino |
 | `vm_fault` | Motivo de la última falla de la VM del vecino desde su activación, con los nombres de `vm_fault`, o `null` si no hubo ninguna |
@@ -134,7 +138,7 @@ Al recibir un HELLO.
 |---|---|
 | `src` | Identificador del emisor |
 | `epoch`, `seq` | Época y secuencia de la trama |
-| `model` | Modelo de placa del emisor |
+| `model` | Modelo de placa del emisor, o `null` si el HELLO trae un código de modelo fuera del contrato |
 | `version` | Versión activa del emisor |
 | `available` | Versión disponible del emisor |
 | `vm_fault`, `vm_failing` | Estado de la VM del emisor, como en `neighbor` |
@@ -168,7 +172,7 @@ Al recibir la respuesta a un eco propio.
 
 ### `echo_lost`
 
-Cuando la respuesta no llega a tiempo. El plazo es el doble del tiempo de aire de la trama más un segundo.
+Cuando la respuesta no llega a tiempo. El plazo es el doble del tiempo de aire de la trama, redondeado hacia arriba al milisegundo antes de duplicarlo, más 1000 ms.
 
 | Campo | Descripción |
 |---|---|
@@ -189,7 +193,7 @@ En el emisor, al empezar y al terminar una corrida.
 | `interval` | `run_start` | Milisegundos entre el fin de un paquete y el comienzo del siguiente |
 | `sent` | `run_done` | Paquetes efectivamente transmitidos |
 | `duration` | `run_done` | Microsegundos desde el comienzo del primer paquete hasta el fin del último |
-| `aborted` | `run_done` | `true` si se detuvo con `run stop` |
+| `aborted` | `run_done` | `true` si se detuvo con `run stop` o porque un paquete no pudo salir, ya sea porque la cola de transmisión estaba llena o porque la radio lo rechazó |
 
 ### `test_rx`
 
@@ -204,7 +208,7 @@ En el receptor, por cada paquete de una corrida.
 
 ### `run_end`
 
-En el receptor, al recibir el último paquete de una corrida o cuando vence el plazo sin paquetes nuevos. El plazo es el doble del intervalo más el tiempo de aire de la trama, más un segundo.
+En el receptor, al recibir el último paquete de una corrida o cuando vence el plazo sin paquetes nuevos. El plazo es el doble de la suma del intervalo y el tiempo de aire de la trama, con el tiempo de aire redondeado hacia arriba al milisegundo, más 1000 ms.
 
 | Campo | Descripción |
 |---|---|
@@ -379,7 +383,7 @@ Cuando un comando no se puede ejecutar o la radio falla.
 
 | Campo | Descripción |
 |---|---|
-| `cmd` | Primera palabra del comando, o `"radio"` ante una falla de la radio |
+| `cmd` | Primera palabra del comando, o `"radio"` ante una falla de la radio. Ante `unknown_command` y `line_too_long`, la primera palabra puede no ser un comando, así que se corta en sus primeros 15 caracteres |
 | `reason` | Motivo, según la tabla de abajo |
 | `detail` | Opcional: texto con información adicional, por ejemplo el uso correcto |
 | `code` | Opcional: código de error de RadioLib |
@@ -387,17 +391,17 @@ Cuando un comando no se puede ejecutar o la radio falla.
 | Motivo | Significado |
 |---|---|
 | `unknown_command` | El comando no existe |
-| `usage` | Faltan argumentos o sobran |
+| `usage` | Faltan argumentos o sobran, o un número está mal escrito: `detail` lleva el uso del comando. En `echo`, también cuando el `id` es `0000`, `FFFF` o el del propio nodo (`"echo <id> [size] with the id of another node"`). También cuando el estado del nodo no admite el comando: `run stop` sin una corrida propia en curso (`"no run in progress"`) y `resend` sin una trama enviada (`"nothing to resend"`) |
 | `out_of_range` | Un valor está fuera del rango admitido |
 | `unreachable_power` | El modelo de placa no puede entregar esa potencia |
 | `not_supported` | El parámetro no existe en este modelo, como `lna` en la V2 |
-| `busy` | Hay una corrida o un eco en curso |
+| `busy` | Hay una corrida o un eco en curso, sin `detail`; o la cola de transmisión está llena para `echo` o `resend` (`"transmit queue full"`) |
 | `not_available` | La versión de `activate` no es la disponible |
 | `radio_failure` | La radio rechazó la operación; ver `code` |
-| `wifi_failure` | No se pudo encender el punto de acceso |
-| `line_too_long` | La línea supera los 200 caracteres, o el largo de una imagen completa en `load_image` |
+| `wifi_failure` | No se pudo encender el punto de acceso o registrar en su servidor la consola WebSocket |
+| `line_too_long` | La línea supera los 200 caracteres, o en `load_image` los 2226 de una imagen completa. Una línea de `load_image` que entra en ese largo pero lleva más de 1097 bytes responde `invalid_image` con `"format: longer than 1097 bytes"` |
 | `version_not_newer` | La versión de `load_image` no es mayor que la disponible, o la de `activate` no es mayor que la activa |
-| `invalid_image` | La imagen de `load_image` no es hexadecimal o no pasa la verificación ([imagen](image.md)); `detail` empieza con `format`, `signature` o `program` y lo explica |
+| `invalid_image` | La imagen de `load_image` no es hexadecimal o no pasa la verificación ([imagen](image.md)); `detail` empieza con `format`, `signature` o `program` y lo explica. Con `program`, nombra la falla que provocaría la primera instrucción mala, con los nombres de `vm_fault`, y su dirección: `"program: invalid_opcode at 2"` |
 
 ## Comandos
 
@@ -425,9 +429,13 @@ Una línea de texto con palabras separadas por espacios, en minúscula. En el mo
 
 Las líneas tienen como máximo 200 caracteres, salvo `load_image`, que admite una imagen completa: 2226 caracteres con la imagen de 1097 bytes. El evento `program` puede superar los 200 caracteres.
 
-Durante una corrida, `radio` con argumentos, `echo` y `resend` responden `error` con motivo `busy`. `load_image` y `activate` se aceptan, pero la ráfaga y el HELLO esperan a que termine la suspensión de los HELLO.
+El nodo revisa cada línea en este orden y responde solo el primer error: el largo de la línea (`line_too_long`), el nombre del comando (`unknown_command`), la cantidad de argumentos de cada forma de la tabla (`usage`), las precondiciones del comando (`busy` y después `radio_failure` si la radio no arrancó) y por último los argumentos, de izquierda a derecha. En `radio`, que las claves y los valores formen pares se revisa junto con los argumentos. Una línea vacía o con solo espacios no tiene respuesta.
 
-Mientras los HELLO están suspendidos, el OLED tampoco se redibuja, para que sus bloqueos de unos 30 ms no demoren las respuestas de eco. Una corrida suspende los HELLO por su cuenta; al terminar, los reanuda solo si el operador no los había suspendido.
+Todos los comandos leen los números con la misma gramática: sin signo, en decimal o en hexadecimal con el prefijo `0x` (o `0X`), con los dígitos en mayúscula o en minúscula. Un cero inicial no vuelve octal al número: `010` vale 10. Las excepciones son tres. `load_registers` admite además un signo menos delante del número. La frecuencia de `radio freq` es una fracción decimal, con dígitos y, opcionalmente, un punto seguido de más dígitos, como `915.9` o `923`. El `id` de `echo` tiene de uno a cuatro dígitos hexadecimales, sin `0x`. Un número mal escrito responde `usage`, con el uso del comando en `detail` (en `radio`, el de la clave); uno fuera del rango responde `out_of_range` con el rango en `detail`, aunque tenga más dígitos de los que caben en 32 bits. En `load_registers`, todo valor que no tenga una de las formas admitidas responde `out_of_range`. Por ejemplo, `radio sync 0x12` y `radio sync 18` fijan la misma palabra de sincronismo, y `radio sf -7` responde `usage`.
+
+Durante una corrida, `radio` con argumentos, `echo`, `run <cantidad> <largo> <intervalo>` y `resend` responden `error` con motivo `busy`; mientras un eco del nodo espera su respuesta, también `echo` y `run <cantidad> <largo> <intervalo>`. `load_image` y `activate` se aceptan, pero la ráfaga y el HELLO esperan a que termine la suspensión de los HELLO.
+
+Mientras los HELLO están suspendidos, el OLED tampoco se redibuja, para que sus bloqueos de unos 30 ms no demoren las respuestas de eco. Una corrida suspende los HELLO por su cuenta; cuando termina la última corrida que el nodo envía o recibe, los reanuda, salvo que el operador los haya suspendido, y el primero sale entre 1 y 3 s después, como al arrancar.
 
 ## Métricas que salen de los eventos
 

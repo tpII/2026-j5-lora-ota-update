@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import { summarizeEchoResults } from "./echo-statistics.ts";
 import { NODE_SESSION_LOG, readFixtureEvents } from "$lib/testing/console-fixtures.ts";
-import { INITIAL_NODE_STATE, applyConsoleEvent, type EchoResult } from "$lib/nodes/node-state.ts";
+import type { EchoResult } from "$lib/nodes/echo-records.ts";
+import { INITIAL_NODE_STATE, applyConsoleEvent } from "$lib/node-session/node-state.ts";
 
 describe("summarizeEchoResults", () => {
-  it("counts answers and losses of the recorded session", () => {
+  it("counts answers and losses of the session of node 3A7F", () => {
     const state = readFixtureEvents(NODE_SESSION_LOG, 0).reduce(
       (current, { event, hostTime }) => applyConsoleEvent(current, event, hostTime),
       INITIAL_NODE_STATE,

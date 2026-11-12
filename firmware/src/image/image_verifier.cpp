@@ -1,29 +1,35 @@
 #include "image_verifier.h"
 
 #include <sodium.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "../network/byte_order.h"
+#include "../encoding/byte_order.h"
+#include "../encoding/hex_codec.h"
 
 namespace firmware {
 
-static void writeDetail(char *detail, size_t capacity, const char *text) {
-  snprintf(detail, capacity, "%s", text);
+static_assert(crypto_hash_sha256_BYTES == IMAGE_PROGRAM_DIGEST_SIZE,
+              "the operator signs the SHA-256 of the program");
+
+bool ImageRejection::reject(ImageRejectionReason reason, const char *format, ...) {
+  reason_ = reason;
+  if (detailCapacity_ == 0) {
+    return false;
+  }
+  const int written = snprintf(detail_, detailCapacity_, "%s: ", imageRejectionReasonName(reason));
+  if (written > 0 && static_cast<size_t>(written) < detailCapacity_) {
+    va_list arguments;
+    va_start(arguments, format);
+    vsnprintf(detail_ + written, detailCapacity_ - written, format, arguments);
+    va_end(arguments);
+  }
+  return false;
 }
 
-const char *imageCheckName(ImageCheck check) {
-  switch (check) {
-  case ImageCheck::Valid:
-    return "valid";
-  case ImageCheck::Format:
-    return "format";
-  case ImageCheck::Signature:
-    return "signature";
-  case ImageCheck::Program:
-    return "program";
-  }
-  return "format";
+static bool rejectFormat(ImageRejection &rejection, ImageFormatDefect defect) {
+  return rejection.reject(ImageRejectionReason::Format, "%s", imageFormatDefectDetail(defect));
 }
 
 bool ImageVerifier::begin(const char *publicKeyHex) {
@@ -37,75 +43,63 @@ bool ImageVerifier::begin(const char *publicKeyHex) {
   return keyValid_;
 }
 
-ImageCheck ImageVerifier::verify(const uint8_t *image, size_t length, ImageHeader &header,
-                                 char *detail, size_t detailCapacity) const {
-  const ImageCheck format = checkFormat(image, length, header, detail, detailCapacity);
-  if (format != ImageCheck::Valid) {
-    return format;
-  }
-  return checkSignatureAndProgram(image, header, detail, detailCapacity);
+bool ImageVerifier::verify(const uint8_t *image, size_t length, ImageHeader &header,
+                           ValidProgram &program, ImageRejection &rejection) const {
+  return checkFormat(image, length, header, rejection) &&
+         checkSignatureAndProgram(image, header, program, rejection);
 }
 
-ImageCheck ImageVerifier::checkFormat(const uint8_t *image, size_t length, ImageHeader &header,
-                                      char *detail, size_t detailCapacity) const {
+bool ImageVerifier::checkFormat(const uint8_t *image, size_t length, ImageHeader &header,
+                                ImageRejection &rejection) const {
   header = ImageHeader{};
   if (length < IMAGE_HEADER_SIZE) {
-    writeDetail(detail, detailCapacity, "format: shorter than the header");
-    return ImageCheck::Format;
+    return rejectFormat(rejection, ImageFormatDefect::ShorterThanHeader);
   }
-  header.flags = image[2];
-  header.version = readUint32(image + 3);
-  header.programLength = readUint16(image + 7);
+  header.flags = image[IMAGE_FLAGS_OFFSET];
+  header.version = readUint32(image + IMAGE_VERSION_OFFSET);
+  header.programLength = readUint16(image + IMAGE_PROGRAM_LENGTH_OFFSET);
 
   if (length != IMAGE_HEADER_SIZE + header.programLength + IMAGE_SIGNATURE_SIZE) {
-    writeDetail(detail, detailCapacity, "format: length does not match the header");
-    return ImageCheck::Format;
+    return rejectFormat(rejection, ImageFormatDefect::LengthMismatch);
   }
-  if (image[0] != IMAGE_MAGIC_FIRST || image[1] != IMAGE_MAGIC_SECOND) {
-    writeDetail(detail, detailCapacity, "format: bad magic number");
-    return ImageCheck::Format;
+  if (memcmp(image + IMAGE_MAGIC_OFFSET, IMAGE_MAGIC, sizeof(IMAGE_MAGIC)) != 0) {
+    return rejectFormat(rejection, ImageFormatDefect::BadMagic);
   }
-  if (header.flags != 0) {
-    writeDetail(detail, detailCapacity, "format: flags are not 0");
-    return ImageCheck::Format;
+  if (header.flags != IMAGE_FLAGS) {
+    return rejectFormat(rejection, ImageFormatDefect::BadFlags);
   }
-  if (header.version == 0) {
-    writeDetail(detail, detailCapacity, "format: version 0");
-    return ImageCheck::Format;
+  if (header.version < MINIMUM_IMAGE_VERSION) {
+    return rejectFormat(rejection, ImageFormatDefect::FactoryVersion);
   }
-  if (header.programLength == 0 || header.programLength > PROGRAM_CAPACITY) {
-    writeDetail(detail, detailCapacity, "format: program length out of range");
-    return ImageCheck::Format;
+  if (header.programLength < MINIMUM_PROGRAM_SIZE || header.programLength > MAXIMUM_PROGRAM_SIZE) {
+    return rejectFormat(rejection, ImageFormatDefect::ProgramLengthOutOfRange);
   }
-  writeDetail(detail, detailCapacity, "");
-  return ImageCheck::Valid;
+  return true;
 }
 
-ImageCheck ImageVerifier::checkSignatureAndProgram(const uint8_t *image, const ImageHeader &header,
-                                                   char *detail, size_t detailCapacity) const {
+bool ImageVerifier::checkSignatureAndProgram(const uint8_t *image, const ImageHeader &header,
+                                             ValidProgram &program,
+                                             ImageRejection &rejection) const {
   if (!keyValid_) {
-    writeDetail(detail, detailCapacity, "signature: operator key not valid");
-    return ImageCheck::Signature;
+    return rejection.reject(ImageRejectionReason::Signature, "operator key not valid");
   }
   // The signed message is the header followed by the SHA-256 of the program.
-  const uint8_t *program = image + IMAGE_HEADER_SIZE;
+  const uint8_t *code = image + IMAGE_HEADER_SIZE;
   uint8_t message[IMAGE_SIGNED_MESSAGE_SIZE];
   memcpy(message, image, IMAGE_HEADER_SIZE);
-  crypto_hash_sha256(message + IMAGE_HEADER_SIZE, program, header.programLength);
-  const uint8_t *signature = program + header.programLength;
+  crypto_hash_sha256(message + IMAGE_HEADER_SIZE, code, header.programLength);
+  const uint8_t *signature = code + header.programLength;
   if (crypto_sign_ed25519_verify_detached(signature, message, sizeof(message), publicKey_) != 0) {
-    writeDetail(detail, detailCapacity, "signature: not signed by the operator");
-    return ImageCheck::Signature;
+    return rejection.reject(ImageRejectionReason::Signature, "not signed by the operator");
   }
 
-  size_t errorOffset = 0;
-  if (!validateProgram(program, header.programLength, errorOffset)) {
-    snprintf(detail, detailCapacity, "program: bad instruction at %u",
-             static_cast<unsigned>(errorOffset));
-    return ImageCheck::Program;
+  ProgramDefect defect{};
+  if (!validateProgram(code, header.programLength, program, defect)) {
+    // The fault with the names of vm_fault, as the program of the image would raise it.
+    return rejection.reject(ImageRejectionReason::Program, "%s at %u", vmFaultName(defect.fault),
+                            static_cast<unsigned>(defect.address));
   }
-  writeDetail(detail, detailCapacity, "");
-  return ImageCheck::Valid;
+  return true;
 }
 
 } // namespace firmware

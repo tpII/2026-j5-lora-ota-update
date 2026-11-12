@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { STATUS_COMMAND, buildWifiCommand } from "$lib/console/console-command.ts";
-  import { estimateUptime } from "$lib/nodes/node-state.ts";
+  import { STATUS_COMMAND, buildWifiCommand } from "$lib/commands/console-command.ts";
+  import type { LnaMode } from "$lib/console/console-event.ts";
+  import { CONNECTION_STATUS_LABELS } from "$lib/node-session/node-connection.ts";
+  import { estimateUptime } from "$lib/node-session/node-state.ts";
   import {
+    countWithNoun,
     formatDuration,
     formatFrequency,
     formatImageVersion,
@@ -9,22 +12,24 @@
     formatNumber,
     formatPower,
   } from "$lib/utils/format.ts";
-  import {
-    CONNECTION_STATUS_LABELS,
-    countWithNoun,
-    describeErrorReason,
-    describeLnaMode,
-  } from "$lib/utils/labels.ts";
-  import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import { describeErrorReason } from "$lib/utils/labels.ts";
+  import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  import type { ConnectionView } from "$lib/node-session/connection-view.ts";
+  import { activeReceptions as activeReceptionsOf, activeSenderRun } from "$lib/measurements/test-run-progress.ts";
 
   let { panel, connection }: { panel: ControlPanel; connection: ConnectionView } = $props();
 
+  function describeLnaMode(mode: LnaMode | null): string {
+    if (mode === null) {
+      return "sin LNA";
+    }
+    return mode === "on" ? "LNA activo" : "LNA puenteado";
+  }
+
   const node = $derived(connection.state);
   const open = $derived(connection.status === "open");
-  const senderRun = $derived(
-    node.senderRun !== null && node.senderRun.completion === null ? node.senderRun : null,
-  );
-  const activeReceptions = $derived(node.receptions.filter((reception) => reception.end === null));
+  const senderRun = $derived(activeSenderRun(node));
+  const activeReceptions = $derived(activeReceptionsOf(node));
   const lastError = $derived(node.errors.at(-1) ?? null);
   const uptime = $derived(estimateUptime(node, panel.now));
   const statusBadgeClass = $derived(
@@ -46,7 +51,7 @@
   }
 </script>
 
-<section class="panel-card-neon flex flex-col gap-4" aria-labelledby="selected-node-title">
+<section class="panel-card panel-card-neon flex flex-col gap-4" aria-labelledby="selected-node-title">
   <header class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
       <h2 id="selected-node-title" class="panel-oled px-2 py-0.5 text-lg">
@@ -55,7 +60,7 @@
       {#if !open}
         <span class="panel-badge {statusBadgeClass}">{CONNECTION_STATUS_LABELS[connection.status]}</span>
       {/if}
-      <p class="font-mono text-[0.6875rem] tracking-wider text-faint">
+      <p class="font-mono text-caption tracking-wider text-faint">
         {node.model ?? "placa desconocida"} · {connection.transportDescription}
       </p>
     </div>
@@ -67,7 +72,7 @@
         <button type="button" class="panel-button" disabled={node.wifi === null} onclick={toggleWifi}>
           {node.wifi?.state === "on" ? "Apagar WiFi" : "Encender WiFi"}
         </button>
-        <button type="button" class="panel-button-danger" onclick={() => panel.disconnect(connection.key)}>
+        <button type="button" class="panel-button panel-button-danger" onclick={() => panel.disconnect(connection.key)}>
           Desconectar
         </button>
       {:else if connection.status === "closed"}
@@ -87,12 +92,12 @@
 
   <dl class="grid gap-x-6 gap-y-3 text-sm tabular-nums sm:grid-cols-2 lg:grid-cols-4">
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Época</dt>
+      <dt class="panel-term">Época</dt>
       <dd class="mt-0.5 text-ink">{node.epoch ?? "—"}</dd>
     </div>
 
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Firmware</dt>
+      <dt class="panel-term">Firmware</dt>
       <dd class="mt-0.5 text-ink">
         {#if node.firmwareVersion !== null}
           {node.firmwareVersion} · protocolo {node.protocolVersion}
@@ -104,7 +109,7 @@
     </div>
 
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Clave del operador</dt>
+      <dt class="panel-term">Clave del operador</dt>
       <dd class="mt-0.5 text-ink">
         {#if node.operatorKey === null}
           se conoce con el próximo arranque
@@ -115,7 +120,7 @@
     </div>
 
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Radio</dt>
+      <dt class="panel-term">Radio</dt>
       <dd class="mt-0.5 text-ink">
         {#if node.radio !== null}
           {formatModulation(node.radio)} · {formatFrequency(node.radio.freq)}<br />
@@ -127,7 +132,7 @@
     </div>
 
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">WiFi</dt>
+      <dt class="panel-term">WiFi</dt>
       <dd class="mt-0.5 text-ink">
         {#if node.wifi !== null}
           {node.wifi.ssid}
@@ -140,7 +145,7 @@
     </div>
 
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">HELLO</dt>
+      <dt class="panel-term">HELLO</dt>
       <dd class="mt-0.5 text-ink">
         {#if node.presence === null}
           —
@@ -156,7 +161,7 @@
     </div>
 
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Estado</dt>
+      <dt class="panel-term">Estado</dt>
       <dd class="mt-0.5 text-ink">
         {#if node.counters !== null}
           TX {formatNumber(node.counters.transmitted)} · RX {formatNumber(node.counters.received)} · memoria libre
@@ -175,7 +180,7 @@
     </div>
 
     <div class="panel-rule pt-2">
-      <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Versiones</dt>
+      <dt class="panel-term">Versiones</dt>
       <dd class="mt-0.5 text-ink">
         activa <span class="font-mono">{formatImageVersion(node.activeVersion)}</span><br />
         disponible <span class="font-mono">{formatImageVersion(node.availableVersion)}</span>
@@ -187,7 +192,7 @@
 
     {#if senderRun !== null || activeReceptions.length > 0}
       <div class="panel-rule pt-2">
-        <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Corrida</dt>
+        <dt class="panel-term">Corrida</dt>
         <dd class="mt-0.5 text-ink">
           {#if senderRun !== null}
             Transmite la corrida {senderRun.run}: {formatNumber(senderRun.transmitted)} de {formatNumber(senderRun.count)}
@@ -204,7 +209,7 @@
 
     {#if lastError !== null}
       <div class="panel-rule pt-2 sm:col-span-2">
-        <dt class="font-mono text-[0.6875rem] tracking-wider text-faint uppercase">Último error</dt>
+        <dt class="panel-term">Último error</dt>
         <dd class="mt-0.5 text-danger">
           {lastError.command === "" ? "(sin comando)" : lastError.command}: {lastError.reason}
           <span class="text-faint">({describeErrorReason(lastError.reason)})</span>

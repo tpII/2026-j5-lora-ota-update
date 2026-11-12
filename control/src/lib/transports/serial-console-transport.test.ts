@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
+import { CONSOLE_BAUD_RATE } from "$lib/protocol/protocol-contract.ts";
+import { flushAsyncWork } from "$lib/testing/manual-time-source.ts";
 import type { TransportClosure } from "./console-transport.ts";
 import {
-  CONSOLE_BAUD_RATE,
   SerialConsoleTransport,
   describeSerialPort,
   type SerialPortAccess,
@@ -80,10 +81,6 @@ class FakeSerialPort implements SerialPortAccess {
   }
 }
 
-function flushAsyncWork(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function createTransport() {
   const port = new FakeSerialPort();
   const transport = new SerialConsoleTransport(port);
@@ -97,7 +94,7 @@ function createTransport() {
 }
 
 describe("SerialConsoleTransport", () => {
-  it("opens the port at 921600 baud 8N1 and releases DTR and RTS", async () => {
+  it("opens the port at the baud rate of the contract, 8N1, and releases DTR and RTS", async () => {
     const { port, transport, receiver } = createTransport();
     await transport.open(receiver);
     expect(port.openOptions).toMatchObject({

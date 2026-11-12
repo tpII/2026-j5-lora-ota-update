@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "../protocol/protocol_contract.h"
+
 namespace firmware {
 
 static constexpr const char *PREFERENCES_NAMESPACE = "j5";
@@ -22,10 +24,10 @@ void NodeIdentity::begin() {
   const uint8_t fifthByte = static_cast<uint8_t>((mac >> 32) & 0xFF);
   const uint8_t sixthByte = static_cast<uint8_t>((mac >> 40) & 0xFF);
   nodeId_ = static_cast<uint16_t>((fifthByte << 8) | sixthByte);
-  if (nodeId_ == 0x0000) {
-    nodeId_ = 0x0001;
-  } else if (nodeId_ == 0xFFFF) {
-    nodeId_ = 0xFFFE;
+  if (nodeId_ == NO_NODE_ID) {
+    nodeId_ = NO_NODE_ID + 1;
+  } else if (nodeId_ == BROADCAST_NODE_ID) {
+    nodeId_ = BROADCAST_NODE_ID - 1;
   }
 
   Preferences preferences;

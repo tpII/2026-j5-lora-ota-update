@@ -1,5 +1,6 @@
 /**
- * Console events emitted by a node, as defined in docs/protocol/console.md (contract version 2).
+ * Console events emitted by a node, as defined in docs/protocol/console.md (the version of that
+ * contract is versions.consoleContract in firmware/protocol/contract.json).
  *
  * Each event is described once, as a Zod schema, and its type is inferred from the schema. Every
  * event carries `t` (milliseconds since the node booted) and `ev` (the event name); the other
@@ -7,12 +8,31 @@
  * of each field schema says what the field should contain, in Spanish, for the operator.
  */
 import * as z from "zod/mini";
-import { VM_FAULTS } from "$lib/vm/virtual-machine.ts";
+import {
+  ACTIVATION_CAUSES,
+  BOARD_MODELS,
+  BURST_CAUSES,
+  CONSOLE_EVENTS,
+  DROP_REASONS,
+  ERROR_REASONS,
+  IMAGE_ARRIVALS,
+  IMAGE_REJECTION_REASONS,
+  KEY_KINDS,
+  LNA_MODES,
+  MESSAGE_TYPES,
+  NODE_ID_HEXADECIMAL_DIGITS,
+  PRESENCE_STATES,
+  REGISTER_COUNT,
+  RUN_END_REASONS,
+  VM_FAULTS,
+  WIFI_STATES,
+} from "$lib/protocol/protocol-contract.ts";
 
-/** Four uppercase hexadecimal digits, for example "3A7F". "FFFF" designates every node. */
+/**
+ * NODE_ID_HEXADECIMAL_DIGITS uppercase hexadecimal digits, for example "3A7F". BROADCAST_IDENTIFIER
+ * designates every node.
+ */
 export type NodeIdentifier = string;
-
-export const BROADCAST_IDENTIFIER = "FFFF";
 
 /**
  * Any finite number. The firmware may write a whole value with or without decimals (-35 or -35.0),
@@ -27,11 +47,13 @@ const textSchema = z.string({ error: "un texto" });
 
 const booleanSchema = z.boolean({ error: "true o false" });
 
-const NODE_IDENTIFIER_EXPECTATION = "un identificador de cuatro dígitos hexadecimales en mayúscula";
+const NODE_IDENTIFIER_EXPECTATION = `un identificador de ${NODE_ID_HEXADECIMAL_DIGITS} dígitos hexadecimales en mayúscula`;
+
+const NODE_IDENTIFIER_PATTERN = new RegExp(`^[0-9A-F]{${NODE_ID_HEXADECIMAL_DIGITS}}$`);
 
 export const nodeIdentifierSchema = z
   .string({ error: NODE_IDENTIFIER_EXPECTATION })
-  .check(z.regex(/^[0-9A-F]{4}$/, { error: NODE_IDENTIFIER_EXPECTATION }));
+  .check(z.regex(NODE_IDENTIFIER_PATTERN, { error: NODE_IDENTIFIER_EXPECTATION }));
 
 const valueList = new Intl.ListFormat("es-AR", { type: "disjunction" });
 
@@ -52,30 +74,25 @@ function optional<Schema extends z.ZodMiniType>(schema: Schema) {
   );
 }
 
-const LNA_MODES = ["on", "bypass"] as const;
-
-const boardModelSchema = oneOf(["V2", "V4.3"]);
+const boardModelSchema = oneOf(BOARD_MODELS);
+/**
+ * The model a neighbor announced: null before its first HELLO or for a code outside the contract.
+ */
+const announcedBoardModelSchema = oneOf([...BOARD_MODELS, null]);
 export const lnaModeSchema = oneOf(LNA_MODES);
-const wifiStateSchema = oneOf(["on", "off"]);
-const presenceStateSchema = oneOf(["on", "off"]);
-const keyKindSchema = oneOf(["default", "custom"]);
-const transmissionTypeSchema = oneOf([
-  "hello",
-  "echo_request",
-  "echo_reply",
-  "test",
-  "fragment",
-  "report",
-]);
-const dropReasonSchema = oneOf(["crc", "short", "tag", "type", "body"]);
-const runEndReasonSchema = oneOf(["complete", "timeout"]);
+const wifiStateSchema = oneOf(WIFI_STATES);
+const presenceStateSchema = oneOf(PRESENCE_STATES);
+const keyKindSchema = oneOf(KEY_KINDS);
+const transmissionTypeSchema = oneOf(MESSAGE_TYPES);
+const dropReasonSchema = oneOf(DROP_REASONS);
+const runEndReasonSchema = oneOf(RUN_END_REASONS);
 const vmFaultSchema = oneOf(VM_FAULTS);
 /** Fault reason of a HELLO or a `neighbor` event: null when there was none since the activation. */
 const vmFaultOrNullSchema = oneOf([...VM_FAULTS, null]);
-const imageArrivalSchema = oneOf(["console", "radio"]);
-const imageRejectionReasonSchema = oneOf(["format", "signature", "program"]);
-const burstCauseSchema = oneOf(["load", "complete", "hello", "report"]);
-const activationCauseSchema = oneOf(["console", "hello", "neighbor"]);
+const imageArrivalSchema = oneOf(IMAGE_ARRIVALS);
+const imageRejectionReasonSchema = oneOf(IMAGE_REJECTION_REASONS);
+const burstCauseSchema = oneOf(BURST_CAUSES);
+const activationCauseSchema = oneOf(ACTIVATION_CAUSES);
 
 export type BoardModel = z.infer<typeof boardModelSchema>;
 export type LnaMode = z.infer<typeof lnaModeSchema>;
@@ -90,27 +107,13 @@ export type BurstCause = z.infer<typeof burstCauseSchema>;
 export type ActivationCause = z.infer<typeof activationCauseSchema>;
 
 /**
- * Reasons of the `error` event the contract lists. The event accepts any other reason, since a
- * newer firmware may add some.
+ * Reasons of the `error` event the contract lists (ERROR_REASONS). The event accepts any other
+ * reason, since a newer firmware may add some.
  */
-export const KNOWN_ERROR_REASONS = [
-  "unknown_command",
-  "usage",
-  "out_of_range",
-  "unreachable_power",
-  "not_supported",
-  "busy",
-  "not_available",
-  "radio_failure",
-  "wifi_failure",
-  "line_too_long",
-  "version_not_newer",
-  "invalid_image",
-] as const;
-export type KnownErrorReason = (typeof KNOWN_ERROR_REASONS)[number];
+export type KnownErrorReason = (typeof ERROR_REASONS)[number];
 
 export function isKnownErrorReason(value: string): value is KnownErrorReason {
-  return (KNOWN_ERROR_REASONS as readonly string[]).includes(value);
+  return (ERROR_REASONS as readonly string[]).includes(value);
 }
 
 /** Radio settings as the `radio` event reports them (docs/protocol/radio.md). */
@@ -141,7 +144,7 @@ export type HelloNeighborReport = z.infer<typeof helloNeighborReportSchema>;
 const nodeIdentifierOrNullSchema = z.nullable(
   z
     .string({ error: `${NODE_IDENTIFIER_EXPECTATION} o null` })
-    .check(z.regex(/^[0-9A-F]{4}$/, { error: `${NODE_IDENTIFIER_EXPECTATION} o null` })),
+    .check(z.regex(NODE_IDENTIFIER_PATTERN, { error: `${NODE_IDENTIFIER_EXPECTATION} o null` })),
 );
 
 const fragmentIndexListSchema = z.array(numberSchema, { error: "una lista de índices" });
@@ -205,7 +208,7 @@ const statusEventSchema = z.extend(eventHeaderSchema, {
 const neighborEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("neighbor"),
   id: nodeIdentifierSchema,
-  model: boardModelSchema,
+  model: announcedBoardModelSchema,
   /** Active version of the neighbor. */
   version: numberSchema,
   /** Available version of the neighbor. */
@@ -260,7 +263,7 @@ const helloEventSchema = z.extend(eventHeaderSchema, {
   src: nodeIdentifierSchema,
   epoch: numberSchema,
   seq: numberSchema,
-  model: boardModelSchema,
+  model: announcedBoardModelSchema,
   /** Active version of the sender. */
   version: numberSchema,
   /** Available version of the sender. */
@@ -346,12 +349,11 @@ const runEndEventSchema = z.extend(eventHeaderSchema, {
   count: numberSchema,
   received: numberSchema,
   pdr: numberSchema,
-  // The quality fields are null when no packet was received. The contract does not say so, but
-  // the firmware writes null in that case instead of leaving the fields out.
-  rssi_avg: numberOrNullSchema,
-  rssi_min: numberOrNullSchema,
-  rssi_max: numberOrNullSchema,
-  snr_avg: numberOrNullSchema,
+  // A receiver opens a run with its first packet, so a run_end always has quality values.
+  rssi_avg: numberSchema,
+  rssi_min: numberSchema,
+  rssi_max: numberSchema,
+  snr_avg: numberSchema,
   first: numberSchema,
   last: numberSchema,
   reason: runEndReasonSchema,
@@ -389,16 +391,16 @@ const virtualMachineEventSchema = z.extend(eventHeaderSchema, {
   size: numberSchema,
   /** Ticks of the active program so far. */
   tick: numberSchema,
-  /** R1 to R4, as signed 32-bit integers. */
-  registers: z.tuple([numberSchema, numberSchema, numberSchema, numberSchema], {
-    error: "un arreglo de cuatro números",
-  }),
+  /** R1 to R(REGISTER_COUNT), as signed 32-bit integers. */
+  registers: z
+    .array(numberSchema, { error: `un arreglo de ${REGISTER_COUNT} números` })
+    .check(z.length(REGISTER_COUNT, { error: `un arreglo de ${REGISTER_COUNT} números` })),
 });
 
 const virtualMachinePrintEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("vm_print"),
   tick: numberSchema,
-  /** Register from 1 to 4. */
+  /** Register from 1 to REGISTER_COUNT. */
   reg: numberSchema,
   /** Signed 32-bit value of the register. */
   value: numberSchema,
@@ -533,7 +535,7 @@ const errorEventSchema = z.extend(eventHeaderSchema, {
   ev: z.literal("error"),
   /** First word of the command, or "radio" for a radio failure. */
   cmd: textSchema,
-  /** Any text, not only KNOWN_ERROR_REASONS. */
+  /** Any text, not only ERROR_REASONS. */
   reason: textSchema,
   detail: optional(textSchema),
   /** RadioLib error code. */
@@ -586,23 +588,15 @@ export type RadioEvent = ConsoleEventOf<"radio">;
 export type EchoEvent = ConsoleEventOf<"echo">;
 export type EchoLostEvent = ConsoleEventOf<"echo_lost">;
 export type RunEndEvent = ConsoleEventOf<"run_end">;
-export type ErrorEvent = ConsoleEventOf<"error">;
-export type VirtualMachineEvent = ConsoleEventOf<"vm">;
 export type HelloEvent = ConsoleEventOf<"hello">;
 export type NeighborEvent = ConsoleEventOf<"neighbor">;
-export type TransmissionEvent = ConsoleEventOf<"tx">;
-export type TransferEvent = ConsoleEventOf<"transfer">;
-export type ImageEvent = ConsoleEventOf<"image">;
-export type ImageRejectedEvent = ConsoleEventOf<"image_rejected">;
 export type FragmentReceptionEvent = ConsoleEventOf<"fragment_rx">;
-export type BurstStartEvent = ConsoleEventOf<"burst_start">;
-export type BurstDoneEvent = ConsoleEventOf<"burst_done">;
 export type ReportSentEvent = ConsoleEventOf<"report_sent">;
 export type ReportReceivedEvent = ConsoleEventOf<"report_received">;
-export type ActivationEvent = ConsoleEventOf<"activation">;
-export type ProgramEvent = ConsoleEventOf<"program">;
 
-/** Event names in the order of docs/protocol/console.md. */
-export const CONSOLE_EVENT_NAMES: readonly ConsoleEventName[] = consoleEventSchema.def.options.map(
-  (schema) => schema.shape.ev.def.values[0],
-);
+/**
+ * Event names in the order of docs/protocol/console.md, as the contract lists them. A name of the
+ * contract without its schema does not compile; firmware-console-lines.test.ts checks that the
+ * schema has no event outside the contract.
+ */
+export const CONSOLE_EVENT_NAMES: readonly ConsoleEventName[] = CONSOLE_EVENTS;

@@ -1,31 +1,25 @@
 <script lang="ts">
-  import { buildActivateCommand } from "$lib/console/console-command.ts";
+  import { MAXIMUM_IMAGE_VERSION, MINIMUM_IMAGE_VERSION } from "$lib/protocol/protocol-contract.ts";
   import {
+    ACTIVATION_BLOCK_REASON_LABELS,
     activationReadiness,
+    describeForcedActivation,
     pendingActivationVersion,
-    type ActivationBlockReason,
-    type ConnectionGraph,
-  } from "$lib/nodes/connection-graph.ts";
-  import { MAXIMUM_IMAGE_VERSION, MINIMUM_IMAGE_VERSION, isImageVersion } from "$lib/image/image-format.ts";
-  import { formatImageVersion } from "$lib/utils/format.ts";
-  import { ACTIVATION_BLOCK_REASON_LABELS, countWithNoun } from "$lib/utils/labels.ts";
-  import type { ConnectionView, ControlPanel } from "$lib/state/control-panel.svelte.ts";
+  } from "$lib/update/activation.ts";
+  import { isImageVersion } from "$lib/image/image-format.ts";
+  import { countWithNoun, formatImageVersion } from "$lib/utils/format.ts";
+  import type { ControlPanel } from "$lib/state/control-panel.svelte.ts";
 
-  let {
-    panel,
-    graph,
-    target,
-  }: {
-    panel: ControlPanel;
-    graph: ConnectionGraph;
-    /** The node chosen above, which receives the order; null when there is none. */
-    target: ConnectionView | null;
-  } = $props();
+  let { panel }: { panel: ControlPanel } = $props();
 
   let version = $state<number | null>(null);
   /** Last version the panel proposed, so a new pending version replaces it but an edit stays. */
   let proposed: number | null = null;
 
+  const update = $derived(panel.update);
+  const graph = $derived(panel.connectionGraph);
+  /** The node chosen above, which receives the order; null when there is none. */
+  const target = $derived(update.target);
   const pending = $derived(pendingActivationVersion(graph));
 
   $effect(() => {
@@ -38,80 +32,18 @@
   const validVersion = $derived(version !== null && isImageVersion(version) ? version : null);
   const readiness = $derived(validVersion === null ? null : activationReadiness(graph, validVersion));
   /** Why the node chosen would answer `activate` with an error; null when it would accept it. */
-  const targetProblem = $derived.by(() => {
-    if (target === null) {
-      return "Falta elegir arriba un nodo conectado e identificado.";
-    }
-    if (validVersion === null) {
-      return "La versión es un entero de 1 a 4.294.967.295.";
-    }
-    const state = target.state;
-    if (state.activeVersion === validVersion) {
-      return `${state.identifier} ya ejecuta la versión ${validVersion}.`;
-    }
-    if (state.availableVersion !== validVersion) {
-      return `${state.identifier} tiene disponible la versión ${formatImageVersion(state.availableVersion)}: solo puede activar esa.`;
-    }
-    if (state.activeVersion !== null && validVersion <= state.activeVersion) {
-      return `La versión no es mayor que la activa de ${state.identifier}.`;
-    }
-    return null;
-  });
+  const targetProblem = $derived(update.activationProblem(validVersion));
   const canActivate = $derived(targetProblem === null && readiness !== null && readiness.ready);
   const canForce = $derived(targetProblem === null && readiness !== null && !readiness.ready);
 
   function send(): void {
-    if (target === null || validVersion === null) {
-      return;
-    }
-    const result = buildActivateCommand(validVersion);
-    if (result.valid) {
-      void panel.sendCommand(target.key, result.command);
+    if (validVersion !== null) {
+      void update.activate(validVersion);
     }
   }
 
   function force(): void {
-    if (readiness === null) {
-      return;
-    }
-    const blockersWith = (reason: ActivationBlockReason) =>
-      readiness.blockers.filter((blocker) => blocker.reason === reason);
-    const missing = blockersWith("missing").map((blocker) => blocker.id);
-    const newer = blockersWith("newer").map(
-      (blocker) => `${blocker.id} (versión ${formatImageVersion(blocker.availableVersion)})`,
-    );
-    const unknown = blockersWith("unknown").map((blocker) => blocker.id);
-    const sentences = [`Activación forzada de la versión ${validVersion}.`];
-    if (missing.length > 0) {
-      sentences.push(
-        (missing.length === 1 ? `Este nodo todavía no la tiene disponible: ${missing[0]}. La activa recién ` : `Estos nodos todavía no la tienen disponible: ${missing.join(", ")}. Cada uno la activa recién `) +
-          "cuando complete la imagen y escuche a un vecino que la anuncie como activa; mientras tanto " +
-          "ejecuta su programa activo.",
-      );
-    }
-    if (newer.length > 0) {
-      sentences.push(
-        (newer.length === 1
-          ? `Este nodo tiene disponible una versión mayor: ${newer[0]}. Nunca va a recibir ni ` +
-            `activar la versión ${validVersion} y sigue con su programa activo; para unificar la red hay ` +
-            "que cargar una imagen con una versión mayor que la suya."
-          : `Estos nodos tienen disponible una versión mayor: ${newer.join(", ")}. Nunca van a recibir ni ` +
-            `activar la versión ${validVersion} y siguen con su programa activo; para unificar la red hay ` +
-            "que cargar una imagen con una versión mayor que la de ellos."),
-      );
-    }
-    if (unknown.length > 0) {
-      sentences.push(
-        (unknown.length === 1
-          ? `De este nodo no se conoce la versión disponible: ${unknown[0]}. Puede activarla más ` +
-            "adelante o nunca, si ya tiene una versión mayor."
-          : `De estos nodos no se conoce la versión disponible: ${unknown.join(", ")}. Pueden activarla más ` +
-            "adelante o nunca, si ya tienen una versión mayor."),
-      );
-    }
-    sentences.push("¿Forzar la activación?");
-    const confirmed = window.confirm(sentences.join(" "));
-    if (confirmed) {
+    if (readiness !== null && window.confirm(describeForcedActivation(readiness))) {
       send();
     }
   }
@@ -135,7 +67,7 @@
         bind:value={version}
       />
     </label>
-    <button type="button" class="panel-button-primary" disabled={!canActivate} onclick={send}>
+    <button type="button" class="panel-button panel-button-primary" disabled={!canActivate} onclick={send}>
       {validVersion === null || target === null
         ? "Activar"
         : `Activar la versión ${validVersion} en ${target.state.identifier}`}
@@ -181,7 +113,7 @@
         programas distintos.
       </p>
       <div>
-        <button type="button" class="panel-button-danger" disabled={!canForce} onclick={force}>
+        <button type="button" class="panel-button panel-button-danger" disabled={!canForce} onclick={force}>
           Forzar la activación
         </button>
       </div>

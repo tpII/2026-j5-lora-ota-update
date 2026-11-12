@@ -1,15 +1,17 @@
 #include "test_run_service.h"
 
-#include <string.h>
+#include <math.h>
 
-#include "../network/byte_order.h"
+#include "../radio/time_on_air.h"
+#include "../timing/millisecond_clock.h"
 
 namespace firmware {
 
-uint16_t TestRunService::startSending(uint16_t count, uint16_t size, uint16_t interval,
-                                      uint32_t nowMillis) {
+void TestRunService::startSending(uint16_t count, uint16_t size, uint16_t interval,
+                                  uint32_t nowMillis) {
   sender_ = SenderRun{};
   sender_.active = true;
+  sender_.outcome = SenderOutcome::InProgress;
   sender_.run = nextRunNumber_++;
   if (nextRunNumber_ == 0) {
     nextRunNumber_ = 1;
@@ -18,48 +20,86 @@ uint16_t TestRunService::startSending(uint16_t count, uint16_t size, uint16_t in
   sender_.size = size;
   sender_.interval = interval;
   sender_.nextTransmitMillis = nowMillis;
-  return sender_.run;
+
+  JsonObject event = events_->beginEvent(ConsoleEvent::RunStart);
+  event["run"] = sender_.run;
+  event["count"] = count;
+  event["size"] = size;
+  event["interval"] = interval;
+  events_->writeEvent();
+  events_->debug("run %u start %lux%lu", sender_.run, static_cast<unsigned long>(count),
+                 static_cast<unsigned long>(size));
+}
+
+void TestRunService::requestStop() {
+  if (sender_.outcome == SenderOutcome::InProgress) {
+    sender_.outcome = SenderOutcome::Stopped;
+  }
 }
 
 bool TestRunService::isFrameDue(uint32_t nowMillis) const {
-  return sender_.active && !sender_.stopRequested && !sender_.frameInFlight &&
-         sender_.sent < sender_.count &&
-         static_cast<int32_t>(nowMillis - sender_.nextTransmitMillis) >= 0;
+  return sender_.active && sender_.outcome == SenderOutcome::InProgress && !sender_.frameInFlight &&
+         sender_.span.sentCount() < sender_.count &&
+         hasReached(nowMillis, sender_.nextTransmitMillis);
 }
 
-size_t TestRunService::buildNextPayload(uint8_t *output) {
-  TestFields fields{};
-  fields.run = sender_.run;
-  fields.index = sender_.sent;
-  fields.count = sender_.count;
-  fields.interval = sender_.interval;
+size_t TestRunService::buildNextFrame(FrameDescription &description, uint8_t *payload) {
+  TestMessage message{};
+  message.run = sender_.run;
+  message.index = sender_.span.sentCount();
+  message.count = sender_.count;
+  message.interval = sender_.interval;
+  message.size = sender_.size;
   sender_.frameInFlight = true;
-  return encodePayload(fields, sender_.size, output);
+  description.type = MessageType::Test;
+  description.destination = BROADCAST_NODE_ID;
+  description.run = message.run;
+  description.index = message.index;
+  return encodeTest(message, payload);
 }
 
-void TestRunService::onFrameStarted(int64_t startMicros) {
-  if (!sender_.active || !sender_.frameInFlight) {
+void TestRunService::onTransmitStarted(const FrameDescription &, const TransmitTiming &timing) {
+  sender_.span.recordStart(timing.startMicros);
+}
+
+void TestRunService::onTransmitDone(const FrameDescription &, const TransmitTiming &timing) {
+  const bool wasActive = isActive();
+  sender_.frameInFlight = false;
+  sender_.span.recordEnd(timing.endMicros);
+  sender_.nextTransmitMillis = timing.nowMillis + sender_.interval;
+  finishSendingIfOver();
+  notifyIfEnded(wasActive, timing.nowMillis);
+}
+
+void TestRunService::onTransmitFailed(const FrameDescription &) {
+  sender_.frameInFlight = false;
+  if (sender_.outcome == SenderOutcome::InProgress) {
+    sender_.outcome = SenderOutcome::Failed;
+  }
+}
+
+void TestRunService::finishSendingIfOver() {
+  if (!sender_.active || sender_.frameInFlight ||
+      (sender_.outcome == SenderOutcome::InProgress && sender_.span.sentCount() < sender_.count)) {
     return;
   }
-  if (sender_.sent == 0) {
-    sender_.firstStartMicros = startMicros;
-  }
+  JsonObject event = events_->beginEvent(ConsoleEvent::RunDone);
+  event["run"] = sender_.run;
+  event["count"] = sender_.count;
+  event["sent"] = sender_.span.sentCount();
+  event["duration"] = sender_.span.durationMicros();
+  // The contract has one mark for both ways of ending early: a stop and a frame that did not go
+  // out.
+  event["aborted"] = sender_.outcome != SenderOutcome::InProgress;
+  events_->writeEvent();
+  events_->debug("run %u done %u/%u", sender_.run, sender_.span.sentCount(), sender_.count);
+  sender_.active = false;
 }
 
-bool TestRunService::onFrameSent(int64_t endMicros, uint32_t nowMillis) {
-  if (!sender_.active || !sender_.frameInFlight) {
-    return false;
+void TestRunService::notifyIfEnded(bool wasActive, uint32_t nowMillis) {
+  if (wasActive && !isActive()) {
+    listener_->onRunsEnded(nowMillis);
   }
-  sender_.frameInFlight = false;
-  ++sender_.sent;
-  sender_.lastEndMicros = endMicros;
-  sender_.nextTransmitMillis = nowMillis + sender_.interval;
-  return sender_.sent >= sender_.count || sender_.stopRequested;
-}
-
-void TestRunService::onFrameFailed() {
-  sender_.frameInFlight = false;
-  sender_.stopRequested = true;
 }
 
 bool TestRunService::isReceiving() const {
@@ -71,7 +111,7 @@ bool TestRunService::isReceiving() const {
   return false;
 }
 
-ReceiverRun *TestRunService::findActiveRun(uint16_t source) {
+TestRunService::ReceiverRun *TestRunService::findActiveRun(uint16_t source) {
   for (ReceiverRun &run : receivers_) {
     if (run.active && run.source == source) {
       return &run;
@@ -80,81 +120,105 @@ ReceiverRun *TestRunService::findActiveRun(uint16_t source) {
   return nullptr;
 }
 
-ReceiverRun *TestRunService::recordTestFrame(uint16_t source, const TestFields &fields, float rssi,
-                                             float snr, uint32_t nowMillis,
-                                             uint32_t timeOnAirMillis, bool &opened,
-                                             bool &completed) {
-  opened = false;
-  completed = false;
-  ReceiverRun *run = findActiveRun(source);
-  if (run != nullptr && run->run != fields.run) {
-    run = nullptr;
-  }
-  if (run == nullptr) {
-    for (ReceiverRun &candidate : receivers_) {
-      if (!candidate.active) {
-        run = &candidate;
-        break;
-      }
-    }
-    if (run == nullptr) {
-      return nullptr;
-    }
-    *run = ReceiverRun{};
-    run->active = true;
-    run->source = source;
-    run->run = fields.run;
-    run->count = fields.count;
-    run->rssiMinimum = rssi;
-    run->rssiMaximum = rssi;
-    run->firstMillis = nowMillis;
-    opened = true;
-  }
-
-  ++run->received;
-  run->rssiSum += rssi;
-  run->snrSum += snr;
-  if (rssi < run->rssiMinimum) {
-    run->rssiMinimum = rssi;
-  }
-  if (rssi > run->rssiMaximum) {
-    run->rssiMaximum = rssi;
-  }
-  run->lastMillis = nowMillis;
-  // Without frames for twice the interval plus the time on air, and a margin, the run is over.
-  run->deadlineMillis = nowMillis + 2 * (static_cast<uint32_t>(fields.interval) + timeOnAirMillis) +
-                        RESPONSE_MARGIN_MS;
-  completed = fields.index + 1 >= fields.count;
-  return run;
-}
-
-ReceiverRun *TestRunService::findExpiredRun(uint32_t nowMillis) {
+TestRunService::ReceiverRun *TestRunService::openRun(uint16_t source, const TestMessage &message,
+                                                     float rssi, uint32_t nowMillis) {
   for (ReceiverRun &run : receivers_) {
-    if (run.active && static_cast<int32_t>(nowMillis - run.deadlineMillis) >= 0) {
+    if (!run.active) {
+      run = ReceiverRun{};
+      run.active = true;
+      run.source = source;
+      run.run = message.run;
+      run.count = message.count;
+      run.rssiMinimum = rssi;
+      run.rssiMaximum = rssi;
+      run.firstMillis = nowMillis;
       return &run;
     }
   }
   return nullptr;
 }
 
-size_t TestRunService::encodePayload(const TestFields &fields, uint16_t size, uint8_t *output) {
-  memset(output, 0, size);
-  writeUint16(output, fields.run);
-  writeUint16(output + 2, fields.index);
-  writeUint16(output + 4, fields.count);
-  writeUint16(output + 6, fields.interval);
-  return size;
+void TestRunService::handleTestFrame(const FrameHeader &header, const TestMessage &message,
+                                     const ReceivedFrame &frame, const RadioSettings &settings,
+                                     uint32_t nowMillis) {
+  const bool wasActive = isActive();
+  ReceiverRun *run = findActiveRun(header.source);
+  if (run != nullptr && run->run != message.run) {
+    finishReceiving(*run, RunEndReason::Timeout);
+    run = nullptr;
+  }
+  const bool opened = run == nullptr;
+  if (opened) {
+    run = openRun(header.source, message, frame.rssi, nowMillis);
+  }
+  if (run != nullptr) {
+    ++run->received;
+    run->rssiSum += frame.rssi;
+    run->snrSum += frame.snr;
+    if (frame.rssi < run->rssiMinimum) {
+      run->rssiMinimum = frame.rssi;
+    }
+    if (frame.rssi > run->rssiMaximum) {
+      run->rssiMaximum = frame.rssi;
+    }
+    run->lastMillis = nowMillis;
+    run->deadlineMillis =
+        nowMillis + runReceptionDeadlineMillis(message.interval,
+                                               computeTimeOnAirMicros(frame.length, settings));
+  }
+
+  JsonObject event = events_->beginEvent(ConsoleEvent::TestRx);
+  setNodeId(event, "src", header.source);
+  event["run"] = message.run;
+  event["index"] = message.index;
+  event["count"] = message.count;
+  event["size"] = message.size;
+  setLinkQuality(event, frame.rssi, frame.snr);
+  event["ferr"] = lroundf(frame.frequencyError);
+  events_->writeEvent();
+
+  // Without a free slot the frame is reported but not counted.
+  if (run != nullptr) {
+    if (opened) {
+      events_->debug("run %u from %04X", message.run, header.source);
+    }
+    if (message.index + 1 >= message.count) {
+      finishReceiving(*run, RunEndReason::Complete);
+    }
+  }
+  notifyIfEnded(wasActive, nowMillis);
 }
 
-bool TestRunService::decodePayload(const uint8_t *payload, size_t length, TestFields &fields) {
-  if (length < TEST_FIELDS_SIZE) {
-    return false;
+void TestRunService::poll(uint32_t nowMillis) {
+  const bool wasActive = isActive();
+  for (ReceiverRun &run : receivers_) {
+    if (run.active && hasReached(nowMillis, run.deadlineMillis)) {
+      finishReceiving(run, RunEndReason::Timeout);
+    }
   }
-  fields.run = readUint16(payload);
-  fields.index = readUint16(payload + 2);
-  fields.count = readUint16(payload + 4);
-  fields.interval = readUint16(payload + 6);
-  return fields.count > 0 && fields.index < fields.count;
+  finishSendingIfOver();
+  notifyIfEnded(wasActive, nowMillis);
+}
+
+void TestRunService::finishReceiving(ReceiverRun &run, RunEndReason reason) {
+  JsonObject event = events_->beginEvent(ConsoleEvent::RunEnd);
+  setNodeId(event, "src", run.source);
+  event["run"] = run.run;
+  event["count"] = run.count;
+  event["received"] = run.received;
+  event["pdr"] = roundToDecimals(static_cast<double>(run.received) / run.count,
+                                 PACKET_DELIVERY_RATIO_DECIMALS);
+  // A run opens with its first frame, so it always has one to average.
+  setRssi(event, "rssi_avg", run.rssiSum / run.received);
+  setRssi(event, "rssi_min", run.rssiMinimum);
+  setRssi(event, "rssi_max", run.rssiMaximum);
+  setSnr(event, "snr_avg", run.snrSum / run.received);
+  event["first"] = run.firstMillis;
+  event["last"] = run.lastMillis;
+  event["reason"] = runEndReasonName(reason);
+  events_->writeEvent();
+  events_->debug("run %u end %u/%u", run.run, run.received, run.count);
+  run.active = false;
 }
 
 } // namespace firmware

@@ -1,31 +1,29 @@
 import { describe, expect, it } from "vite-plus/test";
-import defaultOperatorKeyPem from "../../../../keys/default_operator_key.pem?raw";
 import {
   MAXIMUM_IMAGE_SIZE,
+  MAXIMUM_IMAGE_VERSION,
+  MAXIMUM_PROGRAM_SIZE,
   MINIMUM_IMAGE_SIZE,
+  MINIMUM_PROGRAM_SIZE,
+} from "$lib/protocol/protocol-contract.ts";
+import defaultOperatorKeyPem from "../../../../firmware/protocol/default_operator_key.pem?raw";
+import {
   decodeImage,
   encodeImageHeader,
-  formatHex,
-  parseHex,
+  imageSizeFor,
   proposeImageVersion,
 } from "./image-format.ts";
+import { formatHex, parseHex } from "$lib/utils/hex.ts";
 import {
   DEFAULT_OPERATOR_PUBLIC_KEY,
   buildSignedMessage,
   generateOperatorKeyPair,
   importOperatorPrivateKey,
   signImage,
-  verifyImage,
   type OperatorSigningKey,
 } from "./image-signing.ts";
-import {
-  TEST_VECTOR_HEADER,
-  TEST_VECTOR_IMAGE,
-  TEST_VECTOR_PROGRAM,
-  TEST_VECTOR_SIGNATURE,
-  TEST_VECTOR_SIGNED_MESSAGE,
-  TEST_VECTOR_VERSION,
-} from "$lib/testing/image-test-vector.ts";
+import { verifyImage } from "$lib/testing/image-verification.ts";
+import signedImageVector from "../../../../firmware/protocol/test-vectors/signed-image.json";
 import { assemble } from "$lib/vm/assembler.ts";
 
 function bytesOf(hex: string): Uint8Array<ArrayBuffer> {
@@ -46,30 +44,33 @@ async function defaultKey(): Promise<OperatorSigningKey> {
 
 describe("image format", () => {
   it("encodes the header of the test vector", () => {
-    const program = bytesOf(TEST_VECTOR_PROGRAM);
-    expect(formatHex(encodeImageHeader(TEST_VECTOR_VERSION, program.length))).toBe(
-      TEST_VECTOR_HEADER,
+    const program = bytesOf(signedImageVector.program);
+    expect(formatHex(encodeImageHeader(signedImageVector.version, program.length))).toBe(
+      signedImageVector.header,
     );
   });
 
   it("decodes the image of the test vector", () => {
-    const decoding = decodeImage(bytesOf(TEST_VECTOR_IMAGE));
+    const decoding = decodeImage(bytesOf(signedImageVector.image));
     expect(decoding.valid).toBe(true);
     if (decoding.valid) {
-      expect(decoding.image.version).toBe(TEST_VECTOR_VERSION);
+      expect(decoding.image.version).toBe(signedImageVector.version);
       expect(decoding.image.flags).toBe(0);
-      expect(formatHex(decoding.image.program)).toBe(TEST_VECTOR_PROGRAM);
-      expect(formatHex(decoding.image.signature)).toBe(TEST_VECTOR_SIGNATURE);
+      expect(formatHex(decoding.image.program)).toBe(signedImageVector.program);
+      expect(formatHex(decoding.image.signature)).toBe(signedImageVector.signature);
     }
   });
 
-  it("bounds the image between 74 and 1097 bytes", () => {
-    expect(MINIMUM_IMAGE_SIZE).toBe(74);
-    expect(MAXIMUM_IMAGE_SIZE).toBe(1097);
+  it("sizes the images of the shortest and longest programs as the contract bounds them", () => {
+    expect(imageSizeFor(MINIMUM_PROGRAM_SIZE)).toBe(MINIMUM_IMAGE_SIZE);
+    expect(imageSizeFor(MAXIMUM_PROGRAM_SIZE)).toBe(MAXIMUM_IMAGE_SIZE);
+    expect(imageSizeFor(signedImageVector.programLength)).toBe(
+      bytesOf(signedImageVector.image).length,
+    );
   });
 
   it("rejects the format before the program", () => {
-    const image = bytesOf(TEST_VECTOR_IMAGE);
+    const image = bytesOf(signedImageVector.image);
     expect(decodeImage(image.slice(0, image.length - 1))).toMatchObject({ reason: "format" });
     const badMagic = image.slice();
     badMagic[1] = 0x36;
@@ -84,7 +85,7 @@ describe("image format", () => {
   });
 
   it("rejects a program the VM does not accept", () => {
-    const image = bytesOf(TEST_VECTOR_IMAGE);
+    const image = bytesOf(signedImageVector.image);
     image[9] = 0xff;
     expect(decodeImage(image)).toMatchObject({
       valid: false,
@@ -96,9 +97,12 @@ describe("image format", () => {
 
   it("refuses to encode versions and lengths out of range", () => {
     expect(() => encodeImageHeader(0, 1)).toThrow(RangeError);
-    expect(() => encodeImageHeader(2 ** 32, 1)).toThrow(RangeError);
-    expect(() => encodeImageHeader(1, 0)).toThrow(RangeError);
-    expect(() => encodeImageHeader(1, 1025)).toThrow(RangeError);
+    expect(() => encodeImageHeader(MAXIMUM_IMAGE_VERSION + 1, 1)).toThrow(RangeError);
+    expect(() => encodeImageHeader(1, MINIMUM_PROGRAM_SIZE - 1)).toThrow(RangeError);
+    expect(() => encodeImageHeader(1, MAXIMUM_PROGRAM_SIZE + 1)).toThrow(RangeError);
+    expect(encodeImageHeader(MAXIMUM_IMAGE_VERSION, MAXIMUM_PROGRAM_SIZE)).toHaveLength(
+      bytesOf(signedImageVector.header).length,
+    );
   });
 
   it("parses and formats hexadecimal text", () => {
@@ -109,7 +113,7 @@ describe("image format", () => {
   });
 
   it("proposes the Unix time in seconds as the version", () => {
-    expect(proposeImageVersion(Date.UTC(2025, 10, 5))).toBe(TEST_VECTOR_VERSION);
+    expect(proposeImageVersion(Date.UTC(2025, 10, 5))).toBe(signedImageVector.version);
     expect(proposeImageVersion(1_762_300_800_999)).toBe(1_762_300_800);
   });
 });
@@ -123,29 +127,29 @@ describe("image signing", () => {
 
   it("builds the signed message of the test vector", async () => {
     const message = await buildSignedMessage(
-      bytesOf(TEST_VECTOR_HEADER),
-      bytesOf(TEST_VECTOR_PROGRAM),
+      bytesOf(signedImageVector.header),
+      bytesOf(signedImageVector.program),
     );
-    expect(formatHex(message)).toBe(TEST_VECTOR_SIGNED_MESSAGE);
+    expect(formatHex(message)).toBe(signedImageVector.signedMessage);
   });
 
   it("reproduces byte for byte the image that OpenSSL signed", async () => {
     const image = await signImage(
-      bytesOf(TEST_VECTOR_PROGRAM),
-      TEST_VECTOR_VERSION,
+      bytesOf(signedImageVector.program),
+      signedImageVector.version,
       await defaultKey(),
     );
-    expect(formatHex(image.slice(-64))).toBe(TEST_VECTOR_SIGNATURE);
-    expect(formatHex(image)).toBe(TEST_VECTOR_IMAGE);
+    expect(formatHex(image.slice(-64))).toBe(signedImageVector.signature);
+    expect(formatHex(image)).toBe(signedImageVector.image);
   });
 
   it("verifies the test vector with the default public key", async () => {
-    const verification = await verifyImage(bytesOf(TEST_VECTOR_IMAGE));
+    const verification = await verifyImage(bytesOf(signedImageVector.image));
     expect(verification.valid).toBe(true);
   });
 
   it("rejects an image whose program or signature changed", async () => {
-    const image = bytesOf(TEST_VECTOR_IMAGE);
+    const image = bytesOf(signedImageVector.image);
     const changedProgram = image.slice();
     // LOAD R1, 5 becomes LOAD R1, 6: still a valid program, but not the signed one.
     changedProgram[11] = 0x06;
@@ -174,7 +178,7 @@ describe("image signing", () => {
     );
     const reimported = await importOperatorPrivateKey(pair.privateKeyPem);
     expect(reimported).toMatchObject({ valid: true, key: { publicKey: pair.key.publicKey } });
-    const image = await signImage(bytesOf(TEST_VECTOR_PROGRAM), 2, pair.key);
+    const image = await signImage(bytesOf(signedImageVector.program), 2, pair.key);
     expect((await verifyImage(image, pair.key.publicKey)).valid).toBe(true);
     expect(await verifyImage(image)).toMatchObject({ valid: false, reason: "signature" });
   });
@@ -195,10 +199,8 @@ describe("image signing", () => {
 });
 
 describe("test vector program", () => {
-  it("is the assembly its comment describes", () => {
-    const result = assemble(
-      "LOAD R1, 5\nLOAD R2, 3\nADDR R1, R2\nPRINT R1\nSUBI R1, 10\nMULR R1, R2\nPRINT R1\nHALT",
-    );
-    expect(result.valid && formatHex(result.code)).toBe(TEST_VECTOR_PROGRAM);
+  it("is the assembly the vector describes", () => {
+    const result = assemble(signedImageVector.assembly.split(";").join("\n"));
+    expect(result.valid && formatHex(result.code)).toBe(signedImageVector.program);
   });
 });

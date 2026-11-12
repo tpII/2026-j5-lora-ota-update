@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../board/board_support.h"
+#include "../protocol/protocol_contract.h"
 
 namespace firmware {
 
@@ -21,24 +21,12 @@ struct RadioSettings {
   bool lowNoiseAmplifierEnabled;
 };
 
-RadioSettings defaultRadioSettings();
-
-enum class SettingUpdate : uint8_t {
-  Accepted,
-  UnknownKey,
-  InvalidValue,
-  OutOfRange,
-  UnreachablePower,
-  NotSupported
-};
-
-// Applies one key/value pair of the radio command to the settings. On failure the settings are
-// left untouched and the detail buffer describes the accepted range.
-SettingUpdate updateRadioSetting(RadioSettings &settings, const char *key, const char *value,
-                                 const BoardSupport &board, char *detail, size_t detailCapacity);
-
-// Reason of the console error event for a failed update.
-const char *settingUpdateReason(SettingUpdate update);
+constexpr RadioSettings defaultRadioSettings() {
+  return RadioSettings{DEFAULT_FREQUENCY_MHZ,      DEFAULT_SPREADING_FACTOR,
+                       DEFAULT_BANDWIDTH_KHZ,      DEFAULT_CODING_RATE_DENOMINATOR,
+                       DEFAULT_PREAMBLE_LENGTH,    DEFAULT_SYNC_WORD,
+                       DEFAULT_TRANSMIT_POWER_DBM, DEFAULT_LNA_MODE == LnaMode::On};
+}
 
 } // namespace firmware
 

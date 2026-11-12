@@ -1,6 +1,7 @@
 /**
  * Assembler of the virtual machine's language: one instruction per line, operands separated by
- * commas or spaces, registers R1 to R4, integers in decimal or with 0x, and comments after ";;".
+ * commas or spaces, registers R1 to R(REGISTER_COUNT), integers in decimal or with 0x, and comments
+ * after COMMENT_MARKER.
  *
  *     LOAD R1, 5      ;; R1 = 5
  *     ADDR R1, R2
@@ -8,18 +9,18 @@
  *     HALT
  */
 import {
-  INSTRUCTION_BY_MNEMONIC,
+  MAXIMUM_REGISTER_VALUE,
+  MINIMUM_REGISTER_VALUE,
   PROGRAM_CAPACITY,
   REGISTER_COUNT,
+} from "$lib/protocol/protocol-contract.ts";
+import {
+  INSTRUCTION_BY_MNEMONIC,
   lengthOfForm,
   type InstructionDefinition,
 } from "./instruction-set.ts";
 
 export const COMMENT_MARKER = ";;";
-
-/** Smallest and largest integer an immediate or a register takes; above 2³¹ − 1 the bit pattern is kept. */
-export const MINIMUM_INTEGER = -(2 ** 31);
-export const MAXIMUM_INTEGER = 2 ** 32 - 1;
 
 export interface AssemblyProblem {
   /** Line of the source, from 1. */
@@ -47,8 +48,9 @@ export type AssemblyResult =
 const INTEGER_PATTERN = /^-?(0x[0-9a-f]+|[0-9]+)$/i;
 
 /**
- * An integer written in decimal or in hexadecimal with 0x, optionally negative, from −2³¹ to
- * 2³² − 1. Returns the signed 32-bit value it stands for, or null.
+ * An integer written in decimal or in hexadecimal with 0x, optionally negative, from
+ * MINIMUM_REGISTER_VALUE to MAXIMUM_REGISTER_VALUE. Returns the signed 32-bit value it stands
+ * for, or null.
  */
 export function parseInteger(text: string): number | null {
   const trimmed = text.trim();
@@ -60,7 +62,11 @@ export function parseInteger(text: string): number | null {
   // Number() reads both forms, and a decimal with leading zeros stays decimal.
   const magnitude = Number(digits);
   const value = negative ? -magnitude : magnitude;
-  if (!Number.isSafeInteger(value) || value < MINIMUM_INTEGER || value > MAXIMUM_INTEGER) {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < MINIMUM_REGISTER_VALUE ||
+    value > MAXIMUM_REGISTER_VALUE
+  ) {
     return null;
   }
   return value | 0;
@@ -91,14 +97,20 @@ function encodeInstruction(
   }
   const target = parseRegister(operands[0] ?? "");
   if (target === null) {
-    problems.push({ line, message: `«${operands[0]}» no es un registro: van de R1 a R4.` });
+    problems.push({
+      line,
+      message: `«${operands[0]}» no es un registro: van de R1 a R${REGISTER_COUNT}.`,
+    });
     return null;
   }
   bytes[1] = target;
   if (instruction.form === "register-register") {
     const source = parseRegister(operands[1] ?? "");
     if (source === null) {
-      problems.push({ line, message: `«${operands[1]}» no es un registro: van de R1 a R4.` });
+      problems.push({
+        line,
+        message: `«${operands[1]}» no es un registro: van de R1 a R${REGISTER_COUNT}.`,
+      });
       return null;
     }
     bytes[2] = source;

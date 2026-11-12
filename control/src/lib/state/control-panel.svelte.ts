@@ -1,14 +1,13 @@
 /**
- * Reactive state of the control panel. It owns the connections, the test-run ledger, the event
- * journal, the capacity-test campaign, both sides of the communication test and the update
- * commands, and publishes immutable snapshots of them for the views.
- * The domain modules stay free of Svelte; this class only connects them and throttles updates.
+ * Reactive state of the control panel. It connects the node directory, the event stream, the
+ * test-run ledger, the event journal, the radio test sessions, the update workflow and the
+ * exports, and publishes immutable snapshots of them for the views, at most once every
+ * REFRESH_INTERVAL_MILLISECONDS. The domain modules stay free of Svelte.
  */
-import { BoundedLog } from "$lib/utils/bounded-log.ts";
 import { MeasurementSheet } from "$lib/state/measurement-sheet.svelte.ts";
 import {
   CapacityTestCampaign,
-  type CampaignNode,
+  isCampaignActive,
   type CampaignSnapshot,
 } from "$lib/measurements/capacity-test-campaign.ts";
 import {
@@ -18,54 +17,45 @@ import {
 import type { NodeIdentifier } from "$lib/console/console-event.ts";
 import {
   CommunicationTest,
+  isCommunicationTestActive,
   type CommunicationTestConfiguration,
   type CommunicationTestSnapshot,
 } from "$lib/measurements/communication-test.ts";
 import {
-  COMMUNICATION_TEST,
-  buildCommunicationTestFiles,
-  buildReceiverFiles,
-  type CommunicationTestDescription,
-} from "$lib/measurements/communication-test-metrics.ts";
+  RECEIVER_EXPORT_LAYOUT,
+  SENDER_EXPORT_LAYOUT,
+  buildReceiverExport,
+  buildSenderExport,
+} from "$lib/measurements/communication-test-export.ts";
 import {
   CommunicationReceiver,
+  isReceiverModeActive,
   type ReceiverModeSnapshot,
 } from "$lib/measurements/communication-receiver.ts";
-import type { Modulation } from "$lib/measurements/command-confirmation.ts";
-import { EchoSeries, type EchoSeriesSnapshot } from "$lib/measurements/echo-series.ts";
+import type { Modulation, RadioSettings } from "$lib/radio/radio-settings.ts";
+import {
+  EchoSeries,
+  isEchoSeriesActive,
+  type EchoSeriesSnapshot,
+} from "$lib/measurements/echo-series.ts";
 import { EventJournal } from "$lib/measurements/event-journal.ts";
+import { UPDATE_EXPORT_LAYOUT } from "$lib/update/update-export.ts";
+import { UpdateController } from "$lib/update/update-controller.svelte.ts";
+import { buildConnectionGraph, type ConnectionGraph } from "$lib/node-session/connection-graph.ts";
+import type { NodePort } from "$lib/nodes/node-port.ts";
 import {
-  computeUpdateMetrics,
-  acceptLoadImage,
-  parseUpdateCommand,
-  updateCommandTimesOf,
-  type UpdateCommandRecord,
-  type UpdateMetrics,
-} from "$lib/measurements/update-metrics.ts";
-import {
-  UPDATE_TEST,
-  boardModelsOf,
-  buildUpdateFiles,
-  loadedUpdateVersions,
-  type UpdateDescription,
-} from "$lib/measurements/update-export.ts";
-import { buildConnectionGraph, type ConnectionGraph } from "$lib/nodes/connection-graph.ts";
-import {
-  buildMeasurementFiles,
-  buildMetadata,
+  buildExportFolder,
   formatLocalDate,
-  type MeasurementDescription,
+  type ExportFolder,
+  type ExportLayout,
   type ExportedEvent,
-  type ExportedTest,
-  type MeasurementFile,
+  type MeasurementDescription,
+  type MeasurementExport,
+  type MeasurementTest,
   type ParticipatingNode,
 } from "$lib/measurements/measurement-export.ts";
-import {
-  NodeConnection,
-  type ConnectionStatus,
-  type ConsoleRecord,
-} from "$lib/nodes/node-connection.ts";
-import type { NodeState } from "$lib/nodes/node-state.ts";
+import { RUN_EXPORT_LAYOUTS, buildRunExport } from "$lib/measurements/run-export.ts";
+import { NodeConnection, type ConsoleRecord } from "$lib/node-session/node-connection.ts";
 import {
   TestRunLedger,
   type TestRunSummaryRow,
@@ -77,160 +67,216 @@ import {
   isPickerCancellation,
   writeMeasurementToDirectory,
   type ExportOutcome,
+  type ExportResult,
 } from "$lib/measurements/measurement-writer.ts";
-import {
-  describeTransportError,
-  type ConsoleTransport,
-  type TransportKind,
-} from "$lib/transports/console-transport.ts";
+import { TRANSPORT_LABELS, type ConsoleTransport } from "$lib/transports/console-transport.ts";
+import { describeError } from "$lib/utils/error-description.ts";
+import { SYSTEM_TIME_SOURCE, scheduleRepeatedly, type TimeSource } from "$lib/utils/time-source.ts";
 import {
   isWebSerialAvailable,
   requestSerialConsoleTransport,
 } from "$lib/transports/serial-console-transport.ts";
+import { WebSocketConsoleTransport } from "$lib/transports/websocket-console-transport.ts";
+import { EventStream } from "$lib/state/event-stream.svelte.ts";
+import { NodeDirectory } from "$lib/state/node-directory.svelte.ts";
 import {
-  DEFAULT_CONSOLE_ADDRESS,
-  WebSocketConsoleTransport,
-} from "$lib/transports/websocket-console-transport.ts";
+  findRefusal,
+  listRadioTestActivities,
+  type RadioAction,
+  type RadioTestActivity,
+  type RadioTestKind,
+  type RadioTestRefusal,
+  type SessionTestKind,
+  type SingleNodeRadioTestKind,
+  type TestTarget,
+} from "$lib/state/radio-test-activity.ts";
+import type { NoticeLevel, PanelNotice, SessionNotice } from "$lib/state/panel-notice.ts";
+import type { PanelSection } from "$lib/state/panel-sections.ts";
+import { RadioTestSession } from "$lib/state/radio-test-session.svelte.ts";
 
-/** Lines kept for the event stream view, across every connection. */
-const STREAM_CAPACITY = 3000;
 /** Shortest time between two refreshes of the views. */
-const REFRESH_INTERVAL_MILLISECONDS = 100;
+export const REFRESH_INTERVAL_MILLISECONDS = 100;
 const TICK_INTERVAL_MILLISECONDS = 1000;
 const INFORMATION_NOTICE_LIFETIME_MILLISECONDS = 10_000;
 
-export interface ConnectionView {
-  readonly key: string;
-  readonly transportKind: TransportKind;
-  readonly transportDescription: string;
-  readonly status: ConnectionStatus;
-  readonly closureMessage: string | null;
-  readonly state: NodeState;
-  /** Another open connection reaches the same node, so its lines arrive twice. */
-  readonly duplicated: boolean;
+/** The exports of the panel, each with its export button. */
+export type PanelExportKind =
+  | MeasurementTest
+  | "communication-sender"
+  | "communication-receiver"
+  | "update";
+
+/** One export of the panel: its files, known before exporting, and the action that writes them. */
+export interface PanelExport {
+  readonly layout: ExportLayout;
+  /**
+   * Writes the export with the measurement sheet `description` and records how it went. Null when
+   * there is nothing to export or the operator cancelled the folder chooser.
+   */
+  write(description: MeasurementDescription): Promise<ExportResult | null>;
 }
 
-export type NoticeLevel = "error" | "information";
+/** Puts the files of an export on disk; null when the operator cancelled the folder chooser. */
+export type ExportWriter = (
+  folder: ExportFolder,
+  localDate: string,
+) => Promise<ExportOutcome | null>;
 
-export interface PanelNotice {
-  readonly identifier: number;
-  readonly level: NoticeLevel;
-  readonly text: string;
+export interface ControlPanelOptions {
+  /** Host time and timers; the system clock by default. */
+  readonly timeSource?: TimeSource;
+  /** Where exports go; the folder chooser or the downloads of the browser by default. */
+  readonly writeExport?: ExportWriter;
 }
 
 export class ControlPanel {
-  connections = $state.raw<readonly ConnectionView[]>([]);
-  streamRecords = $state.raw<readonly ConsoleRecord[]>([]);
+  readonly nodes: NodeDirectory = new NodeDirectory({
+    onSelectionChange: () => this.#publishStream(),
+  });
+  readonly stream = new EventStream();
+  /**
+   * One session per radio test that the panel starts (RADIO_TESTS of radio-test-activity.ts): the
+   * exclusion rule sees every one of them.
+   */
+  readonly #sessions = {
+    "capacity-test": this.#session<CapacityTestCampaign, CampaignSnapshot, "capacity-test">(
+      "capacity-test",
+      isCampaignActive,
+    ),
+    "echo-series": this.#session<EchoSeries, EchoSeriesSnapshot, "echo-series">(
+      "echo-series",
+      isEchoSeriesActive,
+    ),
+    "communication-test": this.#session<
+      CommunicationTest,
+      CommunicationTestSnapshot,
+      "communication-test"
+    >("communication-test", isCommunicationTestActive),
+    "receiver-mode": this.#session<CommunicationReceiver, ReceiverModeSnapshot, "receiver-mode">(
+      "receiver-mode",
+      isReceiverModeActive,
+    ),
+  } satisfies {
+    readonly [Kind in SessionTestKind]: { readonly kind: Kind; readonly activity: unknown };
+  };
+  readonly campaign = this.#sessions["capacity-test"];
+  readonly echoSeries = this.#sessions["echo-series"];
+  readonly communicationTest = this.#sessions["communication-test"];
+  readonly receiverMode = this.#sessions["receiver-mode"];
+
   runs = $state.raw<readonly TestRunView[]>([]);
   summaryRows = $state.raw<readonly TestRunSummaryRow[]>([]);
   journalSize = $state(0);
   journalRejectedCount = $state(0);
   journalStartTime = $state<number | null>(null);
   participatingNodes = $state.raw<readonly ParticipatingNode[]>([]);
-  campaign = $state.raw<CampaignSnapshot | null>(null);
-  echoSeries = $state.raw<EchoSeriesSnapshot | null>(null);
-  /** Connection whose node runs the echo series. */
-  echoSeriesKey = $state<string | null>(null);
-  communicationTest = $state.raw<CommunicationTestSnapshot | null>(null);
-  receiverMode = $state.raw<ReceiverModeSnapshot | null>(null);
   notices = $state.raw<readonly PanelNotice[]>([]);
-  /** `load_image` and `activate` commands sent since the journal was last cleared, oldest first. */
-  updateCommands = $state.raw<readonly UpdateCommandRecord[]>([]);
+  /** The connection graph of the open connections, at the host time of the last refresh. */
+  connectionGraph = $state.raw<ConnectionGraph>(buildConnectionGraph([], 0));
   /** Host time, updated every second, for ages and remaining times. */
-  now = $state(Date.now());
-  /**
-   * Connection that the operator chose in the node strip: the center of the connection graph and
-   * the node whose detail the panel shows. When it is null or gone, the first connection takes its
-   * place.
-   */
-  selectedKey = $state<string | null>(null);
+  now = $state(0);
 
   /** What the operator fills in once per field trip, for every export of the panel. */
   readonly measurementSheet = new MeasurementSheet();
+  /** Nodes of the power sweep and capacity test exports: the participating ones not excluded. */
+  readonly exportedNodes: readonly ParticipatingNode[] = $derived(
+    this.participatingNodes.filter(
+      (node) => !this.measurementSheet.excludedNodes.includes(node.id),
+    ),
+  );
+  /**
+   * How the last export of each kind went, until the record it came from is discarded: the
+   * measurement record for most, the test itself for each side of the communication test.
+   */
+  exportResults = $state.raw<ReadonlyMap<PanelExportKind, ExportResult>>(new Map());
+  /**
+   * Signing, loading and activation of the update section, with the record of the update commands
+   * and their metrics, computed while the update section is visible.
+   */
+  readonly update: UpdateController;
+  readonly exports: { readonly [Kind in PanelExportKind]: PanelExport } = {
+    "power-sweep": this.#runExport("power-sweep"),
+    "capacity-test": this.#runExport("capacity-test"),
+    "communication-sender": {
+      layout: SENDER_EXPORT_LAYOUT,
+      write: (description) => this.#exportCommunicationTest(description),
+    },
+    "communication-receiver": {
+      layout: RECEIVER_EXPORT_LAYOUT,
+      write: (description) => this.#exportReceiverMode(description),
+    },
+    update: {
+      layout: UPDATE_EXPORT_LAYOUT,
+      write: (description) =>
+        this.#export("update", () => this.update.record.exportOf(description)),
+    },
+  };
 
   readonly webSerialAvailable = isWebSerialAvailable();
   readonly directoryPickerAvailable = isDirectoryPickerAvailable();
 
-  readonly #connections = new Map<string, NodeConnection>();
-  readonly #viewCache = new Map<string, { revision: number; view: ConnectionView }>();
-  readonly #stream = new BoundedLog<ConsoleRecord>(STREAM_CAPACITY);
+  readonly #timeSource: TimeSource;
+  readonly #writeExport: ExportWriter;
   readonly #ledger = new TestRunLedger();
   readonly #journal = new EventJournal();
-  #campaign: CapacityTestCampaign | null = null;
-  #echoSeries: EchoSeries | null = null;
-  #communicationTest: CommunicationTest | null = null;
-  #receiverMode: CommunicationReceiver | null = null;
-  #connectionCounter = 0;
   /** Connections that reached the open status, whose loss deserves a notice. */
   readonly #openedKeys = new Set<string>();
+  #visibleSection = $state<PanelSection>("network");
   #noticeCounter = 0;
   #refreshPending = false;
 
-  constructor() {
-    setInterval(() => this.#tick(), TICK_INTERVAL_MILLISECONDS);
-    window.addEventListener("beforeunload", (event) => {
-      if (this.isCampaignActive || this.isCommunicationTestActive || this.isReceiverModeActive) {
-        event.preventDefault();
-      }
+  /** The tests in progress: at most one, unless runs were started at the console by hand. */
+  readonly activities: readonly RadioTestActivity[] = $derived(
+    listRadioTestActivities(
+      Object.values(this.#sessions).flatMap((session) =>
+        session.activity === null ? [] : [session.activity],
+      ),
+      this.nodes.connections,
+    ),
+  );
+
+  constructor(options: ControlPanelOptions = {}) {
+    this.#timeSource = options.timeSource ?? SYSTEM_TIME_SOURCE;
+    this.#writeExport = options.writeExport ?? writeWithBrowser;
+    this.update = new UpdateController(this, {
+      journal: this.#journal,
+      timeSource: this.#timeSource,
+      connection: (key) => this.nodes.connection(key),
+      send: (key, line) => this.sendCommand(key, line),
     });
+    this.now = this.#timeSource.now();
+    scheduleRepeatedly(this.#timeSource, () => this.#tick(), TICK_INTERVAL_MILLISECONDS);
   }
 
-  get isCampaignActive(): boolean {
-    const status = this.campaign?.status;
-    return (
-      status === "running" || status === "pausing" || status === "paused" || status === "stopping"
-    );
+  get visibleSection(): PanelSection {
+    return this.#visibleSection;
   }
 
-  /**
-   * Identified nodes that transmit a manual run of the power sweep: the runs of an active capacity
-   * test belong to the test.
-   */
-  get manualRunConnections(): readonly ConnectionView[] {
-    const campaignSender = this.isCampaignActive ? (this.campaign?.sender ?? null) : null;
-    return this.connections.filter(
-      (connection) =>
-        connection.status === "open" &&
-        connection.state.identifier !== null &&
-        connection.state.identifier !== campaignSender &&
-        connection.state.senderRun !== null &&
-        connection.state.senderRun.completion === null,
-    );
+  set visibleSection(section: PanelSection) {
+    this.#visibleSection = section;
+    this.#refresh();
   }
 
-  get hasWebSocketConnection(): boolean {
-    return this.connections.some(
-      (connection) => connection.transportKind === "websocket" && connection.status !== "closed",
-    );
+  /** True while any radio test runs, so that closing the page asks first. */
+  get hasActiveTest(): boolean {
+    return this.activities.length > 0;
   }
 
-  /** The connection chosen in the node strip, or the first one; null without connections. */
-  get selectedConnection(): ConnectionView | null {
-    return (
-      this.connections.find((connection) => connection.key === this.selectedKey) ??
-      this.connections[0] ??
-      null
-    );
+  /** Why `action` cannot start now on the nodes of `keys`, or null when it can. */
+  refusal(action: RadioAction, ...keys: string[]): RadioTestRefusal | null {
+    return findRefusal(action, keys, this.activities, (key) => this.nodes.byKey(key));
   }
 
   /**
-   * The chosen connection when its node can take commands: open and identified. Every section acts
-   * on it; null tells the section to ask the operator to choose such a node above.
+   * The node of a section that runs the tests of `kinds`: the node of the test while one runs,
+   * else the node chosen above.
    */
-  get selectedIdentifiedConnection(): ConnectionView | null {
-    const connection = this.selectedConnection;
-    return connection !== null &&
-      connection.status === "open" &&
-      connection.state.identifier !== null
-      ? connection
-      : null;
-  }
-
-  /** Open connections whose node is already identified. */
-  get identifiedConnections(): readonly ConnectionView[] {
-    return this.connections.filter(
-      (connection) => connection.status === "open" && connection.state.identifier !== null,
-    );
+  testTarget(...kinds: RadioTestKind[]): TestTarget {
+    const activity = this.activities.find((candidate) => kinds.includes(candidate.kind));
+    const key = activity?.keys[0];
+    return key === undefined
+      ? { pinned: false, connection: this.nodes.selectedIdentified }
+      : { pinned: true, connection: this.nodes.identifiedByKey(key) };
   }
 
   async connectSerial(): Promise<void> {
@@ -238,39 +284,46 @@ export class ControlPanel {
     try {
       transport = await requestSerialConsoleTransport();
     } catch (error) {
-      // Closing the port chooser without choosing is not an error.
-      if (!(error instanceof DOMException && error.name === "NotFoundError")) {
-        this.notify("error", `No se pudo elegir el puerto: ${describeTransportError(error)}`);
-      }
+      this.notify("error", `No se pudo elegir el puerto: ${describeError(error)}`);
       return;
     }
-    await this.#openAndSelect(`usb-${++this.#connectionCounter}`, transport);
+    if (transport !== null) {
+      await this.connect(transport);
+    }
   }
 
-  async connectWifi(address = DEFAULT_CONSOLE_ADDRESS): Promise<void> {
-    const transport = new WebSocketConsoleTransport(address);
-    await this.#openAndSelect(`wifi-${++this.#connectionCounter}`, transport);
+  async connectWifi(): Promise<void> {
+    await this.connect(new WebSocketConsoleTransport());
+  }
+
+  /**
+   * Opens a connection and chooses its node at once. If the connection does not open, the node
+   * chosen before comes back, unless the operator chose another one meanwhile.
+   */
+  async connect(transport: ConsoleTransport): Promise<void> {
+    const key = this.nodes.nextKey(transport.kind);
+    const previousKey = this.nodes.selectedKey;
+    this.nodes.select(key);
+    if (!(await this.#openConnection(key, transport))) {
+      this.nodes.restoreSelection(previousKey, key);
+    }
   }
 
   async disconnect(key: string): Promise<void> {
-    await this.#connections.get(key)?.close();
+    await this.nodes.connection(key)?.close();
     this.#scheduleRefresh();
   }
 
   /** Forgets a closed connection; its events stay in the journal until it is cleared. */
   remove(key: string): void {
-    const connection = this.#connections.get(key);
-    if (connection === undefined || connection.status !== "closed") {
-      return;
+    if (this.nodes.remove(key)) {
+      this.#scheduleRefresh();
     }
-    this.#connections.delete(key);
-    this.#viewCache.delete(key);
-    this.#scheduleRefresh();
   }
 
   /** Sends a command to a node; reports a failure as a notice and returns false. */
   async sendCommand(key: string, command: string): Promise<boolean> {
-    const connection = this.#connections.get(key);
+    const connection = this.nodes.connection(key);
     if (connection === undefined) {
       return false;
     }
@@ -278,75 +331,29 @@ export class ControlPanel {
       await connection.sendCommand(command);
       return true;
     } catch (error) {
-      this.notify("error", `No se pudo enviar «${command}»: ${describeTransportError(error)}`);
+      this.notify("error", `No se pudo enviar «${command}»: ${describeError(error)}`);
       return false;
     } finally {
       this.#scheduleRefresh();
     }
   }
 
-  /** The connection graph of the open connections, at the host time of the last refresh. */
-  get connectionGraph(): ConnectionGraph {
-    return buildConnectionGraph(
-      this.connections
-        .filter((connection) => connection.status === "open")
-        .map((connection) => connection.state),
-      this.now,
-    );
-  }
-
   /**
-   * M1, M2 and M3 of the update of `version`, from the journal and the commands the panel sent.
-   * Null when no node accepted a `load_image` with that version since the journal was cleared.
-   * With `nodes`, the graph is those nodes; by default, every node the events name.
+   * Sends a line the operator typed. A `load_image` or an `activate` typed by hand counts for the
+   * update metrics like those of the update section.
    */
-  measureUpdate(version: number, nodes?: readonly NodeIdentifier[]): UpdateMetrics | null {
-    const times = updateCommandTimesOf(this.updateCommands, version);
-    if (times === null) {
-      return null;
-    }
-    return computeUpdateMetrics({
-      version,
-      ...times,
-      events: this.#journal.consoleEvents(),
-      ...(nodes === undefined ? {} : { nodes }),
-    });
+  sendTypedCommand(key: string, line: string): Promise<boolean> {
+    return this.update.record.sendTyped(key, line);
   }
 
-  /** Versions a node accepted with `load_image` since the journal was cleared, oldest first. */
-  get updateVersions(): readonly number[] {
-    return loadedUpdateVersions(this.updateCommands);
+  /** Sends a `run` command of the power sweep, unless the exclusion rule refuses it. */
+  async startManualRun(key: string, command: string): Promise<boolean> {
+    return this.#allows("manual-run", key) && (await this.sendCommand(key, command));
   }
 
-  /**
-   * Exports every update loaded since the journal was cleared: M1, M2 and M3 per receiver, the
-   * commands of the panel and every event of the journal. Null when there is no update or the
-   * operator cancelled the folder chooser.
-   */
-  async exportUpdates(description: UpdateDescription): Promise<ExportOutcome | null> {
-    const metrics = this.updateVersions.flatMap((version) => {
-      const measured = this.measureUpdate(version);
-      return measured === null ? [] : [measured];
-    });
-    if (metrics.length === 0) {
-      return null;
-    }
-    const exportDate = new Date();
-    const files = buildUpdateFiles({
-      metrics,
-      commands: this.updateCommands,
-      description,
-      nodes: this.#journal.participatingNodes(),
-      events: this.#journal.events(),
-      models: boardModelsOf(this.#journal.consoleEvents()),
-      exportDate,
-      panelVersion: __PANEL_VERSION__,
-    });
-    return this.#writeExportFiles(files, exportDate, UPDATE_TEST);
-  }
-
-  connection(key: string): ConnectionView | undefined {
-    return this.connections.find((connection) => connection.key === key);
+  /** Sends a `radio` command that changes settings, unless the exclusion rule refuses it. */
+  async changeRadioSettings(key: string, command: string): Promise<boolean> {
+    return this.#allows("radio-settings", key) && (await this.sendCommand(key, command));
   }
 
   startCampaign(
@@ -354,82 +361,60 @@ export class ControlPanel {
     senderKey: string,
     receiverKey: string,
   ): void {
-    if (this.isCampaignActive) {
+    if (!this.#allows("capacity-test", senderKey, receiverKey)) {
       return;
     }
-    if (this.isCommunicationTestActive || this.isReceiverModeActive) {
-      this.notify(
-        "error",
-        "Hay una prueba de comunicación en curso o el modo receptor está activo.",
-      );
-      return;
-    }
-    const sender = this.#nodePort(senderKey);
-    const receiver = this.#nodePort(receiverKey);
-    if (sender === null || receiver === null || sender.identifier === receiver.identifier) {
-      this.notify("error", "La prueba necesita dos nodos distintos, conectados e identificados.");
+    const sender = this.nodes.port(senderKey);
+    const receiver = this.nodes.port(receiverKey);
+    if (sender === null || receiver === null) {
       return;
     }
     const campaign = new CapacityTestCampaign({
       sender,
       receiver,
       points: buildCapacityTestPlan(configuration),
-      onChange: (snapshot) => {
-        this.campaign = snapshot;
-      },
+      timeSource: this.#timeSource,
+      onChange: this.campaign.publish,
       onSilentReception: (senderIdentifier, run, receiverIdentifier) => {
         this.#ledger.closeReceptionWithoutPackets(senderIdentifier, run, receiverIdentifier);
         this.#scheduleRefresh();
       },
     });
-    this.#campaign = campaign;
-    this.campaign = campaign.snapshot;
-    campaign.run().then(
-      (snapshot) => {
-        this.notify(
-          "information",
-          snapshot.status === "finished"
-            ? "La prueba de capacidad terminó."
-            : "La prueba de capacidad se detuvo.",
-        );
-      },
-      (error: unknown) => {
-        this.notify("error", `La prueba de capacidad falló: ${describeTransportError(error)}`);
-      },
+    this.campaign.begin(
+      campaign,
+      campaign.snapshot,
+      [senderKey, receiverKey],
+      [sender.identifier, receiver.identifier],
     );
+    this.campaign.follow(campaign.run(), {
+      failure: "La prueba de capacidad falló",
+      describe: (snapshot) => [
+        {
+          level: "information",
+          text:
+            snapshot.status === "finished"
+              ? "La prueba de capacidad terminó."
+              : "La prueba de capacidad se detuvo.",
+        },
+      ],
+    });
   }
 
   pauseCampaign(): void {
-    this.#campaign?.pause();
+    this.campaign.test?.pause();
   }
 
   resumeCampaign(): void {
-    this.#campaign?.resume();
+    this.campaign.test?.resume();
   }
 
   stopCampaign(): void {
-    this.#campaign?.stop();
+    this.campaign.test?.stop();
   }
 
-  get isCommunicationTestActive(): boolean {
-    const status = this.communicationTest?.status;
-    return status === "preparing" || status === "measuring" || status === "restoring";
-  }
-
-  /** True from the activation of receiver mode until its deactivation ends. */
-  get isReceiverModeActive(): boolean {
-    const status = this.receiverMode?.status;
-    return status === "activating" || status === "active" || status === "deactivating";
-  }
-
-  /** True while any test changes the radio settings or the HELLO messages of a node. */
-  get isRadioTestActive(): boolean {
-    return (
-      this.isCampaignActive ||
-      this.isEchoSeriesActive ||
-      this.isCommunicationTestActive ||
-      this.isReceiverModeActive
-    );
+  /** Forgets the results of a campaign that ended; the summary rows stay in the ledger. */
+  discardCampaign(): void {
+    this.campaign.discard();
   }
 
   /**
@@ -442,59 +427,43 @@ export class ControlPanel {
     key: string,
     destination: NodeIdentifier,
   ): void {
-    if (this.isRadioTestActive) {
-      this.notify("error", "Hay otra prueba en curso o el modo receptor está activo.");
-      return;
-    }
-    const node = this.#nodePort(key);
-    const radio = this.#connections.get(key)?.state.radio ?? null;
-    if (node === null || radio === null) {
-      this.notify(
-        "error",
-        "El nodo tiene que estar conectado, identificado y con sus parámetros de radio conocidos.",
-      );
+    const prepared = this.#prepare("communication-test", key);
+    if (prepared === null) {
       return;
     }
     const test = new CommunicationTest({
-      node,
-      radio,
+      ...prepared,
       destination,
       configuration,
-      onChange: (snapshot) => {
-        this.communicationTest = snapshot;
-      },
+      timeSource: this.#timeSource,
+      onChange: this.communicationTest.publish,
     });
-    this.#communicationTest = test;
-    this.communicationTest = test.snapshot;
-    test.run().then(
-      (snapshot) => {
-        if (snapshot.status === "failed" && snapshot.failure !== null) {
-          this.notify("error", `La prueba de comunicación falló: ${snapshot.failure}`);
-        } else {
-          this.notify(
-            "information",
-            snapshot.status === "finished"
-              ? "La prueba de comunicación terminó."
-              : "La prueba de comunicación se detuvo.",
-          );
-        }
-        this.#reportRestoration(snapshot.restored, snapshot.restorationProblems);
-      },
-      (error: unknown) => {
-        this.notify("error", `La prueba de comunicación falló: ${describeTransportError(error)}`);
-      },
-    );
+    this.#forgetExport("communication-sender");
+    this.communicationTest.begin(test, test.snapshot, [key], [prepared.node.identifier]);
+    this.communicationTest.follow(test.run(), {
+      failure: "La prueba de comunicación falló",
+      describe: (snapshot) => [
+        snapshot.status === "failed" && snapshot.failure !== null
+          ? { level: "error", text: `La prueba de comunicación falló: ${snapshot.failure}` }
+          : {
+              level: "information",
+              text:
+                snapshot.status === "finished"
+                  ? "La prueba de comunicación terminó."
+                  : "La prueba de comunicación se detuvo.",
+            },
+        ...restorationNotices(snapshot),
+      ],
+    });
   }
 
   stopCommunicationTest(): void {
-    this.#communicationTest?.stop();
+    this.communicationTest.test?.stop();
   }
 
   discardCommunicationTest(): void {
-    if (!this.isCommunicationTestActive) {
-      this.#communicationTest = null;
-      this.communicationTest = null;
-    }
+    this.communicationTest.discard();
+    this.#forgetExport("communication-sender");
   }
 
   /**
@@ -502,108 +471,205 @@ export class ControlPanel {
    * operator of the sender. Echoes from any node are answered and recorded until deactivation.
    */
   activateReceiverMode(key: string, modulation: Modulation): void {
-    if (this.isRadioTestActive) {
-      this.notify("error", "Hay otra prueba en curso o el modo receptor ya está activo.");
-      return;
-    }
-    const node = this.#nodePort(key);
-    const radio = this.#connections.get(key)?.state.radio ?? null;
-    if (node === null || radio === null) {
-      this.notify(
-        "error",
-        "El nodo tiene que estar conectado, identificado y con sus parámetros de radio conocidos.",
-      );
+    const prepared = this.#prepare("receiver-mode", key);
+    if (prepared === null) {
       return;
     }
     const receiver = new CommunicationReceiver({
-      node,
-      radio,
+      ...prepared,
       modulation,
-      onChange: (snapshot) => {
-        this.receiverMode = snapshot;
-      },
+      timeSource: this.#timeSource,
+      onChange: this.receiverMode.publish,
     });
-    this.#receiverMode = receiver;
-    this.receiverMode = receiver.snapshot;
-    receiver.activate().then(
-      (snapshot) => {
-        if (snapshot.status === "failed") {
-          this.notify("error", `No se pudo activar el modo receptor: ${snapshot.failure ?? ""}`);
-          this.#reportRestoration(snapshot.restored, snapshot.restorationProblems);
-        }
-      },
-      (error: unknown) => {
-        this.notify(
-          "error",
-          `No se pudo activar el modo receptor: ${describeTransportError(error)}`,
-        );
-      },
-    );
+    this.#forgetExport("communication-receiver");
+    this.receiverMode.begin(receiver, receiver.snapshot, [key], [prepared.node.identifier]);
+    this.receiverMode.follow(receiver.activate(), {
+      failure: "No se pudo activar el modo receptor",
+      describe: (snapshot) =>
+        snapshot.status === "failed"
+          ? [
+              {
+                level: "error",
+                text: `No se pudo activar el modo receptor: ${snapshot.failure ?? ""}`,
+              },
+              ...restorationNotices(snapshot),
+            ]
+          : [],
+    });
   }
 
   deactivateReceiverMode(): void {
-    this.#receiverMode?.deactivate().then(
-      (snapshot) => {
-        this.#reportRestoration(snapshot.restored, snapshot.restorationProblems);
-      },
-      (error: unknown) => {
-        this.notify(
-          "error",
-          `No se pudo desactivar el modo receptor: ${describeTransportError(error)}`,
-        );
-      },
-    );
+    const receiver = this.receiverMode.test;
+    if (receiver !== null) {
+      this.receiverMode.follow(receiver.deactivate(), {
+        failure: "No se pudo desactivar el modo receptor",
+        describe: restorationNotices,
+      });
+    }
   }
 
   discardReceiverMode(): void {
-    if (!this.isReceiverModeActive) {
-      this.#receiverMode = null;
-      this.receiverMode = null;
-    }
+    this.receiverMode.discard();
+    this.#forgetExport("communication-receiver");
   }
 
   /**
-   * Exports the last communication test of the sender: its metrics, its echoes and the events of
-   * the node while it lasted. Returns null when the operator cancelled the folder chooser.
+   * Requests `count` echoes from the node of `requesterKey` to `destination`, one at a time; a
+   * single echo too, so that it waits for the tests that change the radio of the node.
    */
-  async exportCommunicationTest(
-    description: CommunicationTestDescription,
-  ): Promise<ExportOutcome | null> {
-    const snapshot = this.communicationTest;
-    if (snapshot === null || snapshot.startHostTime === null || this.isCommunicationTestActive) {
-      return null;
+  startEchoSeries(
+    requesterKey: string,
+    destination: string,
+    size: number | undefined,
+    count: number,
+  ): void {
+    const prepared = this.#prepare("echo-series", requesterKey);
+    if (prepared === null) {
+      return;
     }
-    const node = snapshot.requester;
-    const exportDate = new Date();
-    const files = buildCommunicationTestFiles(
-      snapshot,
-      description,
-      this.#participatingNodesAmong([node, snapshot.responder]),
-      this.#eventsOf(node, snapshot.startHostTime, snapshot.endHostTime),
-      exportDate,
-      __PANEL_VERSION__,
-    );
-    return this.#writeExportFiles(files, exportDate, COMMUNICATION_TEST);
+    const series = new EchoSeries({
+      ...prepared,
+      destination,
+      size,
+      count,
+      timeSource: this.#timeSource,
+      onChange: this.echoSeries.publish,
+    });
+    this.echoSeries.begin(series, series.snapshot, [requesterKey], [prepared.node.identifier]);
+    this.echoSeries.follow(series.run(), {
+      failure: "La serie de ecos falló",
+      describe: (snapshot) =>
+        snapshot.status === "failed" && snapshot.failure !== null
+          ? [{ level: "error", text: snapshot.failure }]
+          : [],
+    });
   }
 
-  /** Exports what the node answered in receiver mode; null when the chooser was cancelled. */
-  async exportReceiverMode(
-    description: CommunicationTestDescription,
-  ): Promise<ExportOutcome | null> {
-    const snapshot = this.receiverMode;
-    if (snapshot === null || this.isReceiverModeActive) {
+  stopEchoSeries(): void {
+    this.echoSeries.test?.stop();
+  }
+
+  #exportCommunicationTest(description: MeasurementDescription): Promise<ExportResult | null> {
+    return this.#export("communication-sender", () => {
+      const snapshot = this.communicationTest.snapshot;
+      if (snapshot === null || snapshot.startHostTime === null || this.communicationTest.isActive) {
+        return null;
+      }
+      const node = snapshot.requester;
+      return buildSenderExport(
+        snapshot,
+        description,
+        this.#participatingNodesAmong([node, snapshot.responder]),
+        this.#eventsOf(node, snapshot.startHostTime, snapshot.endHostTime),
+      );
+    });
+  }
+
+  #exportReceiverMode(description: MeasurementDescription): Promise<ExportResult | null> {
+    return this.#export("communication-receiver", () => {
+      const snapshot = this.receiverMode.snapshot;
+      if (snapshot === null || this.receiverMode.isActive) {
+        return null;
+      }
+      return buildReceiverExport(
+        snapshot,
+        description,
+        this.#participatingNodesAmong([snapshot.node]),
+        this.#eventsOf(snapshot.node, snapshot.activationHostTime, snapshot.deactivationHostTime),
+      );
+    });
+  }
+
+  #runExport(test: MeasurementTest): PanelExport {
+    return {
+      layout: RUN_EXPORT_LAYOUTS[test],
+      write: (description) => this.#export(test, () => this.#buildRunExport(test, description)),
+    };
+  }
+
+  #buildRunExport(test: MeasurementTest, description: MeasurementDescription): MeasurementExport {
+    const selected = new Set(this.exportedNodes.map((node) => node.id));
+    const participating = this.#journal.participatingNodes();
+    const participatingIdentifiers = new Set(participating.map((node) => node.id));
+    // A run belongs to the export when its receiver was chosen and its sender was either chosen
+    // or never connected to the panel.
+    const rows = this.#ledger.rows.filter(
+      (row) =>
+        selected.has(row.receiver) &&
+        (selected.has(row.sender) || !participatingIdentifiers.has(row.sender)),
+    );
+    return buildRunExport(
+      test,
+      description,
+      participating.filter((node) => selected.has(node.id)),
+      this.#journal.events(selected),
+      rows,
+    );
+  }
+
+  /** Discards the recorded events and runs, to start a new measurement. */
+  clearMeasurementRecord(): void {
+    this.#journal.clear();
+    this.#ledger.clear();
+    this.update.record.clear();
+    this.exportResults = new Map();
+    this.#scheduleRefresh();
+  }
+
+  clearStream(): void {
+    this.stream.clear();
+    this.#scheduleRefresh();
+  }
+
+  notify(level: NoticeLevel, text: string): void {
+    const identifier = ++this.#noticeCounter;
+    this.notices = [...this.notices, { identifier, level, text }];
+    if (level === "information") {
+      this.#timeSource.schedule(
+        () => this.dismissNotice(identifier),
+        INFORMATION_NOTICE_LIFETIME_MILLISECONDS,
+      );
+    }
+  }
+
+  dismissNotice(identifier: number): void {
+    this.notices = this.notices.filter((notice) => notice.identifier !== identifier);
+  }
+
+  /** Applies the exclusion rule to an action; tells the operator why it was refused. */
+  #allows(action: RadioAction, ...keys: string[]): boolean {
+    // The views may be up to one refresh old; the rule looks at the connections as they are now.
+    this.nodes.publish();
+    const refusal = this.refusal(action, ...keys);
+    if (refusal !== null) {
+      this.notify("error", refusal.message);
+      return false;
+    }
+    return true;
+  }
+
+  #session<Test, Snapshot, const Kind extends SessionTestKind>(
+    kind: Kind,
+    isActive: (snapshot: Snapshot) => boolean,
+  ): RadioTestSession<Test, Snapshot, Kind> {
+    return new RadioTestSession<Test, Snapshot, Kind>({
+      kind,
+      isActive,
+      notify: (level, text) => this.notify(level, text),
+    });
+  }
+
+  /** The port and the radio settings a one-node test starts from, once the rule allows it. */
+  #prepare(
+    action: SingleNodeRadioTestKind,
+    key: string,
+  ): { node: NodePort; radio: RadioSettings } | null {
+    if (!this.#allows(action, key)) {
       return null;
     }
-    const exportDate = new Date();
-    const files = buildReceiverFiles(
-      snapshot,
-      description,
-      this.#participatingNodesAmong([snapshot.node]),
-      this.#eventsOf(snapshot.node, snapshot.activationHostTime, snapshot.deactivationHostTime),
-      exportDate,
-      __PANEL_VERSION__,
-    );
-    return this.#writeExportFiles(files, exportDate, COMMUNICATION_TEST);
+    const node = this.nodes.port(key);
+    const radio = this.nodes.byKey(key)?.state.radio ?? null;
+    return node === null || radio === null ? null : { node, radio };
   }
 
   #participatingNodesAmong(identifiers: readonly NodeIdentifier[]): ParticipatingNode[] {
@@ -612,202 +678,65 @@ export class ControlPanel {
   }
 
   #eventsOf(node: NodeIdentifier, start: number, end: number | null): ExportedEvent[] {
-    const last = end ?? Date.now();
+    const last = end ?? this.#timeSource.now();
     return [...this.#journal.events(new Set([node]))].filter(
       (event) => event.hostTime >= start && event.hostTime <= last,
     );
   }
 
-  async #writeExportFiles(
-    files: readonly MeasurementFile[],
-    exportDate: Date,
-    test: ExportedTest,
-  ): Promise<ExportOutcome | null> {
-    const localDate = formatLocalDate(exportDate);
-    try {
-      if (this.directoryPickerAvailable) {
-        return await writeMeasurementToDirectory(files, localDate, test);
-      }
-      return downloadMeasurementFiles(files, localDate, test);
-    } catch (error) {
-      if (isPickerCancellation(error)) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  #reportRestoration(restored: boolean | null, problems: readonly string[]): void {
-    if (restored === false) {
-      this.notify(
-        "error",
-        `No se pudo dejar el nodo como estaba: ${problems.join(" ")} ` +
-          "Conviene revisar la radio del nodo en la pestaña Red o reiniciar el nodo.",
-      );
-    }
-  }
-
-  /** Forgets the results of a campaign that ended; the summary rows stay in the ledger. */
-  discardCampaign(): void {
-    if (!this.isCampaignActive) {
-      this.#campaign = null;
-      this.campaign = null;
-    }
-  }
-
-  get isEchoSeriesActive(): boolean {
-    const status = this.echoSeries?.status;
-    return status === "running" || status === "stopping";
-  }
-
-  /** Requests `count` echoes from the node of `requesterKey` to `destination`, one at a time. */
-  startEchoSeries(
-    requesterKey: string,
-    destination: string,
-    size: number | undefined,
-    count: number,
-  ): void {
-    if (this.isEchoSeriesActive) {
-      return;
-    }
-    if (this.isCommunicationTestActive || this.isReceiverModeActive) {
-      this.notify(
-        "error",
-        "Hay una prueba de comunicación en curso o el modo receptor está activo.",
-      );
-      return;
-    }
-    const node = this.#nodePort(requesterKey);
-    if (node === null) {
-      this.notify("error", "El nodo que pide los ecos tiene que estar conectado e identificado.");
-      return;
-    }
-    const series = new EchoSeries({
-      node,
-      destination,
-      size,
-      count,
-      onChange: (snapshot) => {
-        this.echoSeries = snapshot;
-      },
-    });
-    this.#echoSeries = series;
-    this.echoSeriesKey = requesterKey;
-    this.echoSeries = series.snapshot;
-    series.run().then(
-      (snapshot) => {
-        if (snapshot.status === "failed" && snapshot.failure !== null) {
-          this.notify("error", snapshot.failure);
-        }
-      },
-      (error: unknown) => {
-        this.notify("error", `La serie de ecos falló: ${describeTransportError(error)}`);
-      },
-    );
-  }
-
-  stopEchoSeries(): void {
-    this.#echoSeries?.stop();
-  }
-
-  /** The summary row of a run, for the views of the campaign. */
-  findSummaryRow(
-    sender: NodeIdentifier,
-    run: number,
-    receiver: NodeIdentifier,
-  ): TestRunSummaryRow | null {
-    return this.#ledger.findRow(sender, run, receiver);
-  }
-
   /**
-   * Exports the events and the summary of the nodes chosen. Returns null when the operator
-   * cancelled the folder chooser.
+   * Writes the export that `build` describes and records how it went for `kind`. Null, and
+   * nothing recorded, when there is nothing to export or the operator cancelled the chooser.
    */
-  async exportMeasurement(
-    description: MeasurementDescription,
-    nodeIdentifiers: readonly NodeIdentifier[],
-  ): Promise<ExportOutcome | null> {
-    const selected = new Set(nodeIdentifiers);
-    const participating = this.#journal.participatingNodes();
-    const participatingIdentifiers = new Set(participating.map((node) => node.id));
-    const nodes = participating.filter((node) => selected.has(node.id));
-    // A run belongs to the export when its receiver was chosen and its sender was either chosen
-    // or never connected to the panel.
-    const rows = this.#ledger.rows.filter(
-      (row) =>
-        selected.has(row.receiver) &&
-        (selected.has(row.sender) || !participatingIdentifiers.has(row.sender)),
-    );
-    const exportDate = new Date();
-    const metadata = buildMetadata(description, nodes, exportDate, __PANEL_VERSION__);
-    const files = buildMeasurementFiles(metadata, this.#journal.events(selected), rows);
-    const localDate = formatLocalDate(exportDate);
+  async #export(
+    kind: PanelExportKind,
+    build: () => MeasurementExport | null,
+  ): Promise<ExportResult | null> {
+    this.#forgetExport(kind);
+    let result: ExportResult | null;
     try {
-      if (this.directoryPickerAvailable) {
-        return await writeMeasurementToDirectory(files, localDate, description.test);
-      }
-      return downloadMeasurementFiles(files, localDate, description.test);
+      const measurement = build();
+      const exportDate = new Date(this.#timeSource.now());
+      const outcome =
+        measurement === null
+          ? null
+          : await this.#writeExport(
+              buildExportFolder(measurement, exportDate, __PANEL_VERSION__),
+              formatLocalDate(exportDate),
+            );
+      result = outcome === null ? null : { kind: "written", outcome };
     } catch (error) {
-      if (isPickerCancellation(error)) {
-        return null;
-      }
-      throw error;
+      result = { kind: "failed", message: describeError(error) };
     }
-  }
-
-  /** Discards the recorded events and runs, to start a new measurement. */
-  clearMeasurementRecord(): void {
-    this.#journal.clear();
-    this.#ledger.clear();
-    this.updateCommands = [];
-    this.#scheduleRefresh();
-  }
-
-  clearStream(): void {
-    this.#stream.clear();
-    this.#scheduleRefresh();
-  }
-
-  notify(level: NoticeLevel, text: string): void {
-    const identifier = ++this.#noticeCounter;
-    this.notices = [...this.notices, { identifier, level, text }];
-    if (level === "information") {
-      setTimeout(() => this.dismissNotice(identifier), INFORMATION_NOTICE_LIFETIME_MILLISECONDS);
+    if (result !== null) {
+      this.exportResults = new Map([...this.exportResults, [kind, result]]);
     }
+    return result;
   }
 
-  dismissNotice(identifier: number): void {
-    this.notices = this.notices.filter((notice) => notice.identifier !== identifier);
-  }
-
-  /**
-   * Opens a connection and chooses its node at once. If the connection does not open, the node
-   * chosen before comes back, unless the operator chose another one meanwhile.
-   */
-  async #openAndSelect(key: string, transport: ConsoleTransport): Promise<void> {
-    const previousKey = this.selectedKey;
-    this.selectedKey = key;
-    if (!(await this.#openConnection(key, transport)) && this.selectedKey === key) {
-      this.selectedKey = previousKey;
+  #forgetExport(kind: PanelExportKind): void {
+    if (this.exportResults.has(kind)) {
+      const results = new Map(this.exportResults);
+      results.delete(kind);
+      this.exportResults = results;
     }
   }
 
   /** Returns false when the connection did not open. */
   async #openConnection(key: string, transport: ConsoleTransport): Promise<boolean> {
-    const connection = new NodeConnection({ key, transport });
+    const connection = new NodeConnection({ key, transport, timeSource: this.#timeSource });
     connection.subscribe((record) => this.#acceptRecord(connection, record));
     connection.subscribeToStatus(() => this.#acceptStatusChange(connection));
-    this.#connections.set(key, connection);
+    this.nodes.add(connection);
     this.#scheduleRefresh();
     try {
       await connection.open();
       return true;
     } catch (error) {
-      this.#connections.delete(key);
-      this.#viewCache.delete(key);
+      this.nodes.forget(key);
       this.notify(
         "error",
-        `No se pudo conectar por ${transport.kind === "serial" ? "USB" : "WiFi"}: ${describeTransportError(error)}`,
+        `No se pudo conectar por ${TRANSPORT_LABELS[transport.kind]}: ${describeError(error)}`,
       );
       return false;
     } finally {
@@ -816,7 +745,7 @@ export class ControlPanel {
   }
 
   #acceptRecord(connection: NodeConnection, record: ConsoleRecord): void {
-    this.#stream.append(record);
+    this.stream.append(record);
     if (record.kind === "event" || record.kind === "unrecognized") {
       this.#journal.append(
         connection.key,
@@ -826,27 +755,8 @@ export class ControlPanel {
         record.kind === "event" ? record.event : null,
       );
     }
-    if (record.kind === "command") {
-      const command = parseUpdateCommand(record.text);
-      if (command !== null) {
-        this.updateCommands = [
-          ...this.updateCommands,
-          {
-            connectionKey: connection.key,
-            node: connection.state.identifier,
-            hostTime: record.hostTime,
-            command,
-          },
-        ];
-      }
-    }
-    if (record.kind === "event" && record.event.ev === "image" && record.event.via === "console") {
-      this.updateCommands = acceptLoadImage(
-        this.updateCommands,
-        connection.key,
-        record.event.version,
-        record.hostTime,
-      );
+    if (record.kind === "event") {
+      this.update.record.acceptEvent(connection.key, connection.state);
     }
     const identifier = connection.state.identifier;
     if (identifier !== null) {
@@ -860,14 +770,12 @@ export class ControlPanel {
 
   #acceptStatusChange(connection: NodeConnection): void {
     const identifier = connection.state.identifier;
-    if (connection.status === "closed" && identifier !== null) {
-      const stillConnected = [...this.#connections.values()].some(
-        (other) =>
-          other !== connection && other.status === "open" && other.state.identifier === identifier,
-      );
-      if (!stillConnected) {
-        this.#ledger.markNodeAbsent(identifier);
-      }
+    if (
+      connection.status === "closed" &&
+      identifier !== null &&
+      !this.nodes.isReachedElsewhere(connection)
+    ) {
+      this.#ledger.markNodeAbsent(identifier);
     }
     if (connection.status === "open") {
       this.#openedKeys.add(connection.key);
@@ -882,33 +790,12 @@ export class ControlPanel {
     this.#scheduleRefresh();
   }
 
-  /** The connection as the campaign and the echo series see a node. */
-  #nodePort(key: string): CampaignNode | null {
-    const connection = this.#connections.get(key);
-    const identifier = connection?.state.identifier ?? null;
-    if (connection === undefined || identifier === null || connection.status !== "open") {
-      return null;
-    }
-    return {
-      identifier,
-      sendCommand: (command) => connection.sendCommand(command),
-      subscribe: (listener) =>
-        connection.subscribe((record) => {
-          if (record.kind === "event") {
-            listener(record.event, record.hostTime);
-          }
-        }),
-    };
-  }
-
   #tick(): void {
-    this.now = Date.now();
+    this.now = this.#timeSource.now();
     if (this.#ledger.closeOverdueReceptions(this.now)) {
       this.#scheduleRefresh();
     }
-    if (this.isCampaignActive) {
-      this.#campaign?.refresh();
-    }
+    this.#publishGraph();
   }
 
   #scheduleRefresh(): void {
@@ -916,44 +803,16 @@ export class ControlPanel {
       return;
     }
     this.#refreshPending = true;
-    setTimeout(() => {
+    this.#timeSource.schedule(() => {
       this.#refreshPending = false;
       this.#refresh();
     }, REFRESH_INTERVAL_MILLISECONDS);
   }
 
   #refresh(): void {
-    const views: ConnectionView[] = [];
-    for (const connection of this.#connections.values()) {
-      const cached = this.#viewCache.get(connection.key);
-      if (cached !== undefined && cached.revision === connection.revision) {
-        views.push(cached.view);
-        continue;
-      }
-      const view: ConnectionView = {
-        key: connection.key,
-        transportKind: connection.transport.kind,
-        transportDescription: connection.transport.description,
-        status: connection.status,
-        closureMessage: connection.closureMessage,
-        state: connection.state,
-        duplicated: false,
-      };
-      this.#viewCache.set(connection.key, { revision: connection.revision, view });
-      views.push(view);
-    }
-    this.connections = views.map((view) => {
-      const identifier = view.state.identifier;
-      const duplicated =
-        identifier !== null &&
-        view.status !== "closed" &&
-        views.some(
-          (other) =>
-            other !== view && other.status !== "closed" && other.state.identifier === identifier,
-        );
-      return duplicated === view.duplicated ? view : { ...view, duplicated };
-    });
-    this.streamRecords = this.#stream.toArray();
+    this.nodes.publish();
+    this.#publishGraph();
+    this.#publishStream();
     if (this.runs !== this.#ledger.runs) {
       this.runs = this.#ledger.runs;
       this.summaryRows = this.#ledger.rows;
@@ -965,7 +824,39 @@ export class ControlPanel {
     if (!haveSameNodes(participating, this.participatingNodes)) {
       this.participatingNodes = participating;
     }
+    // The journal can hold many events: the metrics wait for the section and for new events.
+    if (this.#visibleSection === "update") {
+      this.update.record.publishMetrics();
+    }
   }
+
+  #publishGraph(): void {
+    this.connectionGraph = buildConnectionGraph(
+      this.nodes.open.map((connection) => connection.state),
+      this.now,
+    );
+  }
+
+  #publishStream(): void {
+    this.stream.publish(this.nodes.selected?.key ?? null, this.#visibleSection === "events");
+  }
+}
+
+/** The notice for a node the test could not leave as it found it. */
+function restorationNotices(snapshot: {
+  readonly restored: boolean | null;
+  readonly restorationProblems: readonly string[];
+}): SessionNotice[] {
+  return snapshot.restored === false
+    ? [
+        {
+          level: "error",
+          text:
+            `No se pudo dejar el nodo como estaba: ${snapshot.restorationProblems.join(" ")} ` +
+            "Conviene revisar los parámetros de radio del nodo o reiniciarlo.",
+        },
+      ]
+    : [];
 }
 
 function haveSameNodes(
@@ -978,4 +869,20 @@ function haveSameNodes(
       (node, index) => node.id === second[index]?.id && node.model === second[index]?.model,
     )
   );
+}
+
+async function writeWithBrowser(
+  folder: ExportFolder,
+  localDate: string,
+): Promise<ExportOutcome | null> {
+  try {
+    return isDirectoryPickerAvailable()
+      ? await writeMeasurementToDirectory(folder, localDate)
+      : downloadMeasurementFiles(folder, localDate);
+  } catch (error) {
+    if (isPickerCancellation(error)) {
+      return null;
+    }
+    throw error;
+  }
 }

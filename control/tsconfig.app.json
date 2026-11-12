@@ -9,13 +9,12 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     /**
-     * Typecheck JS in `.svelte` and `.js` files by default.
-     * Disable checkJs if you'd like to use dynamic types in JS.
-     * Note that setting allowJs false does not prevent the use
-     * of JS in `.svelte` files.
+     * The panel is written in TypeScript. JavaScript enters only through the tests that import the
+     * generator of the protocol sources (tools/*.mjs), which tsconfig.tools.json checks with the
+     * settings of Node; here only its types are read.
      */
     "allowJs": true,
-    "checkJs": true,
+    "checkJs": false,
     "moduleDetection": "force",
     "paths": {
       "$lib": ["./src/lib"],
