@@ -6,6 +6,7 @@
 
 #include "../console/event_sink.h"
 #include "../protocol/protocol_contract.h"
+#include "../vm/pin_port.h"
 #include "../vm/virtual_machine.h"
 #include "presence_service.h"
 #include "transfer_service.h"
@@ -22,7 +23,9 @@ namespace firmware {
 // vm_fault and program.
 class ActivationController : public TransferListener {
 public:
-  void begin(EventSink &events, const TransferService &transfer, PresenceService &presence);
+  // pins drives the GPIO of the board, whose model gives the pins that the program may use.
+  void begin(EventSink &events, const TransferService &transfer, PresenceService &presence,
+             PinPort &pins, BoardModel model);
 
   uint32_t activeVersion() const override { return vm_.version(); }
   // What the HELLO announces about the VM.

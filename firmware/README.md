@@ -62,6 +62,7 @@ Con el par por defecto, cualquiera que tenga el repositorio puede firmar una ima
 | | `node_events` | Eventos del nodo que no son de ningún servicio: `boot`, `status`, `radio`, `wifi`, `tx`, `drop`, `duplicate` e `id_conflict` |
 | `src/board/` | `board_support.h`, `board_radio.h` | Modelo de placa y lo que cambia de un modelo a otro: alimentación, etapa de RF, transceptor y sus pines, secuencia de arranque, LNA, corrección del RSSI y USB de la consola |
 | | `heltec_v2`, `heltec_v4_3` | Implementación de cada modelo; cada archivo se compila solo para su placa |
+| | `board_pin_port` | Pines GPIO de la VM a través del core de Arduino |
 | `src/radio/` | `radio_link` | Transceptor LoRa: parámetros en caliente, que esperan el fin de la transmisión en curso, transmisión y recepción con marcas de tiempo y resultado de cada operación (`RadioStatus`), sin que RadioLib salga del módulo |
 | | `received_frame.h` | Trama recibida, con su RSSI, su SNR, su error de frecuencia y su marca de tiempo |
 | | `radio_settings.h` | Parámetros de radio y sus valores por defecto, que salen del contrato |
@@ -97,7 +98,8 @@ Con el par por defecto, cualquiera que tenga el repositorio puede firmar una ima
 | | `command_line` | Palabras de una línea de comando y largo máximo de línea que aceptan los transportes |
 | | `argument_reader` | Gramática de los valores de los comandos: números en decimal o en hexadecimal con `0x`, valores de registro, identificadores de nodo y fracciones decimales |
 | `src/display/` | `debug_display` | OLED: fila de estado y registro de depuración |
-| `src/vm/` | `virtual_machine` | Micro VM de registros: validación del programa (`ValidProgram`, el único tipo que la VM carga, y el defecto de la primera instrucción mala, saltos incluidos), ejecución en bloques, pila de retorno, fallas y estado que anuncia el HELLO; los opcodes, su forma de operandos, su efecto, las fallas y los defectos están en el contrato |
+| `src/vm/` | `virtual_machine` | Micro VM de registros: validación del programa (`ValidProgram`, el único tipo que la VM carga, y el defecto de la primera instrucción mala, saltos incluidos), ejecución en bloques, pila de retorno, fallas y estado que anuncia el HELLO; los opcodes, su forma de operandos, su efecto, las fallas, los defectos y el GPIO de cada pin de la VM en cada placa están en el contrato |
+| | `pin_port.h` | Interfaz de los pines GPIO que manejan `PINM`, `PINR` y `PINW`; las pruebas en la computadora usan un puerto que registra niveles |
 
 Cada módulo es un par `.h` y `.cpp` con el mismo nombre, salvo los que son solo un encabezado y `board_support.h` y `board_radio.h`, que se implementan en un archivo por modelo. Los `#include` entre carpetas usan rutas relativas. `src/protocol/protocol_contract.h` no se edita a mano: se cambia `firmware/protocol/contract.json` y se ejecuta `node tools/generate_protocol_sources.mjs`.
 

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../board/board_pin_port.h"
 #include "../board/board_support.h"
 #include "../console/command_line.h"
 #include "../console/console.h"
@@ -57,6 +58,7 @@ private:
   void updateStatusLine();
 
   BoardSupport board_;
+  BoardPinPort pins_;
   NodeIdentity identity_;
   RadioLink radio_;
   NodeServices services_;

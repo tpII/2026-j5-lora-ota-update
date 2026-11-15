@@ -5,11 +5,13 @@
 #include <stdint.h>
 
 #include "../protocol/protocol_contract.h"
+#include "pin_port.h"
 
 namespace firmware {
 
-// PROGRAM_CAPACITY, REGISTER_COUNT, RETURN_STACK_DEPTH, the opcodes, the faults and the program
-// defects are in the protocol contract (docs/protocol/virtual-machine.md).
+// PROGRAM_CAPACITY, REGISTER_COUNT, RETURN_STACK_DEPTH, the opcodes, the faults, the program
+// defects and the GPIO of each pin of the VM on each board are in the protocol contract
+// (docs/protocol/virtual-machine.md).
 
 enum class VmStep : uint8_t { Idle, Running, Printed, Sleeping, Halted, Faulted };
 
@@ -55,20 +57,23 @@ bool validateProgram(const uint8_t *code, size_t length, ValidProgram &program,
 // program counter, a return stack of RETURN_STACK_DEPTH levels and the program memory. The program
 // runs without end; execute() runs it in blocks so that the main loop keeps serving the radio.
 // After HALT or a fault the caller starts it again from address 0 with startVM(), and the
-// registers keep their values across those starts. Version 0 is the factory program, which is
-// empty.
+// registers keep their values across those starts. PINM, PINR and PINW name the pins of the VM,
+// from 0 to VM_PIN_COUNT - 1, and reach the GPIO that the board gives each one through a PinPort,
+// so that a program runs the same on every board model; every start leaves the pins unconfigured.
+// Version 0 is the factory program, which is empty.
 class VirtualMachine {
 public:
-  void begin();
+  // pins drives the GPIO of the board; board gives the GPIO of each pin of the VM.
+  void begin(PinPort &pins, const BoardModelDescription &board);
 
   // Replaces the active program with a copy of the program, as the version. A load stops the
-  // program, restarts the start and output counts and clears the faults since the last load; the
-  // registers keep their values. Which version may replace which is the activation rule, not the
-  // VM's.
+  // program, restarts the start and output counts, clears the faults since the last load and
+  // releases the pins; the registers keep their values. Which version may replace which is the
+  // activation rule, not the VM's.
   void loadProgram(uint32_t version, const ValidProgram &program);
   void setRegisters(const int32_t values[REGISTER_COUNT]);
 
-  // Starts the program from address 0 with an empty return stack.
+  // Starts the program from address 0 with an empty return stack and every pin unconfigured.
   void startVM();
   // Runs at most budget instructions and stops early after a PRINT or a SLEEP, at HALT or on a
   // fault. After a SLEEP the caller waits sleepMillis() before it calls execute() again. A valid
@@ -101,7 +106,14 @@ public:
   void clearFaultReport() { faultedSinceReport_ = false; }
 
 private:
+  // What PINM left on each pin of the VM.
+  enum class PinState : uint8_t { Unconfigured, Input, Output };
+
   VmStep stop(VmFault fault);
+  // Runs PINM, PINR or PINW; returns VmFault::None when the instruction ran.
+  VmFault executePinInstruction(InstructionEffect effect, const uint8_t *operands);
+  // Leaves every pin that the program configured as an input without pull, and unconfigured.
+  void releasePins();
 
   uint8_t program_[PROGRAM_CAPACITY] = {};
   size_t programLength_ = 0;
@@ -119,6 +131,9 @@ private:
   uint16_t faultAddress_ = 0;
   VmFault lastFault_ = VmFault::None;
   bool faultedSinceReport_ = false;
+  PinPort *pins_ = nullptr;
+  const BoardModelDescription *board_ = nullptr;
+  PinState pinStates_[VM_PIN_COUNT] = {};
 };
 
 } // namespace firmware

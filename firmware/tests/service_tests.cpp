@@ -723,6 +723,22 @@ J5_HOST_TEST(testActivationRule) {
   activation.poll(40050);
   CHECK(console.output.text() == R"({"t":40050,"ev":"vm_print","n":1,"reg":1,"value":-1})"
                                  "\nVM: R1 - 0xFFFFFFFF");
+
+  // LOAD R2, 7; PINM R1, R2; HALT: the VM has pins 0 to 2 only, so a program that names a GPIO,
+  // here the one that powers the front end of the V4.3, stops with invalid_pin before it touches
+  // any pin.
+  makeAvailable(services, 9,
+                "020207000000"
+                "400102"
+                "00");
+  CHECK(activation.activateAvailable(ActivationCause::Console, NO_NODE_ID, 50000));
+  console.clear();
+  console.output.millis = 50000;
+  activation.poll(50000);
+  CHECK(console.output.text() ==
+        R"({"t":50000,"ev":"vm_fault","starts":1,"pc":6,"reason":"invalid_pin"})"
+        "\nVM: invalid_pin");
+  CHECK(!node.pins.configured[7]);
 }
 
 // The chain that runs across the services, connected as on the node: an image loaded by the

@@ -123,19 +123,29 @@ constexpr RunReceptionDeadlineVector RUN_RECEPTION_DEADLINE_VECTORS[] = {
 // Programs run on the virtual machine (firmware/protocol/test-vectors/virtual-machine.json). Each
 // run loads the program, sets the registers and starts it the given number of times; each start
 // runs to HALT, to a fault or to the instruction limit of the vector. The prints and the waits of
-// SLEEP are kept in order.
+// SLEEP are kept in order. The pins of the VM read the levels of the vector, low when it gives
+// none, and the outputs are the levels the program leaves on its output pins. The pins are those of
+// the VM, from 0, and each run gives the same result on every board model.
 constexpr size_t VECTOR_REGISTER_COUNT = 4;
 constexpr size_t MAXIMUM_VECTOR_PRINTS = 5;
 constexpr size_t MAXIMUM_VECTOR_SLEEPS = 2;
+constexpr size_t MAXIMUM_VECTOR_PIN_LEVELS = 1;
 
 struct PrintVector {
   uint8_t registerNumber; // 1 to 4
   int32_t value;
 };
 
+struct PinLevelVector {
+  uint8_t pin; // of the VM, from 0
+  bool high;
+};
+
 struct VirtualMachineRunVector {
   const char *name;
   const char *program;
+  size_t pinLevelCount;
+  PinLevelVector pinLevels[MAXIMUM_VECTOR_PIN_LEVELS]; // what the circuit puts on the pins
   int32_t registers[VECTOR_REGISTER_COUNT];
   uint32_t maximumInstructions; // of each start, so that a program without end stops
   uint32_t starts;
@@ -149,12 +159,16 @@ struct VirtualMachineRunVector {
   uint16_t faultAddress;
   uint32_t startCount;
   uint8_t stackDepth;
+  size_t pinOutputCount;
+  PinLevelVector pinOutputs[MAXIMUM_VECTOR_PIN_LEVELS]; // levels of the output pins at the end
 };
 
 constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
     {
         "example program",
         "020105000000020203000000110102010112010a000000150102010100",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -168,10 +182,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "registers persist when the program starts again",
         "10010100000000",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         2,
@@ -185,10 +203,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         2,
         0,
+        0,
+        {},
     },
     {
         "wrapping arithmetic, logic and shifts",
         "1001010000001702031903032004ffffffff2a0428040100000026032100000000",
+        0,
+        {},
         {2147483647, -7, 2, 0},
         100000,
         1,
@@ -202,10 +224,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "INT32_MIN divided by and modulo -1",
         "1601ffffffff01011801ffffffff00",
+        0,
+        {},
         {-2147483647 - 1, 0, 0, 0},
         100000,
         1,
@@ -219,10 +245,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "division by zero",
         "010116010000000000",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -236,10 +266,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         2,
         1,
         0,
+        0,
+        {},
     },
     {
         "end of program without HALT",
         "0101",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -253,10 +287,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         2,
         1,
         0,
+        0,
+        {},
     },
     {
         "count down in a loop closed by JNZ",
         "02020500000010010100000001011202010000003202060000",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -270,10 +308,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "JNEG and JZ jump",
         "0201fdffffff3301100002046300000031021a0002046200000000",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -287,10 +329,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "nested subroutines",
         "3406000101001001010000003410003514010a00000035",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -304,10 +350,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "CALL with the return stack full",
         "340000",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -321,10 +371,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         8,
+        0,
+        {},
     },
     {
         "RET with the return stack empty",
         "35",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -338,10 +392,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "SLEEP",
         "030a000000010103ffffffff00",
+        0,
+        {},
         {0, 0, 0, 0},
         100000,
         1,
@@ -355,10 +413,14 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
     },
     {
         "loop without end",
         "100101000000300000",
+        0,
+        {},
         {0, 0, 0, 0},
         1000,
         1,
@@ -372,9 +434,200 @@ constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {
         0,
         1,
         0,
+        0,
+        {},
+    },
+    {
+        "configure, write and read back an output",
+        "020101000000020202000000400102420102410302010300",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "halted",
+        1,
+        {{3, 1}},
+        0,
+        {},
+        {1, 2, 1, 0},
+        nullptr,
+        0,
+        1,
+        0,
+        1,
+        {{2, true}},
+    },
+    {
+        "read an input",
+        "020100000000020201000000400102410302010300",
+        1,
+        {{1, true}},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "halted",
+        1,
+        {{3, 1}},
+        0,
+        {},
+        {0, 1, 1, 0},
+        nullptr,
+        0,
+        1,
+        0,
+        0,
+        {},
+    },
+    {
+        "pin past the last pin of the VM",
+        "02020300000040010200",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "faulted",
+        0,
+        {},
+        0,
+        {},
+        {0, 3, 0, 0},
+        "invalid_pin",
+        6,
+        1,
+        0,
+        0,
+        {},
+    },
+    {
+        "PINR on a pin without PINM",
+        "02020100000041030200",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "faulted",
+        0,
+        {},
+        0,
+        {},
+        {0, 1, 0, 0},
+        "pin_mode",
+        6,
+        1,
+        0,
+        0,
+        {},
+    },
+    {
+        "PINW on an input pin",
+        "02020100000040010242010200",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "faulted",
+        0,
+        {},
+        0,
+        {},
+        {0, 1, 0, 0},
+        "pin_mode",
+        9,
+        1,
+        0,
+        0,
+        {},
+    },
+    {
+        "pins return to unconfigured when the program starts again",
+        "02020200000032031d000201010000004001024201020203010000000041040200",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        2,
+        "faulted",
+        0,
+        {},
+        0,
+        {},
+        {1, 2, 1, 0},
+        "pin_mode",
+        29,
+        2,
+        0,
+        0,
+        {},
+    },
+    {
+        "white LED on pin 0",
+        "02010100000002020000000040010242010200",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "halted",
+        0,
+        {},
+        0,
+        {},
+        {1, 0, 0, 0},
+        nullptr,
+        0,
+        1,
+        0,
+        1,
+        {{0, true}},
+    },
+    {
+        "a GPIO number is no pin of the VM",
+        "02023000000040010200",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "faulted",
+        0,
+        {},
+        0,
+        {},
+        {0, 48, 0, 0},
+        "invalid_pin",
+        6,
+        1,
+        0,
+        0,
+        {},
+    },
+    {
+        "negative pin",
+        "0202ffffffff40010200",
+        0,
+        {},
+        {0, 0, 0, 0},
+        100000,
+        1,
+        "faulted",
+        0,
+        {},
+        0,
+        {},
+        {0, -1, 0, 0},
+        "invalid_pin",
+        6,
+        1,
+        0,
+        0,
+        {},
     },
 };
-constexpr size_t VIRTUAL_MACHINE_RUN_VECTOR_COUNT = 13;
+constexpr size_t VIRTUAL_MACHINE_RUN_VECTOR_COUNT = 22;
 
 // Programs that the load rejects, with the address and the ProgramDefectReason of the first bad
 // instruction.
@@ -397,8 +650,9 @@ constexpr ProgramCheckVector PROGRAM_CHECK_VECTORS[] = {
     {"branch into an instruction", "010131010100", false, 2, "invalid_jump_target"},
     {"branch on a register out of range", "31050000", false, 0, "invalid_register"},
     {"jump cut by the end", "3001", false, 0, "truncated_instruction"},
+    {"PINM with a register out of range", "400105", false, 0, "invalid_register"},
 };
-constexpr size_t PROGRAM_CHECK_VECTOR_COUNT = 10;
+constexpr size_t PROGRAM_CHECK_VECTOR_COUNT = 11;
 
 // Command lines that the builders of the control panel produce
 // (firmware/protocol/test-vectors/console-command-lines.jsonl), each with the board model it is

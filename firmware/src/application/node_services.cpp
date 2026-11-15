@@ -5,7 +5,7 @@
 
 namespace firmware {
 
-bool NodeServices::begin(EventSink &events, uint16_t nodeId, BoardModel model,
+bool NodeServices::begin(EventSink &events, uint16_t nodeId, BoardModel model, PinPort &pins,
                          SequenceSource &sequences, uint32_t nowMillis) {
   events_ = &events;
   nodeId_ = nodeId;
@@ -15,7 +15,7 @@ bool NodeServices::begin(EventSink &events, uint16_t nodeId, BoardModel model,
   presence.begin(events, neighbors, transfer, nowMillis);
   echo.begin(events);
   runs.begin(events, presence);
-  activation.begin(events, transfer, presence);
+  activation.begin(events, transfer, presence, pins, model);
   const bool operatorKeyValid = transfer.begin(events, neighbors, activation, nodeId);
   queue.setRecorder(transmissions);
   queue.setListener(FrameOwner::Echo, echo);

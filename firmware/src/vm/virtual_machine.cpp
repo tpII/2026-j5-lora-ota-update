@@ -193,7 +193,10 @@ static int32_t applyOperation(Opcode opcode, int32_t target, int32_t source) {
   case Opcode::JumpIfNegative:
   case Opcode::Call:
   case Opcode::Return:
-    // Their effects write no register; execute() handles them before.
+  case Opcode::ConfigurePin:
+  case Opcode::ReadPin:
+  case Opcode::WritePin:
+    // Their effects write no register here; execute() handles them before.
     return target;
   }
   return target;
@@ -230,7 +233,12 @@ static int32_t readSource(OperandForm form, const uint8_t *operands,
   return 0;
 }
 
-void VirtualMachine::begin() {
+void VirtualMachine::begin(PinPort &pins, const BoardModelDescription &board) {
+  pins_ = &pins;
+  board_ = &board;
+  for (PinState &state : pinStates_) {
+    state = PinState::Unconfigured;
+  }
   programLength_ = 0;
   version_ = 0;
   memset(registers_, 0, sizeof(registers_));
@@ -245,6 +253,7 @@ void VirtualMachine::begin() {
 }
 
 void VirtualMachine::loadProgram(uint32_t version, const ValidProgram &program) {
+  releasePins();
   memcpy(program_, program.code(), program.length());
   programLength_ = program.length();
   version_ = version;
@@ -269,8 +278,51 @@ void VirtualMachine::startVM() {
   programCounter_ = 0;
   stackDepth_ = 0;
   fault_ = VmFault::None;
+  releasePins();
   ++startCount_;
   running_ = true;
+}
+
+void VirtualMachine::releasePins() {
+  for (size_t pin = 0; pin < VM_PIN_COUNT; ++pin) {
+    if (pinStates_[pin] != PinState::Unconfigured) {
+      pins_->release(board_->vmPins[pin]);
+      pinStates_[pin] = PinState::Unconfigured;
+    }
+  }
+}
+
+VmFault VirtualMachine::executePinInstruction(InstructionEffect effect, const uint8_t *operands) {
+  // The second register holds the number of the pin of the VM, from 0, which the list of the board
+  // turns into its GPIO; a negative number becomes a large one and is no pin either.
+  const uint32_t index = static_cast<uint32_t>(registers_[operands[1] - 1]);
+  if (index >= VM_PIN_COUNT) {
+    return VmFault::InvalidPin;
+  }
+  const uint8_t pin = board_->vmPins[index];
+  int32_t &value = registers_[operands[0] - 1];
+  switch (effect) {
+  case InstructionEffect::PinMode: {
+    const bool output = value != 0;
+    pins_->configure(pin, output ? PinDirection::Output : PinDirection::Input);
+    pinStates_[index] = output ? PinState::Output : PinState::Input;
+    return VmFault::None;
+  }
+  case InstructionEffect::PinRead:
+    if (pinStates_[index] == PinState::Unconfigured) {
+      return VmFault::PinMode;
+    }
+    value = pins_->read(pin) ? 1 : 0;
+    return VmFault::None;
+  case InstructionEffect::PinWrite:
+    if (pinStates_[index] != PinState::Output) {
+      return VmFault::PinMode;
+    }
+    pins_->write(pin, value != 0);
+    return VmFault::None;
+  default:
+    return VmFault::None;
+  }
 }
 
 VmStep VirtualMachine::stop(VmFault fault) {
@@ -329,6 +381,16 @@ VmStep VirtualMachine::execute(uint32_t budget) {
       }
       programCounter_ = returnStack_[--stackDepth_];
       continue;
+    case InstructionEffect::PinMode:
+    case InstructionEffect::PinRead:
+    case InstructionEffect::PinWrite: {
+      const VmFault fault = executePinInstruction(effect, operands);
+      if (fault != VmFault::None) {
+        return stop(fault);
+      }
+      programCounter_ = next;
+      continue;
+    }
     case InstructionEffect::Write:
     case InstructionEffect::Divide:
       break;

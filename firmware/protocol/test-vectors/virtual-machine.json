@@ -192,6 +192,135 @@
         "faultAddress": null,
         "startCount": 1
       }
+    },
+    {
+      "name": "configure, write and read back an output",
+      "program": "020101000000020202000000400102420102410302010300",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [{ "register": 3, "value": 1 }],
+        "registers": [1, 2, 1, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1,
+        "pinOutputs": { "2": 1 }
+      }
+    },
+    {
+      "name": "read an input",
+      "program": "020100000000020201000000400102410302010300",
+      "pinLevels": { "1": 1 },
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [{ "register": 3, "value": 1 }],
+        "registers": [0, 1, 1, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "pin past the last pin of the VM",
+      "program": "02020300000040010200",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [],
+        "registers": [0, 3, 0, 0],
+        "fault": "invalid_pin",
+        "faultAddress": 6,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "PINR on a pin without PINM",
+      "program": "02020100000041030200",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [],
+        "registers": [0, 1, 0, 0],
+        "fault": "pin_mode",
+        "faultAddress": 6,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "PINW on an input pin",
+      "program": "02020100000040010242010200",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [],
+        "registers": [0, 1, 0, 0],
+        "fault": "pin_mode",
+        "faultAddress": 9,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "pins return to unconfigured when the program starts again",
+      "program": "02020200000032031d000201010000004001024201020203010000000041040200",
+      "registers": [0, 0, 0, 0],
+      "starts": 2,
+      "expected": {
+        "step": "faulted",
+        "prints": [],
+        "registers": [1, 2, 1, 0],
+        "fault": "pin_mode",
+        "faultAddress": 29,
+        "startCount": 2
+      }
+    },
+    {
+      "name": "white LED on pin 0",
+      "program": "02010100000002020000000040010242010200",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "halted",
+        "prints": [],
+        "registers": [1, 0, 0, 0],
+        "fault": null,
+        "faultAddress": null,
+        "startCount": 1,
+        "pinOutputs": { "0": 1 }
+      }
+    },
+    {
+      "name": "a GPIO number is no pin of the VM",
+      "program": "02023000000040010200",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [],
+        "registers": [0, 48, 0, 0],
+        "fault": "invalid_pin",
+        "faultAddress": 6,
+        "startCount": 1
+      }
+    },
+    {
+      "name": "negative pin",
+      "program": "0202ffffffff40010200",
+      "registers": [0, 0, 0, 0],
+      "starts": 1,
+      "expected": {
+        "step": "faulted",
+        "prints": [],
+        "registers": [0, -1, 0, 0],
+        "fault": "invalid_pin",
+        "faultAddress": 6,
+        "startCount": 1
+      }
     }
   ],
   "checks": [
@@ -204,6 +333,7 @@
     { "name": "call past the end", "program": "34050000", "valid": false, "address": 0, "reason": "invalid_jump_target" },
     { "name": "branch into an instruction", "program": "010131010100", "valid": false, "address": 2, "reason": "invalid_jump_target" },
     { "name": "branch on a register out of range", "program": "31050000", "valid": false, "address": 0, "reason": "invalid_register" },
-    { "name": "jump cut by the end", "program": "3001", "valid": false, "address": 0, "reason": "truncated_instruction" }
+    { "name": "jump cut by the end", "program": "3001", "valid": false, "address": 0, "reason": "truncated_instruction" },
+    { "name": "PINM with a register out of range", "program": "400105", "valid": false, "address": 0, "reason": "invalid_register" }
   ]
 }

@@ -120,6 +120,12 @@ export const MESSAGE_TYPES = [
 /** Field model of the HELLO, with the names of the console events. */
 export const BOARD_MODELS = ["V2", "V4.3"] as const;
 
+/** The pins that PINM, PINR and PINW name, from 0, the same number on every board model. */
+export const VM_PIN_COUNT = 3;
+
+/** GPIO of each pin of the VM on each board model, by the number of the pin. */
+export const VM_PINS = { V2: [25, 22, 23], "V4.3": [35, 47, 48] } as const;
+
 /** Transmit power at the antenna connector, in dBm, that each board model delivers. */
 export const TRANSMIT_POWER_RANGES = {
   V2: { minimum: 2, maximum: 17, additionalValues: [20] },
@@ -351,6 +357,9 @@ export const INSTRUCTION_ENCODINGS = [
   { mnemonic: "JNEG", opcode: 0x33, form: "register-address", effect: "branch" },
   { mnemonic: "CALL", opcode: 0x34, form: "address", effect: "call" },
   { mnemonic: "RET", opcode: 0x35, form: "none", effect: "return" },
+  { mnemonic: "PINM", opcode: 0x40, form: "register-register", effect: "pin-mode" },
+  { mnemonic: "PINR", opcode: 0x41, form: "register-register", effect: "pin-read" },
+  { mnemonic: "PINW", opcode: 0x42, form: "register-register", effect: "pin-write" },
 ] as const;
 
 /**
@@ -363,6 +372,8 @@ export const VM_FAULTS = [
   "end_of_program",
   "stack_overflow",
   "stack_underflow",
+  "invalid_pin",
+  "pin_mode",
 ] as const;
 
 /**

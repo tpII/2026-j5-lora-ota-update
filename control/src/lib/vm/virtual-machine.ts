@@ -6,6 +6,7 @@
 import {
   REGISTER_COUNT,
   RETURN_STACK_DEPTH,
+  VM_PIN_COUNT,
   type PROGRAM_DEFECT_REASONS,
   type VM_FAULTS,
 } from "$lib/protocol/protocol-contract.ts";
@@ -22,6 +23,23 @@ export type VmFault = (typeof VM_FAULTS)[number];
 
 /** Why the node rejects a program before running it. */
 export type ProgramDefect = (typeof PROGRAM_DEFECT_REASONS)[number];
+
+export type PinDirection = "input" | "output";
+
+/**
+ * The pins that PINM, PINR and PINW drive, by their number in the VM, from 0 to VM_PIN_COUNT - 1.
+ * The VM checks the number and the mode of the pin before it calls the bank, as the firmware does
+ * with its PinPort; the GPIO that each pin is on a board is the contract's, in VM_PINS.
+ */
+export interface PinBank {
+  /** An input has no pull resistor; the circuit sets its level. */
+  configure(pin: number, direction: PinDirection): void;
+  /** What the circuit puts on an input, or what the program wrote on an output. */
+  read(pin: number): boolean;
+  write(pin: number, high: boolean): void;
+  /** Leaves the pin as an input without pull, as after a reset. */
+  release(pin: number): void;
+}
 
 /** How a call to execute() ended. */
 export type VmStep = "idle" | "running" | "printed" | "sleeping" | "halted" | "faulted";
@@ -46,7 +64,20 @@ export interface RunOutcome {
 
 type BinaryMnemonic = Exclude<
   Mnemonic,
-  "HALT" | "PRINT" | "LOAD" | "SLEEP" | "NOT" | "JMP" | "JZ" | "JNZ" | "JNEG" | "CALL" | "RET"
+  | "HALT"
+  | "PRINT"
+  | "LOAD"
+  | "SLEEP"
+  | "NOT"
+  | "JMP"
+  | "JZ"
+  | "JNZ"
+  | "JNEG"
+  | "CALL"
+  | "RET"
+  | "PINM"
+  | "PINR"
+  | "PINW"
 >;
 
 type BinaryOperation = (left: number, right: number) => number;
@@ -147,6 +178,9 @@ export function checkProgram(code: Uint8Array): ProgramCheck {
 }
 
 export class VirtualMachine {
+  readonly #pins: PinBank;
+  /** The pins that the program configured since it last started. */
+  readonly #pinDirections = new Map<number, PinDirection>();
   #program = new Uint8Array(0);
   readonly #registers = new Int32Array(REGISTER_COUNT);
   #programCounter = 0;
@@ -159,10 +193,16 @@ export class VirtualMachine {
   #fault: VmFault | null = null;
   #faultAddress = 0;
 
-  /** Replaces the program, stops it and restarts the start and output counts. */
+  /** `pins` drives the GPIO of the board for PINM, PINR and PINW. */
+  constructor(pins: PinBank) {
+    this.#pins = pins;
+  }
+
+  /** Replaces the program, stops it, restarts the start and output counts and releases the pins. */
   load(code: Uint8Array): ProgramCheck {
     const check = checkProgram(code);
     if (check.valid) {
+      this.#releasePins();
       this.#program = code.slice();
       this.#programCounter = 0;
       this.#returnStack.length = 0;
@@ -224,7 +264,7 @@ export class VirtualMachine {
     return this.#faultAddress;
   }
 
-  /** Starts the program from address 0 with an empty return stack. */
+  /** Starts the program from address 0 with an empty return stack and every pin unconfigured. */
   startVM(): void {
     if (this.#program.length === 0) {
       return;
@@ -232,6 +272,7 @@ export class VirtualMachine {
     this.#programCounter = 0;
     this.#returnStack.length = 0;
     this.#fault = null;
+    this.#releasePins();
     this.#startCount += 1;
     this.#running = true;
   }
@@ -307,6 +348,16 @@ export class VirtualMachine {
           this.#programCounter = returnAddress;
           continue;
         }
+        case "PINM":
+        case "PINR":
+        case "PINW": {
+          const fault = this.#executePinInstruction(instruction.mnemonic, address);
+          if (fault !== null) {
+            return this.#stop(fault);
+          }
+          this.#programCounter = next;
+          continue;
+        }
         default: {
           const operation = BINARY_OPERATIONS[instruction.mnemonic];
           const source =
@@ -322,6 +373,47 @@ export class VirtualMachine {
       this.#programCounter = next;
     }
     return "running";
+  }
+
+  /** Runs PINM, PINR or PINW; returns the fault that stops the program, or null. */
+  #executePinInstruction(mnemonic: "PINM" | "PINR" | "PINW", address: number): VmFault | null {
+    // The first register holds the mode, receives the level or gives the level to write.
+    const first = (this.#program[address + 1] ?? 1) - 1;
+    // The second register holds the number of the pin of the VM, from 0; a negative number
+    // becomes a large one and is no pin either.
+    const pin = (this.#registers[(this.#program[address + 2] ?? 1) - 1] ?? 0) >>> 0;
+    if (pin >= VM_PIN_COUNT) {
+      return "invalid_pin";
+    }
+    const direction = this.#pinDirections.get(pin);
+    switch (mnemonic) {
+      case "PINM": {
+        const configured: PinDirection = this.#registers[first] !== 0 ? "output" : "input";
+        this.#pins.configure(pin, configured);
+        this.#pinDirections.set(pin, configured);
+        return null;
+      }
+      case "PINR":
+        if (direction === undefined) {
+          return "pin_mode";
+        }
+        this.#registers[first] = this.#pins.read(pin) ? 1 : 0;
+        return null;
+      case "PINW":
+        if (direction !== "output") {
+          return "pin_mode";
+        }
+        this.#pins.write(pin, this.#registers[first] !== 0);
+        return null;
+    }
+  }
+
+  /** Leaves every pin that the program configured as an input without pull, and unconfigured. */
+  #releasePins(): void {
+    for (const pin of this.#pinDirections.keys()) {
+      this.#pins.release(pin);
+    }
+    this.#pinDirections.clear();
   }
 
   #stop(fault: VmFault): VmStep {

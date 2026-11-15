@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { SimulatedPinBank } from "$lib/vm/simulated-pins.ts";
 import { VirtualMachine, runUntilStop } from "$lib/vm/virtual-machine.ts";
 import { EXAMPLE_PROGRAM, ProgramDraft } from "./program-draft.svelte.ts";
 
@@ -13,7 +14,7 @@ describe("EXAMPLE_PROGRAM", () => {
       "end",
       "show",
     ]);
-    const machine = new VirtualMachine();
+    const machine = new VirtualMachine(new SimulatedPinBank());
     expect(machine.load(assembly.code).valid).toBe(true);
     const outcome = runUntilStop(machine, 1000);
     expect(outcome.step).toBe("halted");

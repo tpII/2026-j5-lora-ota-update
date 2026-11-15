@@ -41,11 +41,11 @@ public:
   TransferService transfer;
   ActivationController activation;
 
-  // Starts every service and connects them. nodeId and model are those of the node, and sequences
-  // numbers its frames. The first HELLO waits from nowMillis. Returns false when the operator
-  // public key is not valid.
-  bool begin(EventSink &events, uint16_t nodeId, BoardModel model, SequenceSource &sequences,
-             uint32_t nowMillis);
+  // Starts every service and connects them. nodeId and model are those of the node, pins drives
+  // its GPIO for the VM and sequences numbers its frames. The first HELLO waits from nowMillis.
+  // Returns false when the operator public key is not valid.
+  bool begin(EventSink &events, uint16_t nodeId, BoardModel model, PinPort &pins,
+             SequenceSource &sequences, uint32_t nowMillis);
   uint16_t nodeId() const { return nodeId_; }
   BoardModel model() const { return model_; }
 

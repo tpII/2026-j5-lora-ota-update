@@ -1,6 +1,6 @@
 <script lang="ts">
   import { countWithNoun } from "$lib/utils/format.ts";
-  import { PROGRAM_CAPACITY, REGISTER_COUNT } from "$lib/protocol/protocol-contract.ts";
+  import { PROGRAM_CAPACITY, REGISTER_COUNT, VM_PIN_COUNT } from "$lib/protocol/protocol-contract.ts";
   import type { ProgramDraft } from "$lib/state/program-draft.svelte.ts";
 
   let { draft }: { draft: ProgramDraft } = $props();
@@ -21,7 +21,8 @@
   <p class="panel-hint">
     Una instrucción por línea, operandos separados por comas o espacios, registros R1 a R{REGISTER_COUNT}, enteros en
     decimal o con 0x y comentarios después de «;;». Una etiqueta como «loop:» al comienzo de una línea nombra la
-    instrucción siguiente, para JMP, JZ, JNZ, JNEG y CALL.
+    instrucción siguiente, para JMP, JZ, JNZ, JNEG y CALL. PINM, PINR y PINW usan los pines 0 a {VM_PIN_COUNT - 1} de la VM, que son
+    los mismos en las dos placas; la columna «En la computadora» muestra el GPIO de cada uno.
   </p>
   {#if assembly.valid}
     <p class="text-xs text-muted">

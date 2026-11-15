@@ -30,7 +30,7 @@ void NodeApplication::begin() {
   const bool wirelessReady = wireless_.begin(identity_.nodeId());
   // The first HELLO waits from the moment the node is ready to send it.
   const bool operatorKeyValid =
-      services_.begin(events_, identity_.nodeId(), board_.model(), identity_, millis());
+      services_.begin(events_, identity_.nodeId(), board_.model(), pins_, identity_, millis());
 
   writeBootEvent(events_, identity_.nodeId(), board_.model(), identity_.epoch());
   reportRadio();

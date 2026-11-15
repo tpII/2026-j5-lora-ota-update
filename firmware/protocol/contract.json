@@ -41,7 +41,8 @@
       "dutyCycleLimits": [
         { "minimumAntennaDbm": 20, "maximumAntennaDbm": 20, "maximumDutyCyclePercent": 1 }
       ],
-      "frontEndGainSteps": [{ "minimumAntennaDbm": 2, "maximumAntennaDbm": 20, "gainDb": 0 }]
+      "frontEndGainSteps": [{ "minimumAntennaDbm": 2, "maximumAntennaDbm": 20, "gainDb": 0 }],
+      "vmPins": [25, 22, 23]
     },
     {
       "name": "V4.3",
@@ -56,7 +57,8 @@
         { "minimumAntennaDbm": 4, "maximumAntennaDbm": 26, "gainDb": 13 },
         { "minimumAntennaDbm": 27, "maximumAntennaDbm": 27, "gainDb": 12 },
         { "minimumAntennaDbm": 28, "maximumAntennaDbm": 28, "gainDb": 11 }
-      ]
+      ],
+      "vmPins": [35, 47, 48]
     }
   ],
   "hello": {
@@ -173,7 +175,10 @@
       { "name": "jump", "forms": ["address"] },
       { "name": "branch", "forms": ["register-address"] },
       { "name": "call", "forms": ["address"] },
-      { "name": "return", "forms": ["none"] }
+      { "name": "return", "forms": ["none"] },
+      { "name": "pin-mode", "forms": ["register-register"] },
+      { "name": "pin-read", "forms": ["register-register"] },
+      { "name": "pin-write", "forms": ["register-register"] }
     ],
     "instructions": [
       { "mnemonic": "HALT", "identifier": "Halt", "opcode": "0x00", "form": "none", "effect": "halt" },
@@ -206,14 +211,19 @@
       { "mnemonic": "JNZ", "identifier": "JumpIfNotZero", "opcode": "0x32", "form": "register-address", "effect": "branch" },
       { "mnemonic": "JNEG", "identifier": "JumpIfNegative", "opcode": "0x33", "form": "register-address", "effect": "branch" },
       { "mnemonic": "CALL", "identifier": "Call", "opcode": "0x34", "form": "address", "effect": "call" },
-      { "mnemonic": "RET", "identifier": "Return", "opcode": "0x35", "form": "none", "effect": "return" }
+      { "mnemonic": "RET", "identifier": "Return", "opcode": "0x35", "form": "none", "effect": "return" },
+      { "mnemonic": "PINM", "identifier": "ConfigurePin", "opcode": "0x40", "form": "register-register", "effect": "pin-mode" },
+      { "mnemonic": "PINR", "identifier": "ReadPin", "opcode": "0x41", "form": "register-register", "effect": "pin-read" },
+      { "mnemonic": "PINW", "identifier": "WritePin", "opcode": "0x42", "form": "register-register", "effect": "pin-write" }
     ],
     "faults": [
       { "name": "none", "code": 0 },
       { "name": "division_by_zero", "code": 1 },
       { "name": "end_of_program", "code": 2 },
       { "name": "stack_overflow", "code": 3 },
-      { "name": "stack_underflow", "code": 4 }
+      { "name": "stack_underflow", "code": 4 },
+      { "name": "invalid_pin", "code": 5 },
+      { "name": "pin_mode", "code": 6 }
     ],
     "programDefects": ["invalid_opcode", "invalid_register", "truncated_instruction", "invalid_jump_target"]
   },

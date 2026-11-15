@@ -11,6 +11,7 @@ Contrato de la micro VM que ejecuta cada nodo ([ADR 0008](../adrs/0008-register-
 | Pila de retorno | 8 niveles, para `CALL` y `RET` (`returnStackDepth`); se vacía cada vez que el programa arranca |
 | Memoria de programa | 1024 bytes (`programCapacity` en `firmware/protocol/contract.json`, que el generador escribe como `PROGRAM_CAPACITY`) |
 | Versión | Entero de 32 bits sin signo; 0 es el programa de fábrica, que está vacío |
+| Pines GPIO | Tres pines de la VM, del 0 al 2, los mismos en todas las placas; cada placa los conecta a sus GPIO según `vmPins` del contrato. Cada pin está sin configurar, de entrada o de salida; todos quedan sin configurar cada vez que el programa arranca |
 
 ## Ejecución
 
@@ -62,10 +63,30 @@ En los grupos `0x1n` y `0x2n`, un opcode par toma un inmediato y el impar que le
 | `33` | `JNEG r, a` | Si r < 0, PC = a |
 | `34` | `CALL a` | Guarda en la pila de retorno la dirección de la instrucción siguiente y PC = a |
 | `35` | `RET` | PC = la dirección que saca de la pila de retorno |
+| `40` | `PINM r, rp` | Configura el pin de la VM rp: entrada sin pull si r = 0, salida si r ≠ 0 |
+| `41` | `PINR rd, rp` | rd = 1 si el pin de la VM rp está en ALTO y 0 si está en BAJO |
+| `42` | `PINW r, rp` | Pone el pin de la VM rp en ALTO si r ≠ 0 y en BAJO si r = 0 |
 
 Las sumas, las restas y los productos dan la vuelta en complemento a dos. −2147483648 / −1 da −2147483648 y −2147483648 % −1 da 0. Para saltar según la comparación de dos valores, se restan en un registro y se salta según el resultado.
 
-En `firmware/protocol/contract.json`, cada instrucción lleva su forma y su efecto (`instructionEffects`): `halt` detiene el programa, `print` muestra un registro, `write` escribe el primer registro, `divide` lo escribe después de una división, que falla con un divisor 0, `sleep` espera, `jump` salta, `branch` salta si el registro cumple la condición del opcode, `call` llama a una subrutina y `return` vuelve de ella. Cada efecto admite solo las formas que le dan los operandos que lee, y el generador rechaza una instrucción con una forma que su efecto no admite.
+En `firmware/protocol/contract.json`, cada instrucción lleva su forma y su efecto (`instructionEffects`): `halt` detiene el programa, `print` muestra un registro, `write` escribe el primer registro, `divide` lo escribe después de una división, que falla con un divisor 0, `sleep` espera, `jump` salta, `branch` salta si el registro cumple la condición del opcode, `call` llama a una subrutina, `return` vuelve de ella y `pin-mode`, `pin-read` y `pin-write` configuran, leen y escriben un pin. Cada efecto admite solo las formas que le dan los operandos que lee, y el generador rechaza una instrucción con una forma que su efecto no admite.
+
+## Pines GPIO
+
+`PINM`, `PINR` y `PINW` llevan en el segundo registro el número del pin de la VM, no el del GPIO. La VM tiene tres pines, del 0 al 2, y son los mismos en todas las placas, así que un programa se comporta igual en la V2 y en la V4.3. Cada placa conecta cada pin a un GPIO que el firmware no usa ([ADR 0014](../adrs/0014-vm-gpio-on-free-pins.md)). La conexión está en `vmPins` de cada modelo en el contrato, ordenada por número de pin:
+
+| Pin de la VM | GPIO de la V2 | GPIO de la V4.3 | Notas |
+|---|---|---|---|
+| 0 | 25 | 35 | LED blanco de la placa, que se enciende en ALTO |
+| 1 | 22 | 47 | |
+| 2 | 23 | 48 | |
+
+Un circuito externo se conecta al GPIO de la tabla que corresponde a la placa del nodo.
+
+- `PINM` deja el pin como entrada sin pull o como salida. Un pin de entrada al aire lee un valor indeterminado: el circuito externo fija su nivel.
+- `PINR` lee el nivel de un pin configurado: el que pone el circuito en una entrada o el que escribió el programa en una salida.
+- `PINW` solo escribe en un pin configurado como salida.
+- Cada vez que el programa arranca, por una activación, tras HALT o tras una falla, los pines vuelven a entrada sin pull y quedan sin configurar: el programa tiene que repetir sus `PINM`.
 
 ## Validación
 
@@ -90,6 +111,8 @@ Una falla detiene el programa, deja el PC en la dirección de la instrucción qu
 | 2 | `end_of_program` | El PC llegó al final del programa sin pasar por HALT |
 | 3 | `stack_overflow` | `CALL` con los 8 niveles de la pila de retorno ocupados |
 | 4 | `stack_underflow` | `RET` con la pila de retorno vacía |
+| 5 | `invalid_pin` | `PINM`, `PINR` o `PINW` con un número de pin mayor que 2 o negativo |
+| 6 | `pin_mode` | `PINR` sobre un pin sin `PINM`, o `PINW` sobre un pin que no es salida |
 
 ## Lenguaje ensamblador
 

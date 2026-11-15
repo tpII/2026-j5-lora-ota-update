@@ -215,6 +215,10 @@
 {"t":30000,"ev":"activation","version":8,"previous":7,"cause":"console","src":null}
 {"t":30000,"ev":"vm","version":8,"size":8,"starts":0,"registers":[-1,-2,3,2147483647]}
 {"t":40050,"ev":"vm_print","n":1,"reg":1,"value":-1}
+{"t":40050,"ev":"image","version":9,"size":10,"image_size":83,"via":"console","src":null,"fragments":0,"reports":0,"duration":0}
+{"t":40050,"ev":"activation","version":9,"previous":8,"cause":"console","src":null}
+{"t":40050,"ev":"vm","version":9,"size":10,"starts":0,"registers":[-1,-2,3,2147483647]}
+{"t":50000,"ev":"vm_fault","starts":1,"pc":6,"reason":"invalid_pin"}
 {"t":200,"ev":"hello","src":"3A7F","epoch":1,"seq":1,"model":"V2","version":1762300800,"available":1762300800,"vm_fault":null,"vm_failing":false,"tx":0,"rssi":-60,"snr":8,"ferr":0,"neighbors":[]}
 {"t":200,"ev":"activation","version":1762300800,"previous":0,"cause":"hello","src":"3A7F"}
 {"t":200,"ev":"vm","version":1762300800,"size":29,"starts":0,"registers":[0,0,0,0]}

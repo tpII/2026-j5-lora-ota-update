@@ -3,11 +3,11 @@
 namespace firmware {
 
 void ActivationController::begin(EventSink &events, const TransferService &transfer,
-                                 PresenceService &presence) {
+                                 PresenceService &presence, PinPort &pins, BoardModel model) {
   events_ = &events;
   transfer_ = &transfer;
   presence_ = &presence;
-  vm_.begin();
+  vm_.begin(pins, describeBoardModel(model));
 }
 
 bool ActivationController::activateAvailable(ActivationCause cause, uint16_t source,

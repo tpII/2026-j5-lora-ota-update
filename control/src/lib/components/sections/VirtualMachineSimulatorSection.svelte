@@ -103,6 +103,13 @@
     }
     run = reference.snapshot;
   }
+
+  function toggleCircuitLevel(pin: number, high: boolean): void {
+    reference.setCircuitLevel(pin, !high);
+    run = reference.snapshot;
+  }
+
+  const DIRECTION_LABELS = { input: "Entrada", output: "Salida" } as const;
 </script>
 
 <div class="flex flex-col gap-3">
@@ -156,6 +163,51 @@
       <RegisterTable registers={snapshot.registers} />
     {/if}
   </div>
+
+  {#if run.pins.length > 0}
+    <div class="panel-card flex flex-col gap-3">
+      <h3 class="panel-section-title">Pines de la VM</h3>
+      <p class="panel-hint">
+        PINM, PINR y PINW nombran el pin de la VM, que es el mismo en las dos placas; cada placa lo conecta al GPIO
+        de su columna. El pin 0 es el LED blanco de las dos placas. «Circuito» es lo que el circuito externo pone en
+        el pin: PINR lo lee en una entrada. Una salida muestra lo que escribió el programa.
+      </p>
+      <div class="overflow-auto">
+        <table class="panel-table">
+          <thead>
+            <tr>
+              <th>Pin</th>
+              <th>GPIO de la V2</th>
+              <th>GPIO de la V4.3</th>
+              <th>Modo</th>
+              <th>Nivel</th>
+              <th>Circuito</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each run.pins as pin (pin.pin)}
+              <tr>
+                <td class="font-mono">{pin.pin}</td>
+                <td class="font-mono">{pin.gpio.V2}</td>
+                <td class="font-mono">{pin.gpio["V4.3"]}</td>
+                <td>{pin.direction === null ? "Sin configurar" : DIRECTION_LABELS[pin.direction]}</td>
+                <td class="font-mono">{pin.level ? "ALTO" : "BAJO"}</td>
+                <td>
+                  <button
+                    type="button"
+                    class="panel-button"
+                    onclick={() => toggleCircuitLevel(pin.pin, pin.circuitLevel)}
+                  >
+                    {pin.circuitLevel ? "ALTO" : "BAJO"}
+                  </button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {/if}
 
   <div class="panel-card flex flex-col gap-3">
     <h3 class="panel-section-title">Salidas esperadas</h3>

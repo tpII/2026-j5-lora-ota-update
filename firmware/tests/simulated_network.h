@@ -11,6 +11,7 @@
 #include "application/node_services.h"
 #include "console_line_recorder.h"
 #include "radio/radio_settings.h"
+#include "recording_pin_port.h"
 
 // Numbers the frames of a node under test: a fixed epoch and a sequence from 0.
 class CountingSequenceSource : public firmware::SequenceSource {
@@ -29,6 +30,7 @@ public:
 struct SimulatedNode {
   RecordingConsole console;
   CountingSequenceSource sequences;
+  RecordingPinPort pins;
   firmware::RadioSettings settings = firmware::defaultRadioSettings();
   firmware::NodeServices services;
   uint16_t id;
@@ -37,7 +39,7 @@ struct SimulatedNode {
                          firmware::BoardModel model = firmware::BoardModel::HeltecV2,
                          uint32_t nowMillis = 0)
       : id(nodeId) {
-    services.begin(console.events, nodeId, model, sequences, nowMillis);
+    services.begin(console.events, nodeId, model, pins, sequences, nowMillis);
   }
 
   // The event lines of the console since the last clear() whose ev is one of the names, joined

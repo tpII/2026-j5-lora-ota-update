@@ -468,6 +468,8 @@ constexpr bool isKnownBoardModel(uint8_t code) {
 
 constexpr size_t MAXIMUM_ADDITIONAL_TRANSMIT_POWERS = 1;
 constexpr size_t MAXIMUM_FRONT_END_GAIN_STEPS = 3;
+// The pins that PINM, PINR and PINW name, from 0, the same number on every board model.
+constexpr size_t VM_PIN_COUNT = 3;
 
 // Gain of the front end between the transceiver and the antenna connector, for a range of antenna
 // power.
@@ -477,7 +479,7 @@ struct FrontEndGainStep {
   int8_t gainDb;
 };
 
-// What sets one board model apart for the radio settings.
+// What sets one board model apart for the radio settings and for the VM.
 struct BoardModelDescription {
   BoardModel model;
   // Transmit power at the antenna connector: the continuous range and the values accepted
@@ -491,12 +493,22 @@ struct BoardModelDescription {
   // In ascending order of antenna power, one for each reachable power.
   uint8_t frontEndGainStepCount;
   FrontEndGainStep frontEndGainSteps[MAXIMUM_FRONT_END_GAIN_STEPS];
+  // GPIO of each pin of the VM, by its number: none that the board uses.
+  uint8_t vmPins[VM_PIN_COUNT];
 };
 
 // Every board model, in the order of the enumerators.
 constexpr BoardModelDescription BOARD_MODEL_DESCRIPTIONS[] = {
-    {BoardModel::HeltecV2, 2, 17, 1, {20}, false, 1, {{2, 20, 0}}},
-    {BoardModel::HeltecV43, 4, 28, 0, {}, true, 3, {{4, 26, 13}, {27, 27, 12}, {28, 28, 11}}},
+    {BoardModel::HeltecV2, 2, 17, 1, {20}, false, 1, {{2, 20, 0}}, {25, 22, 23}},
+    {BoardModel::HeltecV43,
+     4,
+     28,
+     0,
+     {},
+     true,
+     3,
+     {{4, 26, 13}, {27, 27, 12}, {28, 28, 11}},
+     {35, 47, 48}},
 };
 
 // The row of the model, or the first row for a value outside the enumeration.
@@ -748,7 +760,8 @@ constexpr uint32_t VM_MINIMUM_PRINT_INTERVAL_MS = 100;
 constexpr uint8_t RETURN_STACK_DEPTH = 8;
 
 // Group 0x0n holds the configuration instructions and SLEEP, 0x1n the arithmetic ones, 0x2n the
-// logic ones and 0x3n the control ones. In groups 0x1n and 0x2n an even opcode takes a 32-bit
+// logic ones, 0x3n the control ones and 0x4n the input and output ones, on the pins of the VM,
+// which each board connects to its GPIO. In groups 0x1n and 0x2n an even opcode takes a 32-bit
 // immediate and the next odd one a source register. Jumps and calls take an absolute 16-bit
 // address.
 enum class Opcode : uint8_t {
@@ -783,6 +796,9 @@ enum class Opcode : uint8_t {
   JumpIfNegative = 0x33,
   Call = 0x34,
   Return = 0x35,
+  ConfigurePin = 0x40,
+  ReadPin = 0x41,
+  WritePin = 0x42,
 };
 
 // Operands of an instruction: none, one register, a register and an immediate, two registers, an
@@ -799,8 +815,8 @@ enum class OperandForm : uint8_t {
 
 // What an instruction does: stop the program, print a register, write its first register, write it
 // after a division, which faults on a zero divisor, wait, jump, jump when a register meets the
-// condition of the opcode, call a subroutine or return from it. Each effect admits the operand
-// forms of the contract that give it the operands it reads.
+// condition of the opcode, call a subroutine or return from it, and configure, read or write a GPIO
+// pin. Each effect admits the operand forms of the contract that give it the operands it reads.
 enum class InstructionEffect : uint8_t {
   Halt,
   Print,
@@ -811,6 +827,9 @@ enum class InstructionEffect : uint8_t {
   Branch,
   Call,
   Return,
+  PinMode,
+  PinRead,
+  PinWrite,
 };
 
 // Length in bytes of an instruction of the form, opcode included.
@@ -873,6 +892,9 @@ constexpr InstructionEncoding INSTRUCTION_ENCODINGS[] = {
     {Opcode::JumpIfNegative, OperandForm::RegisterAddress, InstructionEffect::Branch},
     {Opcode::Call, OperandForm::Address, InstructionEffect::Call},
     {Opcode::Return, OperandForm::None, InstructionEffect::Return},
+    {Opcode::ConfigurePin, OperandForm::RegisterRegister, InstructionEffect::PinMode},
+    {Opcode::ReadPin, OperandForm::RegisterRegister, InstructionEffect::PinRead},
+    {Opcode::WritePin, OperandForm::RegisterRegister, InstructionEffect::PinWrite},
 };
 
 // Fault that stops the program, with the names of the vm_fault event. The code travels in the byte
@@ -884,8 +906,10 @@ enum class VmFault : uint8_t {
   EndOfProgram = 2,
   StackOverflow = 3,
   StackUnderflow = 4,
+  InvalidPin = 5,
+  PinMode = 6,
 };
-constexpr size_t VM_FAULT_COUNT = 5;
+constexpr size_t VM_FAULT_COUNT = 7;
 
 // Name as the console writes it, or nullptr for a value outside the enumeration.
 constexpr const char *vmFaultName(VmFault fault) {
@@ -900,6 +924,10 @@ constexpr const char *vmFaultName(VmFault fault) {
     return "stack_overflow";
   case VmFault::StackUnderflow:
     return "stack_underflow";
+  case VmFault::InvalidPin:
+    return "invalid_pin";
+  case VmFault::PinMode:
+    return "pin_mode";
   }
   return nullptr;
 }

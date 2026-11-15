@@ -89,7 +89,7 @@ El cuerpo ocupa 15 bytes más 4 por vecino. El byte `vm` resume las fallas de la
 
 | Bits | Descripción |
 |---|---|
-| 0 a 2 | Motivo de la última falla: `0` ninguna, `1` `division_by_zero`, `2` `end_of_program`, `3` `stack_overflow` y `4` `stack_underflow` ([la VM](virtual-machine.md)) |
+| 0 a 2 | Motivo de la última falla: `0` ninguna, `1` `division_by_zero`, `2` `end_of_program`, `3` `stack_overflow`, `4` `stack_underflow`, `5` `invalid_pin` y `6` `pin_mode` ([la VM](virtual-machine.md)) |
 | 3 | `1` si el programa falló desde el HELLO anterior; el nodo lo pone en `0` después de armar cada HELLO |
 | 4 a 7 | Reservados, en `0` |
 

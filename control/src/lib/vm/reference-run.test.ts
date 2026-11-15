@@ -112,6 +112,28 @@ describe("ReferenceRun", () => {
     expect(run.snapshot.machine).toMatchObject({ running: true, starts: 1 });
   });
 
+  it("reads what the circuit puts on an input of the VM, the same on every board", () => {
+    // LOAD R2, 1; PINM R1, R2; PINR R3, R2; PRINT R3; HALT.
+    const readPin = codeOf("020201000000" + "400102" + "410302" + "0103" + "00");
+    const run = new ReferenceRun();
+    run.setCircuitLevel(1, true);
+    run.step(readPin, REGISTERS, 0);
+    expect(run.snapshot.pins[1]).toMatchObject({
+      pin: 1,
+      gpio: { V2: 22, "V4.3": 47 },
+      circuitLevel: true,
+    });
+    run.start(readPin, REGISTERS, 0);
+    run.run(readPin, REGISTERS, 0);
+    expect(run.snapshot.prints.at(-1)?.value).toBe(1);
+    // Pin 0 is the white LED of both boards.
+    expect(run.snapshot.pins.map((pin) => pin.gpio)).toEqual([
+      { V2: 25, "V4.3": 35 },
+      { V2: 22, "V4.3": 47 },
+      { V2: 23, "V4.3": 48 },
+    ]);
+  });
+
   it("is not stale before the first run", () => {
     expect(isStaleRun(new ReferenceRun().snapshot, null)).toBe(false);
   });

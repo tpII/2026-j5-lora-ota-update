@@ -20,6 +20,7 @@ CONSOLE_LINES_FILE="${FIRMWARE_DIRECTORY}/protocol/test-vectors/firmware-console
 # Sources that need the ESP32 core, its libraries or the board, relative to src/.
 HARDWARE_SOURCES=(
   application/node_application.cpp
+  board/board_pin_port.cpp
   board/heltec_v2.cpp
   board/heltec_v4_3.cpp
   console/console.cpp

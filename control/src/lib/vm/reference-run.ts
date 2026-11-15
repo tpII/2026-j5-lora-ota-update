@@ -3,8 +3,9 @@
  * print when it runs the same program from the same registers. It runs as the node does, without
  * end and in blocks, with the wait that follows each PRINT, the waits of SLEEP and the restart from
  * address 0 after HALT or a fault, or one instruction at a time without waits. The caller gives the
- * time, so the run has no clock of its own. A change of program restarts the run, as a node does
- * when it activates an image.
+ * time, so the run has no clock of its own. The pins of the VM are the same on every board model,
+ * so the run needs no board; the operator sets what the circuit puts on each pin. A change of
+ * program restarts the run, as a node does when it activates an image.
  */
 import {
   VM_INSTRUCTIONS_PER_POLL,
@@ -12,6 +13,7 @@ import {
   VM_RESTART_DELAY_MILLISECONDS,
 } from "$lib/protocol/protocol-contract.ts";
 import { formatHex } from "$lib/utils/hex.ts";
+import { SimulatedPinBank, type PinState } from "./simulated-pins.ts";
 import {
   VirtualMachine,
   advance,
@@ -51,6 +53,8 @@ export interface ReferenceFault {
 export interface ReferenceRunSnapshot {
   /** The program loaded, as the hexadecimal text of its code; null before the first run. */
   readonly loadedProgram: string | null;
+  /** Every pin of the VM, with how the program configured it and its levels. */
+  readonly pins: readonly PinState[];
   /** The machine after the last action; null before the first run. */
   readonly machine: ReferenceMachineState | null;
   /** Outputs in the order they happened, at most MAXIMUM_RECORDED_PRINTS. */
@@ -75,6 +79,7 @@ export function isStaleRun(snapshot: ReferenceRunSnapshot, code: Uint8Array | nu
 
 const EMPTY_SNAPSHOT: ReferenceRunSnapshot = {
   loadedProgram: null,
+  pins: [],
   machine: null,
   prints: [],
   lastFault: null,
@@ -83,8 +88,11 @@ const EMPTY_SNAPSHOT: ReferenceRunSnapshot = {
 };
 
 export class ReferenceRun {
-  #machine = new VirtualMachine();
-  #snapshot: ReferenceRunSnapshot = EMPTY_SNAPSHOT;
+  #pins = new SimulatedPinBank();
+  #machine = new VirtualMachine(this.#pins);
+  /** What the circuit puts on each pin of the VM, kept across resets. */
+  readonly #circuitLevels = new Map<number, boolean>();
+  #snapshot: ReferenceRunSnapshot = { ...EMPTY_SNAPSHOT, pins: this.#pins.states };
 
   get snapshot(): ReferenceRunSnapshot {
     return this.#snapshot;
@@ -92,11 +100,19 @@ export class ReferenceRun {
 
   /** Loads `code` and the initial `registers` and forgets the outputs and the last fault. */
   reset(code: Uint8Array, registers: readonly number[]): void {
-    this.#machine = new VirtualMachine();
+    this.#pins = new SimulatedPinBank(this.#circuitLevels);
+    this.#machine = new VirtualMachine(this.#pins);
     this.#machine.load(code);
     this.#machine.setRegisters(registers);
     this.#snapshot = { ...EMPTY_SNAPSHOT, loadedProgram: formatHex(code) };
     this.#record([], null, 0);
+  }
+
+  /** Sets what the circuit puts on a pin of the VM; PINR reads it on an input. */
+  setCircuitLevel(pin: number, high: boolean): void {
+    this.#circuitLevels.set(pin, high);
+    this.#pins.setCircuitLevel(pin, high);
+    this.#record([], this.#snapshot.stopCause, this.#snapshot.resumeAt);
   }
 
   /**
@@ -175,6 +191,7 @@ export class ReferenceRun {
     const machine = this.#machine;
     this.#snapshot = {
       loadedProgram: this.#snapshot.loadedProgram,
+      pins: this.#pins.states,
       machine: {
         registers: machine.registers,
         programCounter: machine.programCounter,

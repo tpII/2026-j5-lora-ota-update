@@ -295,7 +295,20 @@ function describeContract(contract) {
       );
       ensure(steps.length === 1, `${board.name} needs exactly one gain step for ${dbm} dBm`);
     }
+    // The GPIO of the ESP32 and the ESP32-S3 go from 0 to 48.
+    ensure(
+      board.vmPins.length > 0 &&
+        new Set(board.vmPins).size === board.vmPins.length &&
+        board.vmPins.every((pin) => Number.isInteger(pin) && pin >= 0 && pin <= 48),
+      `${board.name} needs distinct VM pins from GPIO 0 to 48`,
+    );
   }
+  // A program names its pins by their position in the list, the same on every board model, so
+  // every model needs as many pins as the others.
+  ensure(
+    boardModels.every((board) => board.vmPins.length === boardModels[0].vmPins.length),
+    "every board model needs the same number of VM pins",
+  );
 
   ensure(
     typeof timings.neighborExpiry.expiresAtBoundary === "boolean",
@@ -734,9 +747,9 @@ function describeContract(contract) {
     noNames: true,
     comment:
       "Group 0x0n holds the configuration instructions and SLEEP, 0x1n the arithmetic ones, 0x2n the " +
-      "logic ones and 0x3n the control ones. In groups 0x1n and 0x2n an even opcode takes a 32-bit " +
-      "immediate and the next odd one a source register. Jumps and calls take an absolute 16-bit " +
-      "address.",
+      "logic ones, 0x3n the control ones and 0x4n the input and output ones, on the pins of the VM, " +
+      "which each board connects to its GPIO. In groups 0x1n and 0x2n an even opcode takes a 32-bit immediate and the next odd " +
+      "one a source register. Jumps and calls take an absolute 16-bit address.",
     entries: vm.instructions.map((instruction) => ({
       identifier: instruction.identifier,
       name: instruction.mnemonic,
@@ -766,8 +779,9 @@ function describeContract(contract) {
     comment:
       "What an instruction does: stop the program, print a register, write its first register, " +
       "write it after a division, which faults on a zero divisor, wait, jump, jump when a register " +
-      "meets the condition of the opcode, call a subroutine or return from it. Each effect admits " +
-      "the operand forms of the contract that give it the operands it reads.",
+      "meets the condition of the opcode, call a subroutine or return from it, and configure, read " +
+      "or write a GPIO pin. Each effect admits the operand forms of the contract that give it the " +
+      "operands it reads.",
     entries: vm.instructionEffects.map((effect, index) => ({
       identifier: upperCamelCase(effect.name),
       name: effect.name,
@@ -1139,6 +1153,8 @@ function cppBoardTable(boardModels) {
   lines.push(
     `constexpr size_t MAXIMUM_ADDITIONAL_TRANSMIT_POWERS = ${maximumAdditional};`,
     `constexpr size_t MAXIMUM_FRONT_END_GAIN_STEPS = ${maximumSteps};`,
+    "// The pins that PINM, PINR and PINW name, from 0, the same number on every board model.",
+    `constexpr size_t VM_PIN_COUNT = ${boardModels[0].vmPins.length};`,
     "",
     "// Gain of the front end between the transceiver and the antenna connector, for a range of antenna",
     "// power.",
@@ -1148,7 +1164,7 @@ function cppBoardTable(boardModels) {
     "  int8_t gainDb;",
     "};",
     "",
-    "// What sets one board model apart for the radio settings.",
+    "// What sets one board model apart for the radio settings and for the VM.",
     "struct BoardModelDescription {",
     "  BoardModel model;",
     "  // Transmit power at the antenna connector: the continuous range and the values accepted",
@@ -1162,6 +1178,8 @@ function cppBoardTable(boardModels) {
     "  // In ascending order of antenna power, one for each reachable power.",
     "  uint8_t frontEndGainStepCount;",
     "  FrontEndGainStep frontEndGainSteps[MAXIMUM_FRONT_END_GAIN_STEPS];",
+    "  // GPIO of each pin of the VM, by its number: none that the board uses.",
+    "  uint8_t vmPins[VM_PIN_COUNT];",
     "};",
     "",
     "// Every board model, in the order of the enumerators.",
@@ -1181,6 +1199,7 @@ function cppBoardTable(boardModels) {
       board.hasLowNoiseAmplifier,
       steps.length,
       `{${steps.join(", ")}}`,
+      `{${board.vmPins.join(", ")}}`,
     ];
     lines.push(`    {${fields.join(", ")}},`);
   }
@@ -1235,6 +1254,19 @@ function cppBoardTable(boardModels) {
 
 function tsBoardTables(boardModels, anyModelPower) {
   const lines = [];
+  lines.push(
+    "/** The pins that PINM, PINR and PINW name, from 0, the same number on every board model. */",
+    `export const VM_PIN_COUNT = ${boardModels[0].vmPins.length};`,
+    "",
+    "/** GPIO of each pin of the VM on each board model, by the number of the pin. */",
+    ...tsJoin(
+      "export const VM_PINS = ",
+      "object",
+      boardModels.map((board) => `${tsKey(board.name)}: [${board.vmPins.join(", ")}]`),
+      " as const;",
+    ),
+    "",
+  );
   lines.push(
     "/** Transmit power at the antenna connector, in dBm, that each board model delivers. */",
     "export const TRANSMIT_POWER_RANGES = {",
@@ -2299,15 +2331,37 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
     1,
     ...virtualMachine.runs.map((run) => (run.expected.sleeps ?? []).length),
   );
+  const maximumPinLevels = Math.max(
+    1,
+    ...virtualMachine.runs.flatMap((run) => [
+      Object.keys(run.pinLevels ?? {}).length,
+      Object.keys(run.expected.pinOutputs ?? {}).length,
+    ]),
+  );
+  // The levels of a vector, by the number of the pin of the VM.
+  const vmPinCount = contract.boardModels[0].vmPins.length;
+  const pinLevels = (run, levels) =>
+    Object.entries(levels ?? {}).map(([pin, level]) => {
+      ensureVector(
+        /^\d+$/.test(pin) && Number(pin) < vmPinCount,
+        TEST_VECTOR_PATHS.virtualMachine,
+        `${run.name} names a pin outside the VM`,
+      );
+      return `{${Number(pin)}, ${level !== 0}}`;
+    });
   const runs = virtualMachine.runs.map((run) => {
     const prints = run.expected.prints.map(
       (print) => `{${print.register}, ${cppInteger32(print.value)}}`,
     );
     const registers = (values) => `{${values.map(cppInteger32).join(", ")}}`;
     const sleeps = (run.expected.sleeps ?? []).map((milliseconds) => `${milliseconds}U`);
+    const levels = pinLevels(run, run.pinLevels);
+    const outputs = pinLevels(run, run.expected.pinOutputs);
     const fields = [
       JSON.stringify(run.name),
       JSON.stringify(run.program),
+      String(levels.length),
+      `{${levels.join(", ")}}`,
       registers(run.registers),
       String(run.maximumInstructions ?? defaultLimit),
       String(run.starts),
@@ -2321,6 +2375,8 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
       String(run.expected.faultAddress ?? 0),
       String(run.expected.startCount),
       String(run.expected.stackDepth ?? 0),
+      String(outputs.length),
+      `{${outputs.join(", ")}}`,
     ];
     return ["    {", ...fields.map((field) => `        ${field},`), "    },"].join("\n");
   });
@@ -2330,20 +2386,30 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
         `Programs run on the virtual machine (${TEST_VECTOR_PATHS.virtualMachine}). Each run loads the ` +
           "program, sets the registers and starts it the given number of times; each start runs to " +
           "HALT, to a fault or to the instruction limit of the vector. The prints and the waits of " +
-          "SLEEP are kept in order.",
+          "SLEEP are kept in order. The pins of the VM read the levels of the vector, low when it " +
+          "gives none, and the outputs are the levels the program leaves on its output pins. The " +
+          "pins are those of the VM, from 0, and each run gives the same result on every board model.",
       ),
       `constexpr size_t VECTOR_REGISTER_COUNT = ${registerCount};`,
       `constexpr size_t MAXIMUM_VECTOR_PRINTS = ${maximumPrints};`,
       `constexpr size_t MAXIMUM_VECTOR_SLEEPS = ${maximumSleeps};`,
+      `constexpr size_t MAXIMUM_VECTOR_PIN_LEVELS = ${maximumPinLevels};`,
       "",
       "struct PrintVector {",
       "  uint8_t registerNumber; // 1 to 4",
       "  int32_t value;",
       "};",
       "",
+      "struct PinLevelVector {",
+      "  uint8_t pin; // of the VM, from 0",
+      "  bool high;",
+      "};",
+      "",
       "struct VirtualMachineRunVector {",
       "  const char *name;",
       "  const char *program;",
+      "  size_t pinLevelCount;",
+      "  PinLevelVector pinLevels[MAXIMUM_VECTOR_PIN_LEVELS]; // what the circuit puts on the pins",
       "  int32_t registers[VECTOR_REGISTER_COUNT];",
       "  uint32_t maximumInstructions; // of each start, so that a program without end stops",
       "  uint32_t starts;",
@@ -2357,6 +2423,8 @@ function generateTestVectorHeader(vectors, contract, signingKey) {
       "  uint16_t faultAddress;",
       "  uint32_t startCount;",
       "  uint8_t stackDepth;",
+      "  size_t pinOutputCount;",
+      "  PinLevelVector pinOutputs[MAXIMUM_VECTOR_PIN_LEVELS]; // levels of the output pins at the end",
       "};",
       "",
       "constexpr VirtualMachineRunVector VIRTUAL_MACHINE_RUN_VECTORS[] = {",

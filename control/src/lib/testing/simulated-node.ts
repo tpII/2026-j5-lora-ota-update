@@ -109,6 +109,7 @@ import {
 import { computeFrameLength, computeTimeOnAirMicroseconds } from "$lib/radio/time-on-air.ts";
 import { type TimeSource } from "$lib/utils/time-source.ts";
 import { formatPrintLine } from "$lib/vm/instruction-set.ts";
+import { SimulatedPinBank } from "$lib/vm/simulated-pins.ts";
 import { VirtualMachine, advance, type VmFault } from "$lib/vm/virtual-machine.ts";
 import { verifyImage } from "./image-verification.ts";
 import { ManualTimeSource } from "./manual-time-source.ts";
@@ -626,7 +627,9 @@ export class SimulatedNode implements NodePort {
   #currentBurst: Burst | null = null;
   #imageReception: ImageReception | null = null;
   readonly #fragmentDeliveries = new Map<string, number>();
-  readonly #machine = new VirtualMachine();
+  /** Its GPIO pins read low unless a test sets what the circuit puts on them. */
+  readonly pins: SimulatedPinBank;
+  readonly #machine: VirtualMachine;
   #program: Uint8Array = new Uint8Array(0);
   #faultSinceActivation: VmFault | null = null;
   /** Bit 3 of the vm byte: the program faulted since the previous HELLO. */
@@ -642,6 +645,8 @@ export class SimulatedNode implements NodePort {
   ) {
     this.identifier = identifier;
     this.model = model;
+    this.pins = new SimulatedPinBank();
+    this.#machine = new VirtualMachine(this.pins);
     this.#timeSource = timeSource;
     this.behavior = behavior;
     this.network = network;

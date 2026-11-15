@@ -279,7 +279,7 @@ Cuando una falla detiene el programa, que vuelve a empezar a los 10 s.
 |---|---|
 | `starts` | Arranque del programa que terminó en la falla, contado desde la activación |
 | `pc` | Dirección de la instrucción que falló |
-| `reason` | `"division_by_zero"`, `"end_of_program"`, `"stack_overflow"` o `"stack_underflow"` |
+| `reason` | `"division_by_zero"`, `"end_of_program"`, `"stack_overflow"`, `"stack_underflow"`, `"invalid_pin"` o `"pin_mode"` |
 
 ### `transfer`
 
